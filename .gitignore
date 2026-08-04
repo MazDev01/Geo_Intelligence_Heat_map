@@ -1,0 +1,18 @@
+# สำเนาเก่า/สำรองของแอป (ไม่ต้อง deploy — ไฟล์ยังอยู่ในเครื่อง)
+geo-intel/
+
+# dependencies / build
+node_modules/
+dist/
+
+# logs & temp
+*.log
+.cache/
+tmp/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+desktop.ini
+.vscode/
+.idea/

@@ -1,0 +1,15 @@
+[
+  {
+    "country": "Thailand",
+    "center": [
+      13,
+      101
+    ],
+    "customerCount": 393,
+    "prospectCount": 1400,
+    "coverage": 22,
+    "opportunityScore": 50,
+    "salesTotal": 307051000,
+    "hasProvinces": true
+  }
+]

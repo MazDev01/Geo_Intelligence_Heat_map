@@ -1,0 +1,489 @@
+import {html, useRef, useEffect, segTH, provinceTH, segIconSVG, STATUS_COLOR} from "./lib.js";
+import {custPass, prosPass} from "./data.js";
+
+// อ้าง window.L แบบปลอดภัย — เผื่อถูก import ฝั่ง Node (ทดสอบ SSR/พาร์ส) ที่ไม่มี window
+// พฤติกรรมในเบราว์เซอร์เหมือนเดิมทุกประการ (ยังเท่ากับ window.L เสมอเมื่อรันจริง)
+const L = (typeof window !== "undefined") ? window.L : undefined;
+const TH_BOUNDS = [[5.6,97.3],[20.7,105.7]];   // whole-Thailand framing bounds (overview view)
+
+// opportunity/count -> heat color
+function rampColor(t){ // 0 blue -> 1 red
+  const stops=[[0,[43,111,255]],[.4,[37,208,224]],[.65,[255,176,46]],[1,[255,59,30]]];
+  for(let i=0;i<stops.length-1;i++){ const [a,ca]=stops[i],[b,cb]=stops[i+1];
+    if(t>=a&&t<=b){ const k=(t-a)/(b-a); return `rgb(${ca.map((v,j)=>Math.round(v+(cb[j]-v)*k)).join(",")})`; } }
+  return "rgb(255,59,30)";
+}
+
+// ── โหมดแสดงผลตามระดับซูม (Progressive Disclosure) — เปิดเมื่อ layers.zoomModes=true (เฉพาะแผนที่หลัก) ──
+// ค่าคงที่เป็น zoom ระดับสัมบูรณ์ จึงสม่ำเสมอทุกจังหวัด (จังหวัดเล็ก/ใหญ่ใช้เกณฑ์เดียวกัน)
+const ZOOM_HEAT_MAX   = 10;   // zoom < 10  → Heat Map (มุมมองทั้งจังหวัด)
+const ZOOM_CLUSTER_MAX= 12;   // 10 ≤ zoom < 12 → Marker Clustering ; zoom ≥ 12 → หมุดเดี่ยว
+// รัศมี/ทึบแสงของ Heat Map — ย้ายจาก slider ในแผงเลเยอร์มาเป็นค่าคงที่ (Heat เป็นอัตโนมัติตามซูมแล้ว ผู้ใช้ไม่ต้องปรับ)
+const HEAT_RADIUS = 18;
+const HEAT_OPACITY = 80;   // เปอร์เซ็นต์
+// ── Kernel Density Estimation (KDE) แบบอิงรัศมีเชิงภูมิศาสตร์ (เมตร) — ใช้ในแผนที่สรุปหน้ารายงาน (layers.kde=true) ──
+// รัศมีเป็นเมตรจริง ไม่ใช่พิกเซลคงที่ → ที่ซูมกว้าง วงจะเล็กมาก พื้นที่ว่างจึงไม่มีสี (กัน False Point Artifacts)
+const KDE_METERS = 800;   // แบนด์วิดท์ ~800 เมตร (อยู่ในช่วง 500ม.–1กม. ที่กำหนด)
+// แปลงเมตร → พิกเซล ที่ระดับซูม/ละติจูดหนึ่งๆ (ตามสูตร Web Mercator) แล้วหนีบไว้ 2–40px
+function kdeRadiusPx(map){
+  const lat=map.getCenter().lat, z=map.getZoom();
+  const mpp = 40075016.686 * Math.cos(lat*Math.PI/180) / Math.pow(2, z+8);   // เมตรต่อพิกเซล
+  return Math.max(2, Math.min(40, Math.round(KDE_METERS/mpp)));
+}
+// แปลงระดับซูมเป็นชื่อโหมด
+function zoomModeOf(z){ return z < ZOOM_HEAT_MAX ? "heat" : z < ZOOM_CLUSTER_MAX ? "cluster" : "marker"; }
+
+export function LeafletMap({db, filters, layers, country="Thailand", onPickArea, onPickCustomer, onMapMode, focusProvince, highlight, focusPoint, plan, route, office, planRoutes, clusters, territories, dark, lockProvince}){
+  const ref = useRef();
+  const M = useRef({});
+
+  // init once
+  useEffect(()=>{
+    const map = L.map(ref.current, {zoomControl:true, attributionControl:true, preferCanvas:true})
+      .setView(country==="Thailand"?[13.2,101]:[13,101], country==="Thailand"?6:5);
+    // OpenStreetMap standard tiles — unlike CARTO Voyager (English-only labels) these render place/road names
+    // in the local language from OSM's own data, so Thai names show for Thailand.
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",{
+      subdomains:"abc", maxZoom:19,
+      attribution:'&copy; OpenStreetMap contributors'}).addTo(map);
+    M.current.map = map; M.current.alive = true;
+    M.current.provinceLayer = L.geoJSON(null).addTo(map);
+    M.current.heat = null; M.current.cluster = null;
+    // VIEWPORT rendering: re-render only visible markers after a pan/zoom settles (§9, debounced)
+    // call the CURRENT buildMarkers (via ref) — not the one captured at init — so a pan/zoom
+    // after a layer toggle (e.g. clustering off) or a LOD form switch uses fresh state.
+    map.on("moveend", ()=>{ clearTimeout(M.current.mt); M.current.mt=setTimeout(()=>{ if(M.current.build) M.current.build(); }, 80); });   // 80ms: marker ปรับขนาดทันหลังซูม/เลื่อนทุกครั้ง (moveend ยิงหลัง zoom ด้วย)
+    // ดับเบิลคลิก (ระดับแผนที่ ยิงชัวร์เสมอ) → ยกเลิกการเปิดแผงวิเคราะห์พื้นที่ที่ค้างจากคลิกเดียว แล้วปล่อยให้ doubleClickZoom ซูมเข้าตามปกติ
+    map.on("dblclick", ()=>{ if(M.current.areaCT){ clearTimeout(M.current.areaCT); M.current.areaCT=null; } });
+    setTimeout(()=>{ if(!M.current.alive) return; map.invalidateSize();
+      // frame the whole country so it is centred and fully visible (~75% of the viewport) — BUT only when no
+      // province is selected. If we mount already scoped to a province (post-login picker → fly to province),
+      // this whole-country fitBounds would clobber the province zoom, so let the province-view effect frame it.
+      const sel = filters.province && filters.province!=="All";
+      if(country==="Thailand" && !sel) map.fitBounds(L.latLngBounds(TH_BOUNDS), {padding:[28,28]});
+    }, 80);
+    buildBase();
+    return ()=>{ M.current.alive = false; clearTimeout(M.current.mt); map.remove(); };
+  },[]);
+
+  // Rebuild province + heat when filters/layers change OR when a data stage streams in
+  // (aggregates → province outlines → customer detail). Skip first run — init already built.
+  const firstRun = useRef(true);
+  useEffect(()=>{ if(firstRun.current){ firstRun.current=false; return; } if(M.current.alive) buildBase(); },
+    [filters, layers, db.customers, db.provincesGeo, db.areas]);
+
+  // Province filter drives the map view BOTH ways from one place: a specific province flies
+  // INTO it; "ทั้งหมด" (All) flies back OUT to the whole country. Keeping both directions in a
+  // single effect (keyed on the actual filter value) prevents the zoom-in/zoom-out asymmetry.
+  const firstView = useRef(true);
+  useEffect(()=>{
+    const m=M.current; if(!m.alive||!m.map) return;
+    clearTimeout(m._provRetry);   // cancel a pending fly from a previous province selection
+    const toAll = !filters.province || filters.province==="All";
+    if(firstView.current){ firstView.current=false; if(toAll) return; }   // init already frames the country
+    if(toAll){
+      m.map.flyToBounds(L.latLngBounds(TH_BOUNDS), {padding:[28,28], duration:0.8});
+    } else {
+      // Fly to the province's outline bounds. The outline may not exist yet (the ~1.19MB geojson can still be
+      // streaming, or buildBase deferred until the map is sized), so poll briefly until provFeatures has it —
+      // otherwise selecting a province right after the globe fly-in would silently not zoom.
+      let tries=0;
+      const flyProv=()=>{ if(!m.alive||!m.map) return;
+        const f=m.provFeatures && m.provFeatures[filters.province];
+        if(f){ m.map.flyToBounds(f.getBounds(), {padding:[40,40], duration:0.8, maxZoom:LOD_ZOOM}); }
+        else if(tries++ < 25){ m._provRetry=setTimeout(flyProv, 150); } };   // up to ~3.75s
+      flyProv();
+    }
+    // db.provincesGeo is in the deps so a province selected BEFORE the geojson loaded also re-runs on arrival.
+  },[filters.province, db.provincesGeo]);
+
+  // ── ล็อกแผนที่ให้ TC อยู่เฉพาะจังหวัดที่รับผิดชอบ (maxBounds + minZoom) — มองข้าม/เลื่อนไปจังหวัดอื่นไม่ได้ ──
+  useEffect(()=>{
+    const m=M.current; if(!m.alive||!m.map) return; const map=m.map;
+    if(!lockProvince){ map.setMaxBounds(null); map.setMinZoom(0); return; }
+    let tries=0;
+    const apply=()=>{ if(!m.alive||!map) return;
+      const f=m.provFeatures && m.provFeatures[lockProvince];
+      if(!f){ if(tries++<25) setTimeout(apply,150); return; }
+      const raw=f.getBounds();
+      map.setMaxBounds(raw.pad(0.12));                        // buffer ~12% รอบขอบจังหวัด
+      map.options.maxBoundsViscosity=1.0;                    // ดีดกลับเข้าเขตทันที ลากออกไม่ได้
+      const mz=map.getBoundsZoom(raw);                        // ระดับซูมที่จังหวัดเต็มจอ = ซูมออกไกลสุด
+      map.setMinZoom(mz);                                     // ซูมออกให้เห็นทั้งประเทศไม่ได้
+      if(map.getZoom()<mz) map.setZoom(mz);
+    };
+    apply();
+  },[lockProvince, db.provincesGeo]);
+
+  useEffect(()=>{ // product tour: fly to a point/zoom so markers or clusters become visible
+    const m=M.current; if(!m.alive||!m.map||!focusPoint) return;
+    m.map.flyTo([focusPoint.lat,focusPoint.lng], focusPoint.zoom||12, {duration:0.7});
+  },[focusPoint&&focusPoint.seq]);
+
+  // Customer Visit Planning: highlight selected customers, and draw the suggested visit route
+  // (line + numbered ①②③ sequence markers) once it has been calculated. Non-interactive overlay.
+  useEffect(()=>{
+    const m=M.current; if(!m.alive||!m.map) return;
+    if(m.planLayer){ m.map.removeLayer(m.planLayer); m.planLayer=null; }
+    const sel=plan||[];
+    if(layers.route===false || (!sel.length && !route)) return;   // ปิดเลเยอร์ "เส้นทางดำเนินการ" → ซ่อน overlay แผนที่กำลังแก้ไข
+    const grp=L.layerGroup();
+    sel.forEach(c=>L.marker([c.latitude,c.longitude],{interactive:false,zIndexOffset:900,
+      icon:L.divIcon({className:"",iconSize:[42,42],iconAnchor:[21,21],html:'<div class="plan-ring"></div>'})}).addTo(grp));
+    if(route && route.order && route.order.length){
+      const o=office||{latitude:13.7563,longitude:100.5018};
+      const pts=[[o.latitude,o.longitude],...route.order.map(s=>[s.latitude,s.longitude])];
+      L.polyline(pts,{color:"#38bdf8",weight:3,opacity:.92}).addTo(grp);
+      L.marker(pts[0],{interactive:false,zIndexOffset:1000,
+        icon:L.divIcon({className:"",iconSize:[30,30],iconAnchor:[15,15],html:'<div class="plan-office"><span>⌂</span></div>'})}).addTo(grp);
+      route.order.forEach((s,i)=>L.marker([s.latitude,s.longitude],{interactive:false,zIndexOffset:1000,
+        icon:L.divIcon({className:"",iconSize:[30,30],iconAnchor:[15,15],html:`<div class="plan-num">${i+1}</div>`})}).addTo(grp));
+      m.map.flyToBounds(L.latLngBounds(pts).pad(0.28),{duration:0.7});
+    }
+    grp.addTo(m.map); m.planLayer=grp;
+  },[plan, route, office, layers.route]);
+
+  // ── เลเยอร์ "เส้นทางดำเนินการ" — เส้นเชื่อมเส้นทางของแผนอื่นๆ ที่ TC บันทึกไว้ในระบบ (เปิด/ปิดด้วย layers.route) ──
+  const ROUTE_COLORS = ["#8a7bff","#33d69f","#ffb02e","#ff7a2e","#f472b6","#ff5a5a"];
+  useEffect(()=>{
+    const m=M.current; if(!m.alive||!m.map) return;
+    if(m.routesLayer){ m.map.removeLayer(m.routesLayer); m.routesLayer=null; }
+    if(layers.route===false || !planRoutes || !planRoutes.length) return;
+    const grp=L.layerGroup();
+    planRoutes.forEach((pr,gi)=>{ const col=ROUTE_COLORS[gi%ROUTE_COLORS.length];
+      if(pr.pts && pr.pts.length>1){
+        L.polyline(pr.pts,{color:col,weight:2.5,opacity:.85,dashArray:"6 5",interactive:true})
+          .addTo(grp).bindTooltip("แผน: "+(pr.name||""),{sticky:true,direction:"top",className:"gc-tt"});
+        // จุดสาขา (จุดเริ่มต้น) ของเส้นทางนี้
+        L.circleMarker(pr.pts[0],{radius:5,color:"#fff",weight:2,fillColor:"#111",fillOpacity:1,interactive:false}).addTo(grp);
+      }
+      (pr.stops||[]).forEach(s=>L.circleMarker([s.lat,s.lng],{radius:4,color:"#fff",weight:1.5,fillColor:col,fillOpacity:1,interactive:false}).addTo(grp));
+    });
+    grp.addTo(m.map); m.routesLayer=grp;
+  },[planRoutes, layers.route]);
+
+  useEffect(()=>{ // locate + pulse the selected customer marker on the SAME map
+    const m=M.current; if(!m.alive||!m.map) return;
+    if(m.hl){ m.map.removeLayer(m.hl); m.hl=null; }
+    if(highlight){
+      const icon=L.divIcon({className:"", iconSize:[48,48], iconAnchor:[24,24], html:'<div class="mk-pulse"></div>'});
+      m.hl=L.marker([highlight.latitude,highlight.longitude],{icon,zIndexOffset:1000,interactive:false}).addTo(m.map);
+      m.map.flyTo([highlight.latitude,highlight.longitude], Math.max(m.map.getZoom(),10), {duration:0.8});
+    }
+  },[highlight]);
+
+  // ── ชั้นขอบเขต Cluster (ใช้เฉพาะรายงานเชิงภูมิศาสตร์ — หน้าหลักไม่ส่ง prop นี้มา จึงไม่มีผล) ──
+  // วาดรูปหลายเหลี่ยม hull ของแต่ละกลุ่มด้วยสีต่างกัน + ป้ายรหัสกลุ่มที่จุดศูนย์กลาง
+  useEffect(()=>{
+    const m=M.current; if(!m.alive||!m.map) return;
+    if(m.clusterLayer){ m.map.removeLayer(m.clusterLayer); m.clusterLayer=null; }
+    if(!clusters || !clusters.length) return;
+    const grp=L.layerGroup();
+    const STY=cl=>({color:cl.color,weight:2,opacity:.9,fillColor:cl.color,fillOpacity:.18,interactive:false,dashArray:"5 5"});
+    clusters.forEach(cl=>{
+      // กลุ่มที่มี >=3 เขต → วาด convex hull polygon จริง · กลุ่ม 1-2 เขต → วาดวงกลม (วาด polygon ไม่ได้เพราะจุดน้อยเกินไป)
+      if((cl.memberCount||0) >= 3 && cl.hull && cl.hull.length>=3){
+        L.polygon(cl.hull, STY(cl)).addTo(grp);
+      } else if(cl.center){
+        // รัศมีวงกลม fallback อิงจากขนาด hull ที่ data.js คำนวณไว้ (ปรับสเกลตามจังหวัด) แปลงองศา→เมตร
+        const p0=cl.hull&&cl.hull[0]; let rM=6500;
+        if(p0){ const dLat=p0[0]-cl.center.lat, dLng=p0[1]-cl.center.lng; rM=Math.max(3000, Math.sqrt(dLat*dLat+dLng*dLng)*111000); }
+        L.circle([cl.center.lat,cl.center.lng], {radius:rM, ...STY(cl)}).addTo(grp);
+      }
+      if(cl.center) L.marker([cl.center.lat,cl.center.lng],{interactive:false,zIndexOffset:600,
+        icon:L.divIcon({className:"",iconSize:[26,26],iconAnchor:[13,13],
+          html:`<div style="width:26px;height:26px;border-radius:50%;display:grid;place-items:center;font:800 13px/1 var(--font);color:#fff;background:${cl.color};box-shadow:0 2px 8px rgba(0,0,0,.4);border:2px solid #fff">${cl.code}</div>`})}).addTo(grp);
+    });
+    grp.addTo(m.map); m.clusterLayer=grp;
+  },[clusters]);
+
+  // ── ชั้นเขตรับผิดชอบ TC (Territory Boundaries) — วาด convex hull ต่อ TC + ไฮไลต์พื้นที่ทับซ้อน ──
+  // reports.js เป็นผู้คำนวณ hull/overlap แล้วส่งมา (คำนวณจาก tc_owner จริง) · หน้าอื่นไม่ส่ง prop นี้จึงไม่มีผล
+  useEffect(()=>{
+    const m=M.current; if(!m.alive||!m.map) return;
+    if(m.terrLayer){ m.map.removeLayer(m.terrLayer); m.terrLayer=null; }
+    if(!territories || !territories.hulls || !territories.hulls.length) return;
+    const grp=L.layerGroup();
+    // ขอบเขตของแต่ละ TC — โปร่งแสง สีตาม TC
+    territories.hulls.forEach(t=>{ if(!t.latlngs||t.latlngs.length<3) return;
+      const poly=L.polygon(t.latlngs, {color:t.color,weight:2,opacity:.95,fillColor:t.color,fillOpacity:.14,dashArray:"6 5"});
+      poly.bindTooltip("เขตรับผิดชอบ: "+t.tc, {sticky:true, direction:"top", className:"gc-tt"});
+      poly.addTo(grp);
+    });
+    // พื้นที่ทับซ้อน — ไฮไลต์ต่างออกไป (แดงโปร่ง + ขอบขาวประ) พร้อม tooltip บอกว่า TC คนไหนซ้อนกัน
+    (territories.overlaps||[]).forEach(o=>{ if(!o.latlngs||o.latlngs.length<3) return;
+      const poly=L.polygon(o.latlngs, {color:"#ffffff",weight:1.5,opacity:.95,fillColor:"#ff2d55",fillOpacity:.42,dashArray:"3 3", className:"terr-overlap"});
+      poly.bindTooltip("พื้นที่ทับซ้อน: "+(o.tcs||[]).join(" ↔ "), {sticky:true, direction:"top", className:"gc-tt"});
+      poly.addTo(grp);
+    });
+    grp.addTo(m.map); m.terrLayer=grp;
+  },[territories]);
+
+  // province choropleth + CACHED heatmap — recomputed only when the filtered data changes, never on pan (§10)
+  function buildBase(){
+    const map=M.current.map;
+    if(!M.current.alive) return;
+    if(!ref.current || ref.current.clientHeight<10){ setTimeout(()=>{ if(M.current.alive) buildBase(); },120); return; }
+    const cs=db.customers.filter(c=>c.country===country && custPass(c,filters));
+    const ps=db.prospects.filter(p=>p.country===country && prosPass(p,filters));
+    M.current.cs=cs; M.current.ps=ps; M.current.op=layers.op||{};   // stash for viewport marker rendering + opacity
+    const opProv=((layers.op&&layers.op.province)??100)/100;
+
+    const cnt={}; [...cs,...ps].forEach(x=>{cnt[x.province]=(cnt[x.province]||0)+1;});
+    const maxc=Math.max(1,...Object.values(cnt));
+    // Per-province count for the hover TOOLTIP — must reflect the HOVERED province regardless of which
+    // province is currently selected. `cnt` above is filtered by filters.province, so once a province is
+    // selected every OTHER province's cnt is 0; recompute here ignoring the province filter (segment /
+    // status / score still apply, matching the no-selection case).
+    const tipF={...filters, province:"All"};
+    const cntTip={};
+    db.customers.forEach(c=>{ if(c.country===country && custPass(c,tipF)) cntTip[c.province]=(cntTip[c.province]||0)+1; });
+    db.prospects.forEach(p=>{ if(p.country===country && prosPass(p,tipF)) cntTip[p.province]=(cntTip[p.province]||0)+1; });
+
+    M.current.provinceLayer.clearLayers();
+    M.current.provFeatures={};
+    // Build the province OUTLINES whenever the geojson is available — INDEPENDENT of the choropleth toggle.
+    // provFeatures[name] is what the "fly to province" effect uses for zoom-to-bounds, so it must exist even
+    // when layers.province (the coloured fill) is OFF; otherwise selecting a province can't zoom to it.
+    // When the fill is off the polygons are drawn fully transparent + non-interactive, so the map looks and
+    // behaves exactly as before — the only difference is that the bounds are now available for zooming.
+    if(country==="Thailand" && db.provincesGeo){
+      const showFill = layers.province;   // toggle controls the choropleth COLOUR + hover only; provinces stay clickable either way
+      const selected = layers.province && filters.province && filters.province!=="All" ? filters.province : null;   // เด่น/หมองเฉพาะเมื่อเปิดสวิตช์ "พื้นที่จังหวัด" เท่านั้น
+      const gj=L.geoJSON(db.provincesGeo,{
+        interactive: true,   // ALWAYS clickable so a click opens the province AreaPanel even when the fill is hidden
+        // Selecting a province highlights it (white outline) and DIMS the others (dark fill) — works whether or not
+        // the choropleth fill is on. fillOpacity must stay a hair above 0 even on the "off" polygons: the canvas
+        // renderer (preferCanvas) won't hit-test a fully-transparent fill, so 0 = dead clicks.
+        style:f=>{
+          const t=(cnt[f.properties.name]||0)/maxc;
+          const isSelected = selected===f.properties.name;
+          const isDimmed = selected && !isSelected;
+          const baseFillOpacity = showFill ? (cnt[f.properties.name]?0.16+t*0.4:0.04)*opProv : 0;
+          if(isSelected) return {color:"#ffffff",weight:2.6,fillColor:rampColor(t),fillOpacity:Math.max(baseFillOpacity,0.22)};
+          if(isDimmed) return {color:"rgba(120,160,220,.12)",weight:1,fillColor:"#04121a",fillOpacity:0.45};
+          // no province selected: keep fill ≥0.01 so clicks still hit-test even when the choropleth is off
+          return {color: showFill?"rgba(120,160,220,.35)":"rgba(120,160,220,0)", weight: showFill?1:0,
+            fillColor:rampColor(t), fillOpacity: Math.max(baseFillOpacity, 0.01)}; },
+        onEachFeature:(f,lyr)=>{ const pname=f.properties.name; M.current.provFeatures[pname]=lyr;
+          // เฉพาะ 4 จังหวัดที่มีข้อมูล (areaByProvince) เท่านั้นที่เปิดแผงวิเคราะห์พื้นที่ได้ · นอกเหนือจากนี้ = แผนที่ธรรมดา (คลิกไม่มีผล)
+          const featured = !!(db.areaByProvince && db.areaByProvince[pname]);
+          // คลิกเดียว = เปิดแผงรายละเอียดเชิงพื้นที่ (หน่วง 260ms เพื่อแยกจากดับเบิลคลิก) · ดับเบิลคลิก = ซูมเข้า
+          // ตัวจับเวลาเก็บไว้ที่ M.current.areaCT แล้วให้ map "dblclick" (ยิงชัวร์กว่า layer dblclick บน canvas renderer) เป็นตัวยกเลิก
+          lyr.on("click",()=>{
+            if(!featured) return;                              // นอก 4 จังหวัด → ไม่เปิดแผงเลย (แผนที่ธรรมดา)
+            if(M.current.areaCT) clearTimeout(M.current.areaCT);
+            M.current.areaCT = setTimeout(()=>{ M.current.areaCT=null; onPickArea && onPickArea(pname); }, 260);
+          });
+          if(!showFill) return;   // tooltip + hover highlight only when the choropleth fill is visible
+          const a=db.areaByProvince[pname];
+          lyr.bindTooltip(`<div class="mk-tip"><b>${provinceTH(pname)}</b><br/>ลูกค้า: ${cntTip[pname]||0} · โอกาส ${a?a.opportunityScore:"-"}</div>`,{sticky:true});
+          lyr.on("mouseover",()=>lyr.setStyle({weight:2.4,color:"#38bdf8"}));
+          lyr.on("mouseout",()=>gj.resetStyle(lyr));
+        }});
+      gj.addTo(M.current.provinceLayer);
+    }
+
+    // heatmap — FINE (from customers) once detail has loaded, otherwise a COARSE aggregate
+    // from province centroids so the overview paints within ~3s while detail streams in.
+    const fine = cs.length>0;
+    const areasLen = (db.areas||[]).length;
+    // โหมดซูมอัตโนมัติ (แผนที่หลัก): สร้างเลเยอร์ heat ไว้เสมอ แล้วคุมการมองเห็นด้วยความทึบใน buildMarkers (fade ตามซูม)
+    // โหมดแมนนวล (แผนที่สรุปหน้ารายงาน): สร้าง heat ตาม layers.heat เหมือนเดิม
+    const wantHeat = layers.zoomModes ? true : !!layers.heat;
+    const kde = !!layers.kde;   // โหมด KDE (รัศมีเมตร) สำหรับแผนที่สรุปหน้ารายงาน
+    const kr = kde ? kdeRadiusPx(map) : 0;
+    // Heat ต้องเคารพสวิตช์เลเยอร์เฉพาะ "แผนที่หลัก" (zoomModes): ปิด "ลูกค้าปัจจุบัน"/"Lead" (หรือกรองเกรด) แล้ว
+    // จุดของกลุ่มนั้นต้องหายจาก heat ไปพร้อมกัน · ส่วนแผนที่สรุปหน้ารายงาน (manual/kde) ตั้ง existing/prospect=false
+    // เพื่อซ่อน "หมุด" แต่ heat ยังต้องรวมทุกจุด — จึงข้ามการกรองนี้
+    const autoHeat   = !!layers.zoomModes;
+    const showCsHeat = !autoHeat || layers.existing!==false;
+    const showPsHeat = !autoHeat || layers.prospect!==false;
+    const gradeOkHeat = x => !autoHeat || !layers.grades || layers.grades[x.grade]!==false;
+    const gradeSig = autoHeat && layers.grades ? Object.keys(layers.grades).filter(g=>layers.grades[g]===false).join("") : "";
+    const heatSig = wantHeat ? (fine?"f":"a")+"|"+cs.length+"|"+ps.length+"|"+areasLen+"|"+(kde?"kde":HEAT_RADIUS)+"|"+(filters.province||"All")+"|"+
+      (showCsHeat?"C":"")+(showPsHeat?"P":"")+"|"+gradeSig+"|"+
+      Object.keys(filters.segments).filter(k=>filters.segments[k]).join() : "off";
+    if(M.current.heatSig!==heatSig){
+      if(M.current.heat){ map.removeLayer(M.current.heat); M.current.heat=null; }
+      if(wantHeat){
+        const pts = fine
+          ? [ ...(showCsHeat?cs:[]), ...(showPsHeat?ps.filter(gradeOkHeat):[]) ].map(x=>[x.latitude,x.longitude,0.7])   // เฉพาะจุดของเลเยอร์ที่เปิดไว้
+          : (db.areas||[]).filter(a=>a.center).map(a=>[a.center[0],a.center[1], Math.min(1,((showCsHeat?a.customerCount:0)+(showPsHeat?a.prospectCount:0))/300)]).filter(p=>p[2]>0);
+        M.current.heat=L.heatLayer(pts,
+          // KDE: รัศมีเมตร(แปลงเป็นพิกเซลตามซูม) blur เล็กตามรัศมี · ปกติ: รัศมีพิกเซลคงที่แบบเดิม
+          // smaller radius/blur → the true point distribution shows through instead of blurring into a smooth
+          // symmetric blob; higher `max` spreads the ramp across density levels so only the densest cores go deep red.
+          {radius: kde?kr:(fine?HEAT_RADIUS:36), blur: kde?Math.max(2,Math.round(kr*0.6)):(fine?12:22), maxZoom:11, max: fine?12:1.1, minOpacity:0.2,
+           // full rainbow spectrum (Longdo Map style): blue → cyan → green → yellow → orange → red,
+           // ramping from low to high density.
+           gradient:{0.1:"#1a4bd8",0.25:"#1ec7e6",0.4:"#26e07a",0.55:"#c8e622",0.7:"#ffc233",0.85:"#ff6a1a",1:"#d81e1e"}}).addTo(map);
+        // leaflet.heat@0.2.0 hardcodes its canvas into overlayPane (ignores any `pane` option), so markers and
+        // choropleth share that pane with it. A NEGATIVE z-index forces the heat canvas into overlayPane's
+        // lowest paint layer, so the marker/choropleth canvas (z-index auto) always draws above it — a stable
+        // CSS guarantee instead of the DOM/paint order that used to flip on every pan/zoom.
+        if(M.current.heat._canvas){ const hc=M.current.heat._canvas; hc.style.pointerEvents="none"; hc.style.transition="opacity .25s ease"; hc.style.zIndex="-1"; }
+      }
+      M.current.heatSig=heatSig;
+    }
+    // ความทึบของ heat ถูกกำหนดใน buildMarkers (ตามโหมดซูมเมื่อ auto / ตาม layers.op เมื่อแมนนวล) เพื่อให้ fade ตอนสลับโหมดที่เดียว
+    buildMarkers();
+  }
+
+  // LEVEL-OF-DETAIL. Colour ALWAYS encodes customer STATUS (dark blue = existing, light blue = prospect).
+  //  • wide / dense view: each point is a tiny bare 6px STATUS-COLOURED DOT drawn on a single shared
+  //    CANVAS via L.circleMarker — NO stroke / border / shadow / DOM per point, so thousands of
+  //    overlapping points read as a light density scatter (see buildMarkers).
+  //  • province level AND not too dense: points get a full L.marker/divIcon status-coloured circle that
+  //    reveals the business-category icon in its centre (markerIcon below).
+  //  The dot→icon switch is gated on BOTH zoom (>= LOD_ZOOM) and viewport density (<= ICON_CAP, in
+  //  buildMarkers) — a zoom threshold alone can't stay smooth because heaviness tracks marker COUNT.
+  const LOD_ZOOM = 9;    // icons appear once a single PROVINCE fills the screen (~z9); country z5 stays tiny dots
+  function markerIcon(x, op, zoom, colorOverride){
+    const color = colorOverride || STATUS_COLOR[x.status] || "#1565C0";
+    // เริ่มต้นเท่าเส้นผ่านศูนย์กลางจริงของจุดกลม (circleMarker) ที่ zoom=LOD_ZOOM พอดี
+    // (dotRadius ที่ zoom=9 = 4.4 → เส้นผ่านศูนย์กลาง 8.8 ≈ 9) เพื่อสลับจากจุดกลมเป็นไอคอนแบบไร้รอยต่อ
+    // แล้วขยายต่อเนื่องเป็นเส้นตรงไปจนถึง 34px ที่ zoom 13
+    const size = Math.max(9, Math.min(34, 9 + ((zoom??LOD_ZOOM)-LOD_ZOOM)*(34-9)/(13-LOD_ZOOM)));
+    const glyphSize = Math.round(size*0.6);   // ไอคอนเส้นหมวดธุรกิจ (สีขาว) สัดส่วนตามวงกลมที่เล็ก/ใหญ่ขึ้น
+    const glyph = segIconSVG(x.segment, {size:glyphSize, color:"#fff", stroke:2.6});
+    return L.divIcon({className:"", iconSize:[size,size], iconAnchor:[size/2,size/2],
+      html:`<div class="geo-mk" style="background:${color};opacity:${op/100}">${glyph}</div>`});
+  }
+
+  // VIEWPORT marker rendering — render only what is on screen; cluster by PROXIMITY only
+  function buildMarkers(){
+    const map=M.current.map;
+    if(!M.current.alive || !map) return;
+    // ── โหมดแสดงผลตามระดับซูม (เฉพาะแผนที่หลักที่ส่ง layers.zoomModes) ──
+    // heat = ซูมออก · cluster = ซูมกลาง · marker = ซูมใกล้ · โหมดคิดจาก map.getZoom() เท่านั้น (ไม่พึ่ง hover/hit-test → ไม่เกิด feedback loop)
+    const auto = !!layers.zoomModes;
+    const mode = auto ? zoomModeOf(map.getZoom()) : null;
+    // ความทึบของ heat: fade เข้า/ออกด้วย CSS transition (.25s) ที่ตั้งไว้ตอนสร้าง — เปลี่ยนโหมดจึงไม่กระพริบ
+    if(M.current.heat && M.current.heat._canvas){
+      const heatVis = auto ? (mode==="heat") : !!layers.heat;
+      const heatOp  = auto ? HEAT_OPACITY : (((layers.op&&layers.op.heat)??HEAT_OPACITY));
+      M.current.heat._canvas.style.opacity = heatVis ? (heatOp/100) : 0;
+      // KDE: อัปเดตรัศมี(พิกเซล)ให้ตรงกับ ~800ม.จริง ทุกครั้งที่ซูมเปลี่ยน เพื่อคงความหมายเชิงพื้นที่ + กันสีล้นพื้นที่ว่าง
+      if(layers.kde && M.current.heat.setOptions){ const kr=kdeRadiusPx(map);
+        if(M.current.kr!==kr){ M.current.kr=kr; M.current.heat.setOptions({radius:kr, blur:Math.max(2,Math.round(kr*0.6))}); } }
+    }
+    // แจ้งโหมดปัจจุบันออกไปภายนอก (สเตจใช้โชว์ legend ความหนาแน่นเฉพาะตอนอยู่โหมด heat)
+    if(auto && onMapMode && M.current.lastMode!==mode){ M.current.lastMode=mode; onMapMode(mode); }
+    if(M.current.cluster){ map.removeLayer(M.current.cluster); M.current.cluster=null; }
+    // วาดหมุด/คลัสเตอร์เมื่อ: (auto) ไม่ได้อยู่โหมด heat · (แมนนวล) เปิดเลเยอร์ marker/cluster อย่างน้อยหนึ่ง
+    const showPoints = auto ? (mode!=="heat") : (layers.cluster || layers.existing || layers.prospect);
+    if(!showPoints) return;
+    const b=map.getBounds().pad(0.25);
+    const cs=(layers.existing!==false?(M.current.cs||[]):[]).filter(x=>b.contains([x.latitude,x.longitude]));
+    const ps=(layers.prospect!==false?(M.current.ps||[]):[]).filter(x=>b.contains([x.latitude,x.longitude])
+      && (!layers.grades || layers.grades[x.grade]!==false));   // กรองตามเกรด A/B/C (สวิตช์ในกล่องเลเยอร์)
+    // auto: ชั้น cluster เมื่ออยู่โหมด cluster · แมนนวล: ตาม layers.cluster + เกณฑ์จำนวนเดิม
+    const useCluster = auto ? (mode==="cluster") : (layers.cluster && (cs.length+ps.length)>60);
+    const grp = useCluster
+      ? L.markerClusterGroup({chunkedLoading:false, maxClusterRadius:70, showCoverageOnHover:false,
+          zoomToBoundsOnClick:false, iconCreateFunction:clusterIcon})   // custom clusterclick (below) drives zoom / detail-panel
+      : L.layerGroup();
+    if(useCluster){   // hover reveals the full breakdown (with names) — also covers small count-only bubbles
+      grp.on("clustermouseover", e=>{
+        const r=clusterRadius(e.layer.getChildCount());
+        e.layer.bindTooltip(clusterBreakdown(e.layer), {direction:"top", offset:[0,-r], className:"gc-tt"}).openTooltip();
+      });
+      grp.on("clustermouseout", e=>e.layer.closeTooltip());
+      // click a cluster → ZOOM IN to spread it apart (standard clustering). Once it can no
+      // longer zoom to break apart (already at max / a single tight area), open the area
+      // detail panel instead. The hover breakdown tooltip above keeps working independently.
+      grp.on("clusterclick", e=>{
+        const cl=e.layer, bounds=cl.getBounds(), cur=map.getZoom();
+        const fitZoom=map.getBoundsZoom(bounds);
+        if(fitZoom > cur){
+          map.flyToBounds(bounds, {padding:[48,48], duration:0.55, maxZoom:Math.min(fitZoom, cur+3)});
+        } else {
+          const counts={}; cl.getAllChildMarkers().forEach(m=>{const p=m.options.prov; if(p)counts[p]=(counts[p]||0)+1;});
+          const top=Object.entries(counts).sort((a,b)=>b[1]-a[1])[0];
+          if(top && onPickArea) onPickArea(top[0]);
+        }
+      });
+    }
+    const op=M.current.op||{}, zoom=map.getZoom();   // LOD form depends on current zoom
+    // Show the full icon markers only when (a) zoomed to province level (>= LOD_ZOOM) AND (b) the
+    // viewport isn't too dense. Full markers are DOM divIcons — rendering many at once is janky
+    // (measured: ~200 = smooth, ~1,180 = fps 3), so ultra-dense areas (Bangkok / central Thailand with
+    // clustering off) stay LIGHT canvas dots until the user zooms in enough to thin below ICON_CAP.
+    const ICON_CAP = 400;
+    // จุดกลม (dot) เมื่อ (a) ยังไม่ซูมเกินระดับจังหวัด zoom<=LOD_ZOOM  — เข้ามาแรก/ซูมกว้างต้องเป็นจุดเล็กเสมอ
+    // ไม่ว่าจะเปิดกี่เลเยอร์ (ไม่สลับไป-มา icon↔dot ตามจำนวน) — หรือ (b) แน่นเกิน ICON_CAP (กัน DOM ค้าง)
+    const dotMode = !useCluster && (zoom <= LOD_ZOOM || (cs.length+ps.length) > ICON_CAP);
+    const dotRadius = Math.max(2, Math.min(5, 2 + (zoom-5)*0.6));   // ~2px (ซูมกว้างสุด z5) → ~5px (ใกล้จุดสลับเป็นไอคอน); ต่อเนื่องกับ size เริ่มต้นของ markerIcon
+    // โหมดเน้นสถานะการเข้าพบ (เปิดผ่าน layers.visit เท่านั้น) — ใช้ในหน้ารายงานสรุปข้อมูลรายพื้นที่
+    // Leadที่ "ยังไม่เข้าพบ" = เทา (ช่องว่างที่ยังไม่เข้าถึง) · ศักยภาพสูง (เกรด A/B) ที่เข้าพบแล้ว = แดง
+    // ถ้าไม่ได้เปิด layers.visit จะคืน null ทุกกรณี สีหมุดจึงเหมือนเดิมทุกหน้า (ไม่กระทบที่อื่น)
+    const GRAY_UNVISIT="#9aa4b2", RED_HIPOT="#ff3b1e";
+    const visitColor = x => { if(!layers.visit || x.status!=="Prospect") return null;
+      if((x.visit_status||"ยังไม่เข้าพบ")==="ยังไม่เข้าพบ") return GRAY_UNVISIT;
+      return (x.grade==="A"||x.grade==="B") ? RED_HIPOT : null; };
+    const add=(arr,isCust)=>arr.forEach(x=>{
+      const o=(isCust?(op.existing??90):(op.prospect??85))/100;
+      const cov=visitColor(x);
+      let m;
+      if(dotMode){   // tiny solid STATUS-coloured dot, canvas-rendered — no stroke/border/shadow at all.
+        // Draw on the map's DEFAULT shared canvas (same renderer as the province choropleth) — NOT a
+        // separate L.canvas. One canvas hit-tests BOTH dots and polygons, so a click on empty ground
+        // still reaches the province polygon underneath. A separate dots-canvas would sit on top and
+        // swallow every polygon click (the regression). Dots are added after the polygons, so they
+        // still draw on top and stay clickable themselves.
+        m=L.circleMarker([x.latitude,x.longitude],{radius:dotRadius, stroke:false,
+          fillColor:cov||STATUS_COLOR[x.status]||"#1565C0", fillOpacity:o,
+          seg:x.segment, status:x.status, prov:x.province});
+      } else {
+        m=L.marker([x.latitude,x.longitude],{icon:markerIcon(x,isCust?(op.existing??90):(op.prospect??85),zoom,cov),
+          seg:x.segment, status:x.status, prov:x.province, keyboard:false});
+      }
+      m.bindTooltip(`<div class="mk-tip"><b>${x.businessName}</b><br/>${x.id} · ${segTH(x.segment)} · ${isCust?"ลูกค้าปัจจุบัน":"Lead · คะแนน "+x.potentialScore}</div>`,{direction:"top",offset:[0,-16]});
+      m.on("click",()=>onPickCustomer&&onPickCustomer(x));   // detail panel reads THIS marker
+      grp.addLayer(m);
+    });
+    add(cs,true); add(ps,false);
+    grp.addTo(map); M.current.cluster=grp;
+  }
+  M.current.build = buildMarkers;   // keep the moveend rebuild pointed at the current closure
+
+  // Cluster radius — LOGARITHMIC scale (data spans 2 … ~4,100 per cluster), clamped to a
+  // fixed [20,44]px ceiling. The 44px cap (paired with the wider merge distance below) keeps
+  // even the densest central bubbles from overlapping while still showing a clear size range.
+  const CL_MINR=20, CL_MAXR=44, CL_MINN=2, CL_MAXN=4100;
+  function clusterRadius(n){
+    const t=(Math.log(Math.max(n,CL_MINN))-Math.log(CL_MINN))/(Math.log(CL_MAXN)-Math.log(CL_MINN));
+    return Math.round(Math.max(CL_MINR, Math.min(CL_MAXR, CL_MINR+(CL_MAXR-CL_MINR)*t)));
+  }
+  // Cluster bubble — count always shown; density by ring colour. The category breakdown is
+  // shown INLINE only when the bubble is big enough (r≥35px), width-constrained inside the
+  // circle; smaller bubbles keep it for HOVER only (clustermouseover) — no overflow either way.
+  function clusterIcon(cluster){
+    const n=cluster.getChildCount(), r=clusterRadius(n), size=r*2;
+    const dcol=n>200?"#ff5a3c":n>50?"#ffb02e":"#38bdf8";
+    const label=n>999?(n/1000).toFixed(1)+"k":""+n;
+    const cf=Math.max(14, Math.min(26, Math.round(r*0.6)));
+    let inner=`<div class="gc-count" style="font-size:${cf}px">${label}</div>`;
+    if(r>=35){
+      const counts={}; cluster.getAllChildMarkers().forEach(m=>{const s=m.options.seg; if(s)counts[s]=(counts[s]||0)+1;});
+      const cats=Object.entries(counts).sort((a,b)=>b[1]-a[1]).slice(0,3)
+        .map(([s,c])=>`<span class="gc-cat">${segIconSVG(s,{size:13})}<b>${c}</b></span>`).join("");
+      inner+=`<div class="gc-cats">${cats}</div>`;
+    }
+    return L.divIcon({className:"", iconSize:[size,size],
+      html:`<div class="geo-cluster" style="width:${size}px;height:${size}px;border-color:${dcol}">${inner}</div>`});
+  }
+  // Build the business-category breakdown tooltip for a cluster (shown only on hover).
+  function clusterBreakdown(cluster){
+    const kids=cluster.getAllChildMarkers(), counts={};
+    kids.forEach(m=>{const s=m.options.seg; if(s)counts[s]=(counts[s]||0)+1;});
+    const rows=Object.entries(counts).sort((a,b)=>b[1]-a[1])
+      .map(([s,c])=>`<span class="gc-row" style="display:flex;align-items:center;gap:6px">${segIconSVG(s,{size:14})} ${segTH(s)} · <b>${c}</b></span>`).join("");
+    return `<div class="mk-tip gc-tip"><b>รวม ${kids.length} ราย</b>${rows}</div>`;
+  }
+
+  // โหมดมืด: ใส่คลาส map-dark → CSS filter ทำงานเฉพาะ .leaflet-tile-pane (แผ่นไทล์ OSM) เท่านั้น
+  // heat/marker อยู่คนละ pane (overlayPane) จึงไม่ถูก filter กระทบ — สียังคมชัดทั้งสองโหมด
+  return html`<div ref=${ref} class=${"map-reveal"+(dark?" map-dark":"")} style=${{position:"absolute",inset:0}}></div>`;
+}
