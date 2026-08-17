@@ -1,6 +1,7 @@
 // ไม่นำเข้า fetchDrivingRoute / fmtKm / fmtDuration / legMinutes อีกต่อไป
 // เพราะแผงนี้ไม่ใช้บริการคำนวณเส้นทาง และไม่แสดงตัวเลขระยะทาง/เวลาเดินทางแล้ว
 import {html, useState, useEffect, useRef, Icon, segTH, provinceTH, districtTH} from "./lib.js";
+import {basemap} from "./basemap.js";
 import {clusterCustomers, clusterRoute, computeRoute, optimizeOrder, haversine} from "./visit.js";
 import {PLAN_TODAY, deriveStatus, overdueAppt, beDate} from "./visit-rounds.js";
 
@@ -208,7 +209,7 @@ function PlanMiniMap({office, clusters, routes}){
   useEffect(()=>{
     if(!ref.current) return;
     const map = L.map(ref.current,{zoomControl:false,attributionControl:true});
-    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",{subdomains:"abc",attribution:'&copy; OpenStreetMap'}).addTo(map);
+    basemap(map, "th");
     const all=[[office.latitude,office.longitude]];
     L.circleMarker([office.latitude,office.longitude],{radius:6,color:"#fff",weight:2,fillColor:"#111",fillOpacity:1}).addTo(map).bindTooltip("จุดเริ่มต้น · "+(office.businessName||""));
     let alive=true;

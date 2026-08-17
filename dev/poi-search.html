@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="th"><head><meta charset="utf-8"/><title>PMTiles POI search</title></head>
+<body><pre id="out">loading…</pre>
+<script type="module">
+import { PMTiles } from "https://esm.sh/pmtiles@3.2.0";
+import { VectorTile } from "https://esm.sh/@mapbox/vector-tile@2.0.3";
+import Protobuf from "https://esm.sh/pbf@4.0.1";
+
+const p = new PMTiles("/dev/chiangmai-test.pmtiles");
+const lon2x=(lon,z)=>Math.floor((lon+180)/360*(2**z));
+const lat2y=(lat,z)=>{const r=lat*Math.PI/180;return Math.floor((1-Math.log(Math.tan(r)+1/Math.cos(r))/Math.PI)/2*(2**z));};
+async function gunzip(bytes){ const ds=new DecompressionStream("gzip");
+  const s=new Blob([bytes]).stream().pipeThrough(ds); return new Uint8Array(await new Response(s).arrayBuffer()); }
+function centroid(gj){ // point → itself · line/poly → avg ของจุดทั้งหมด
+  let xs=0,ys=0,n=0; const walk=a=>{ if(typeof a[0]==="number"){xs+=a[0];ys+=a[1];n++;} else a.forEach(walk); };
+  walk(gj.geometry.coordinates); return [xs/n, ys/n]; }
+
+// ค้นชื่อ (regex) ในทุก layer ภายใน bbox ที่ระดับซูม z
+window._search = async (pattern, z=15, bbox=[98.93,18.73,99.06,18.86]) => {
+  const rx = new RegExp(pattern, "i");
+  const [W,S,E,N]=bbox;
+  const x0=lon2x(W,z),x1=lon2x(E,z),y0=lat2y(N,z),y1=lat2y(S,z);
+  const hits=[];
+  for(let x=x0;x<=x1;x++) for(let y=y0;y<=y1;y++){
+    const t = await p.getZxy(z,x,y); if(!t||!t.data) continue;
+    let b=new Uint8Array(t.data); if(b[0]===0x1f&&b[1]===0x8b) b=await gunzip(b);
+    let tile; try{ tile=new VectorTile(new Protobuf(b)); }catch{ continue; }
+    for(const lname of Object.keys(tile.layers)){
+      const layer=tile.layers[lname];
+      for(let i=0;i<layer.length;i++){
+        const f=layer.feature(i);
+        const nm=f.properties.name||f.properties["name:th"]||f.properties["name:en"]||"";
+        if(nm && rx.test(nm)){
+          const [lng,lat]=centroid(f.toGeoJSON(x,y,z));
+          hits.push({layer:lname, name:nm, name_en:f.properties["name:en"]||"", kind:f.properties.kind||f.properties.pmap_kind||"",
+                     lat:+lat.toFixed(6), lng:+lng.toFixed(6)});
+        }
+      }
+    }
+  }
+  // ลบซ้ำชื่อ+พิกัดใกล้กัน
+  const seen=new Set(), uniq=[];
+  for(const h of hits){ const k=h.name+"|"+h.lat.toFixed(3)+"|"+h.lng.toFixed(3); if(!seen.has(k)){seen.add(k);uniq.push(h);} }
+  return uniq;
+};
+document.getElementById("out").textContent="ready";
+window._ready=true;
+</script>
+</body></html>

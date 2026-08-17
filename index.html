@@ -420,9 +420,12 @@ input[type=range]{width:100%;accent-color:var(--accent2)}
 /* ============ GLOBE / MAP CONTAINERS ============ */
 .globe-stage{position:relative;flex:1;min-height:0}
 #globe-canvas{position:absolute;inset:0}
-.leaflet-container{background:#0a1120!important;font-family:var(--font)}
-.leaflet-control-attribution{background:rgba(10,17,32,.7)!important;color:#5f6f8f!important}
-.leaflet-control-attribution a{color:#93a3c4!important}
+/* พื้นหลัง map = สีพื้นดินของธีม Protomaps (สว่าง) — บริเวณนอก tile/นอกพื้นที่ให้บริการจะเป็นเทา-แทนกลมกลืน (เดิม #0a1120 กรมท่าเข้ม ไว้ใช้ raster) */
+.leaflet-container{background:#e2dfda!important;font-family:var(--font)}
+.leaflet-control-attribution{background:rgba(255,255,255,.78)!important;color:#5b6472!important}
+.leaflet-control-attribution a{color:#2b3440!important}
+/* ป้ายแจ้งเมื่ออยู่นอกพื้นที่ให้บริการ (ไม่มีไฟล์ basemap ครอบคลุม) — ขั้นที่ 5 fallback */
+.basemap-oob{background:rgba(43,52,64,.85);color:#e8ecf2;font:500 12px var(--font);padding:6px 11px;border-radius:8px;box-shadow:0 2px 10px rgba(0,0,0,.28)}
 .leaflet-bar a{background:var(--surface)!important;color:var(--muted)!important;border-color:var(--stroke)!important}
 .leaflet-bar a:hover{background:var(--surface2)!important;color:#fff!important}
 .map-legend,.map-panel{background:var(--panel);border:1px solid var(--stroke2);border-radius:12px;backdrop-filter:blur(12px);box-shadow:0 14px 40px rgba(0,0,0,.35)}
@@ -583,7 +586,9 @@ input[type=range]{width:100%;accent-color:var(--accent2)}
   "react-dom":"https://esm.sh/react-dom@18.3.1",
   "react-dom/client":"https://esm.sh/react-dom@18.3.1/client",
   "htm":"https://esm.sh/htm@3.1.1",
-  "three":"https://esm.sh/three@0.161.0"
+  "three":"https://esm.sh/three@0.161.0",
+  "protomaps-leaflet":"https://esm.sh/protomaps-leaflet@5.1.0",
+  "@protomaps/basemaps":"https://esm.sh/@protomaps/basemaps@5.0.0"
 }}
 </script>
 </head>

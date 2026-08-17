@@ -1,0 +1,6 @@
+geo-intel/
+.git/
+gen.mjs
+build-dist.mjs
+.env*
+.vercel

@@ -1,6 +1,10 @@
 # สำเนาเก่า/สำรองของแอป (ไม่ต้อง deploy — ไฟล์ยังอยู่ในเครื่อง)
 geo-intel/
 
+# Protomaps vector tiles — ไฟล์ใหญ่เกินลิมิต GitHub 100MB (basemap 174MB, dev 46MB)
+# host แยกบน Vercel/cloud (อัปโหลดผ่าน Vercel CLI ที่รวมโฟลเดอร์ basemap/ ให้เอง) — ไม่เก็บใน git
+*.pmtiles
+
 # dependencies / build
 node_modules/
 dist/
@@ -16,3 +20,6 @@ Thumbs.db
 desktop.ini
 .vscode/
 .idea/
+
+.vercel
+.env*

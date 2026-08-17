@@ -1,0 +1,172 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Protomaps POC — เชียงใหม่ (เขตเมือง)</title>
+
+<!-- ฟอนต์เดียวกับแอปหลัก: Noto Sans Thai -->
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Thai:wght@400;500;600;700&display=swap" rel="stylesheet"/>
+
+<!-- Leaflet (global window.L) — protomaps-leaflet v5 ใช้ L global ตัวนี้ ไม่มี Leaflet ตัวที่สอง -->
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+<style>
+  :root{--font:"Noto Sans Thai",system-ui,sans-serif}
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;font-family:var(--font)}
+  #map{position:absolute;inset:0}
+  .leaflet-container,.leaflet-container *,.leaflet-tooltip,.leaflet-popup{font-family:var(--font)}
+
+  .poc-pin{width:16px;height:16px;border-radius:50%;background:#e60023;border:3px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,.35)}
+  .poc-tip{font-weight:600}
+
+  #hud{position:absolute;top:12px;right:12px;z-index:1000;background:#fff;border:1px solid #e5e7eb;
+       border-radius:12px;padding:12px 14px;box-shadow:0 6px 24px rgba(0,0,0,.12);width:250px;font-size:13px;color:#1f2430}
+  #hud h1{margin:0 0 2px;font-size:14px;font-weight:700}
+  #hud .sub{color:#6b7280;font-size:11.5px;margin-bottom:10px;line-height:1.5}
+  #hud .lbl{font-size:11px;color:#9099a6;margin:8px 0 5px;font-weight:600}
+  #hud .row{display:flex;gap:6px;margin-bottom:4px}
+  #hud button{flex:1;font-family:var(--font);font-size:12.5px;font-weight:600;padding:7px 0;border-radius:8px;
+       border:1px solid #d1d5db;background:#f9fafb;color:#374151;cursor:pointer;transition:.12s;white-space:nowrap}
+  #hud button:hover{background:#eef1f4}
+  #hud button.on{background:#e60023;border-color:#e60023;color:#fff}
+  #hud .base button.on{background:#111827;border-color:#111827}
+  #hud .stat{display:flex;justify-content:space-between;padding:3px 0;border-top:1px dashed #eceff3;margin-top:2px}
+  #hud .stat b{font-variant-numeric:tabular-nums}
+  #hud .ok{color:#16a34a}#hud .bad{color:#dc2626}
+  #fallback{position:absolute;left:12px;bottom:12px;z-index:1000;display:none;background:#7f1d1d;color:#fff;
+       padding:10px 14px;border-radius:10px;font-size:13px;max-width:340px;box-shadow:0 6px 24px rgba(0,0,0,.2)}
+</style>
+</head>
+<body>
+<div id="map"></div>
+
+<div id="hud">
+  <h1>Protomaps POC — เขตเมืองเชียงใหม่</h1>
+  <div class="sub">ทดสอบในย่านที่ TC ใช้จริง · ถนนหลัก+ซอย · อาคารร้านค้า · เทียบ OSM raster</div>
+
+  <div class="lbl">จุดทดสอบ</div>
+  <div class="row" id="poi"></div>
+
+  <div class="lbl">ระดับซูม</div>
+  <div class="row" id="zoom">
+    <button data-z="14">14</button>
+    <button data-z="15">15</button>
+    <button data-z="16">16</button>
+    <button data-z="17">17</button>
+  </div>
+
+  <div class="lbl">แผนที่ฐาน</div>
+  <div class="row base" id="base">
+    <button data-b="pm" class="on">Protomaps (vector)</button>
+    <button data-b="osm">OSM raster</button>
+  </div>
+
+  <div class="stat"><span>จุด / ซูม</span><b id="where">—</b></div>
+  <div class="stat"><span>วาด tile ล่าสุด</span><b id="paint">—</b></div>
+  <div class="stat"><span>Base layer</span><b id="lstat">กำลังโหลด…</b></div>
+</div>
+
+<div id="fallback">⚠️ โหลดแผนที่ฐานไม่สำเร็จ — ตรวจว่า /dev/chiangmai-test.pmtiles เข้าถึงได้และเซิร์ฟเวอร์รองรับ HTTP Range</div>
+
+<script type="module">
+import { leafletLayer, paintRules, labelRules } from "https://esm.sh/protomaps-leaflet@5.1.0";
+import { namedFlavor } from "https://esm.sh/@protomaps/basemaps@5.0.0";
+
+// ── จุดทดสอบในเขตเมืองที่ TC ใช้งานจริง ──
+const POIS = [
+  {key:"nimman",  name:"นิมมานเหมินท์",        ll:[18.7960, 98.9670]},
+  {key:"taepae",  name:"ประตูท่าแพ / ถนนคนเดิน", ll:[18.7880, 98.9930]},
+  {key:"central", name:"เซ็นทรัลเฟสติวัล",       ll:[18.8074, 99.0182]},   // พิกัดจริงจากชั้น pois ในไฟล์ pmtiles (kind:mall)
+];
+
+const map = L.map("map", {zoomControl:true, preferCanvas:true, maxZoom:19}).setView(POIS[0].ll, 15);
+
+// ── ปรับฐานแผนที่: เน้น buildings + ชื่อถนน/ซอย · ไม่แสดง POI (หมุดร้านมาจากข้อมูลลูกค้าเอง) ──
+// flavor ทุกตัวใช้ label เทาซีด (roads_label ~#918) → สลับ flavor ไม่ช่วยชื่อถนน
+// จึงสร้าง flavor object แล้ว override สีเอง แล้วส่ง paintRules/labelRules เข้า leafletLayer ตรงๆ
+const P = new URLSearchParams(location.search);
+const flavorName = P.get("flavor") || "light";
+const fl = namedFlavor(flavorName);
+const tuned = P.get("tune") !== "0";
+if(tuned){
+  fl.buildings          = P.get("bld")   || "#ccd1d9";   // อาคาร: ทับสีเดิม #cccccc (=พื้นดิน จมมองไม่เห็น) เป็นเทาเย็น ตัดกับพื้นดินอุ่น + ปล่อยให้หมุดแดงลูกค้าเด่น
+  fl.roads_label_major  = P.get("rlmaj") || "#2b3440";   // ชื่อถนนหลัก: เข้มจากเทาซีด #938a8d
+  fl.roads_label_minor  = P.get("rlmin") || "#4a5563";   // ชื่อซอย: เข้มจาก #91888b ให้อ่านชัด
+}
+const pmLayer = leafletLayer({
+  url: "/dev/chiangmai-test.pmtiles",
+  paintRules: paintRules(fl),
+  labelRules: labelRules(fl, "th"),   // lang="th" → ป้ายภาษาไทย
+  backgroundColor: fl.background,
+  maxDataZoom: 15,            // ต้นทาง z0–15 · zoom 16+ = overzoom ฝั่ง client
+  attribution: 'แผนที่ฐานจาก &copy; <a href="https://openstreetmap.org/copyright">OpenStreetMap</a> contributors · Protomaps'
+});
+// ── Base layer เทียบ: OSM raster เดิม (แบบที่แอปหลักใช้อยู่) ──
+const osmLayer = L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
+  {subdomains:"abc", maxZoom:19, attribution:'&copy; OpenStreetMap contributors'});
+
+let curBase = "pm";
+pmLayer.addTo(map);
+
+let t0 = performance.now();
+map.on("layeradd", ()=>{ document.getElementById("lstat").innerHTML = '<span class="ok">พร้อม ✓</span>'; });
+
+function setBase(kind){
+  if(kind===curBase) return;
+  if(kind==="pm"){ map.removeLayer(osmLayer); pmLayer.addTo(map); }
+  else { map.removeLayer(pmLayer); osmLayer.addTo(map); }
+  curBase = kind;
+  document.querySelectorAll("#base button").forEach(b=>b.classList.toggle("on", b.dataset.b===kind));
+}
+
+// ── หมุด 3 จุด ──
+POIS.forEach(p=>{
+  L.marker(p.ll, {icon:L.divIcon({className:"", iconSize:[16,16], iconAnchor:[8,8], html:'<div class="poc-pin"></div>'})})
+   .addTo(map).bindTooltip(p.name, {direction:"top", offset:[0,-10], className:"poc-tip"});
+});
+
+// ── HUD ──
+const whereEl=document.getElementById("where"), paintEl=document.getElementById("paint");
+let curPoi = POIS[0];
+const poiRow=document.getElementById("poi");
+POIS.forEach((p,i)=>{ const b=document.createElement("button"); b.textContent=p.name.split(" ")[0];
+  b.dataset.i=i; if(i===0)b.classList.add("on"); poiRow.appendChild(b);
+  b.addEventListener("click", ()=>{ curPoi=p; map.flyTo(p.ll, map.getZoom(), {duration:.5});
+    poiRow.querySelectorAll("button").forEach(x=>x.classList.toggle("on", x===b)); }); });
+
+document.querySelectorAll("#zoom button").forEach(b=>b.addEventListener("click",
+  ()=> map.flyTo(map.getCenter(), Number(b.dataset.z), {duration:.4})));
+document.querySelectorAll("#base button").forEach(b=>b.addEventListener("click", ()=>setBase(b.dataset.b)));
+
+function sync(){
+  const z=map.getZoom();
+  whereEl.textContent = `${curPoi.name.split(" ")[0]} · z${z.toFixed(z%1?1:0)}`;
+  document.querySelectorAll("#zoom button").forEach(b=>b.classList.toggle("on", Number(b.dataset.z)===Math.round(z)));
+}
+map.on("zoomend moveend", ()=>{ paintEl.textContent = Math.round(performance.now()-t0)+" ms"; sync(); });
+map.on("movestart zoomstart", ()=> t0=performance.now());
+sync();
+
+// Fallback + ยืนยัน Range
+fetch("/dev/chiangmai-test.pmtiles", {headers:{Range:"bytes=0-0"}})
+  .then(r=>{ if(!(r.status===206||r.headers.get("accept-ranges")==="bytes")){ throw 0; } })
+  .catch(()=>{ document.getElementById("fallback").style.display="block";
+              document.getElementById("lstat").innerHTML='<span class="bad">ล้มเหลว</span>'; });
+
+// ── API ให้ headless verify เรียก ──
+window._pocMap = map;
+window._pocGoto = (i,z)=>{ curPoi=POIS[i]; map.setView(POIS[i].ll, z); };
+window._pocBase = setBase;
+window._pmLayer = pmLayer; window._fl = fl;
+window._probe = ()=>({
+  fl_bld: fl.buildings, fl_rlmin: fl.roads_label_minor, fl_rlmaj: fl.roads_label_major,
+  roadLabels: (pmLayer.labelRules||[]).filter(r=>r.dataLayer==="roads").map(r=>({min:r.minzoom, fontType:typeof (r.symbolizer&&r.symbolizer.font), fontKeys:r.symbolizer&&r.symbolizer.font&&typeof r.symbolizer.font==="object"?Object.keys(r.symbolizer.font):null, fontVal:r.symbolizer&&r.symbolizer.font, symbKeys:r.symbolizer?Object.keys(r.symbolizer):null}))
+});
+</script>
+</body>
+</html>

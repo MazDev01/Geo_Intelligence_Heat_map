@@ -1,5 +1,6 @@
 import {html, useState, useEffect, useRef, Icon, SegmentIcon, num, money, moneyC, pct, SEG_COLOR, SEGMENTS,
   segTH, gapTH, typeTH, tradingTH, provinceTH, districtTH, fetchDrivingRoute} from "./lib.js";
+import {basemap} from "./basemap.js";
 import {Btn, Badge, Grade, Meter, toast, InfoTip} from "./ui.js";
 import {Donut, BarChart, Gauge, rampRed} from "./charts.js";
 import {analyzeArea, downloadCSV} from "./data.js";
@@ -402,7 +403,7 @@ function RouteMap({origin, route}){
   const ref=useRef();
   useEffect(()=>{
     const map=L.map(ref.current,{zoomControl:false,attributionControl:true}).setView([origin.latitude,origin.longitude],12);
-    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",{subdomains:"abc",attribution:'&copy; OpenStreetMap'}).addTo(map);
+    basemap(map, "th");
     const pts=[[origin.latitude,origin.longitude],...route.stops.map(s=>[s.latitude,s.longitude])];
     L.circleMarker(pts[0],{radius:8,color:"#34e0d0",fillColor:"#34e0d0",fillOpacity:.9,weight:2}).addTo(map).bindTooltip("จุดเริ่ม: "+origin.businessName);
     route.stops.forEach((s,i)=>L.marker([s.latitude,s.longitude]).addTo(map).bindTooltip(`${i+1}. ${s.businessName}`));

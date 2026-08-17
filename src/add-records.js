@@ -1,6 +1,7 @@
 // ── ฟอร์มเพิ่มลูกค้า/Lead — รองรับการคิดคะแนนศักยภาพ (Appendix B) แบบเรียลไทม์ ──
 // ผู้ใช้กรอกพิกัดเอง · ทุกรายการติดแท็ก แหล่งที่มา = "ผู้ใช้เพิ่มเอง" · คะแนน/เกรดคำนวณจากพิกัด+ข้อมูลที่กรอก
 import {html, useState, useEffect, useRef, Icon, SegmentIcon, SEGMENTS, segTH, tradingTH, provinceTH} from "./lib.js";
+import {basemap} from "./basemap.js";
 import {createPortal} from "react-dom";
 import {Dropdown} from "./select.js";
 import {scoreProspect, catMatchOf, assignTC, provinceOf, zoneOf, TC_TEAM, gradeOf} from "./mock/geoData.js";
@@ -122,7 +123,7 @@ function MiniMap({lat,lng}){
   const ref=useRef(null), mapRef=useRef(null), mkRef=useRef(null);
   useEffect(()=>{ const L=window.L; if(!L||!ref.current) return;
     const m=L.map(ref.current,{zoomControl:false,attributionControl:false,scrollWheelZoom:false}).setView([lat,lng],13);
-    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:19}).addTo(m);
+    basemap(m, "th");
     mkRef.current=L.marker([lat,lng]).addTo(m); mapRef.current=m;
     setTimeout(()=>m.invalidateSize(),60);
     return ()=>m.remove();

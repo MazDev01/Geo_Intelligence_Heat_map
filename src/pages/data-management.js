@@ -6,6 +6,7 @@
 // ทุกข้อความเป็นภาษาไทย · ทุก action ที่เปลี่ยนข้อมูลบันทึกลง Audit Log (src/audit.js)
 // ═══════════════════════════════════════════════════════════════════════════
 import {html, useState, useEffect, useMemo, useRef, useApp, Icon, num, provinceTH} from "../lib.js";
+import {basemap} from "../basemap.js";
 import {Card, Kpi, Btn, Badge, Toggle, Table, Tabs, Modal, Meter, toast} from "../ui.js";
 import {SEGMENTS, SEG_TH, PROVINCE_KEYS, gradeOf} from "../mock/geoData.js";
 import {pushAudit} from "../audit.js";
@@ -1142,7 +1143,7 @@ function CvMiniMap({lat,lng}){
   const ref=useRef(null);
   useEffect(()=>{ const L=window.L; if(!L||!ref.current) return;
     const m=L.map(ref.current,{zoomControl:false,attributionControl:false,scrollWheelZoom:false,dragging:false}).setView([lat,lng],12);
-    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:19}).addTo(m);
+    basemap(m, "th");
     L.marker([lat,lng]).addTo(m); setTimeout(()=>m.invalidateSize(),60); return ()=>m.remove();
   },[lat,lng]);
   return html`<div class="cv-map" ref=${ref}></div>`;

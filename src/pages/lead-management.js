@@ -195,7 +195,6 @@ export function LeadManagement({leads, setLeads}){
         <input class="ld-search" placeholder="ค้นหา ชื่อลูกค้า · บริษัท · เบอร์โทร · อีเมล" value=${q} onInput=${e=>setQ(e.target.value)}/>
         <div class="ld-fr-right">
           ${anyFilter?html`<${Btn} size="sm" variant="ghost" onClick=${clear}>ล้างตัวกรอง</${Btn}>`:""}
-          <${Btn} size="sm" variant="outline" icon="download" onClick=${doExport}>ส่งออกรายงาน</${Btn}>
         </div>
       </div>
       <div class="ld-summary">
@@ -354,11 +353,15 @@ function ConvertForm({lead, onClose, onDone}){
 const LD_CSS=`
 .ld-page{color:var(--txt)}
 .ld-filters{border:1px solid var(--stroke2);border-radius:14px;padding:14px 16px;background:var(--panel);margin-bottom:16px}
-.ld-chips{display:flex;gap:7px;flex-wrap:wrap;margin-bottom:12px}
-.ld-chip{padding:7px 13px;border-radius:999px;border:1px solid var(--stroke2);background:var(--surface);color:var(--muted);
-  font-family:var(--font);font-size:12.5px;font-weight:600;cursor:pointer}
-.ld-chip.on{background:var(--accent);border-color:var(--accent);color:#fff}
-.ld-chip b{margin-left:4px}
+/* แถบเมนูขีดเส้นใต้ (LINE TABS) แทนปุ่มพิล — active = ตัวแดง+เส้นใต้แดง, ไม่มีพื้น */
+.ld-chips{display:flex;gap:2px;flex-wrap:nowrap;overflow-x:auto;margin-bottom:14px;border-bottom:1px solid var(--stroke);scrollbar-width:none}
+.ld-chips::-webkit-scrollbar{height:0}
+.ld-chip{padding:9px 14px;border:none;background:none;color:var(--muted);flex:none;white-space:nowrap;
+  font-family:var(--font);font-size:13px;font-weight:500;cursor:pointer;
+  border-bottom:2px solid transparent;margin-bottom:-1px;transition:color .15s,border-color .15s}
+.ld-chip:hover{color:var(--txt)}
+.ld-chip.on{color:var(--accent);border-bottom-color:var(--accent);font-weight:600}
+.ld-chip b{margin-left:5px;font-weight:700}
 .ld-frow{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
 .ld-dd{min-width:150px}
 .ld-date{height:38px;border:1px solid var(--stroke2);border-radius:10px;padding:0 10px;font-family:var(--font);font-size:13px;color:var(--txt);background:var(--surface)}

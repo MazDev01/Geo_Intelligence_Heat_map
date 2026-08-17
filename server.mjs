@@ -1,11 +1,12 @@
 import {createServer} from 'node:http';
-import {readFile} from 'node:fs/promises';
+import {readFile, stat} from 'node:fs/promises';
+import {createReadStream} from 'node:fs';
 import {extname, join, normalize} from 'node:path';
 import {fileURLToPath} from 'node:url';
 
 const ROOT = fileURLToPath(new URL('.', import.meta.url));
 const PORT = 5173;
-const MIME = {'.html':'text/html','.js':'text/javascript','.mjs':'text/javascript','.json':'application/json','.geojson':'application/json','.css':'text/css','.svg':'image/svg+xml','.png':'image/png','.ico':'image/x-icon'};
+const MIME = {'.html':'text/html','.js':'text/javascript','.mjs':'text/javascript','.json':'application/json','.geojson':'application/json','.css':'text/css','.svg':'image/svg+xml','.png':'image/png','.ico':'image/x-icon','.pmtiles':'application/octet-stream'};
 
 // In-memory cache of parsed country-scoped datasets, so filtering a large table
 // by ?country= costs one parse per file (not per request) — the DB-side WHERE equivalent.
@@ -51,14 +52,37 @@ createServer(async (req,res)=>{
       return;
     }
 
-    const body = await readFile(file);
     const ext = extname(file).toLowerCase();
     // ไฟล์โค้ด (html/js/mjs/css) ใช้ no-store เพื่อไม่ให้เบราว์เซอร์แคชโมดูล ESM เก่าไว้
     // ระหว่างพัฒนา — แก้ปัญหาที่ต้อง hard refresh ทุกครั้ง เห็นผลทันทีแค่รีเฟรชธรรมดา
     // ไฟล์ข้อมูลก้อนใหญ่ (json/geojson) ยังใช้ no-cache (revalidate) เพื่อไม่ให้โหลดซ้ำหนักเกินจำเป็น
     const isCode = ext==='.html'||ext==='.js'||ext==='.mjs'||ext==='.css';
-    res.writeHead(200, {'Content-Type': MIME[ext]||'application/octet-stream','Cache-Control': isCode?'no-store':'no-cache'});
-    res.end(body);
+    const type = MIME[ext]||'application/octet-stream';
+    const cache = isCode?'no-store':'no-cache';
+
+    // ── HTTP Range (206 Partial Content) ──────────────────────────────────────
+    // จำเป็นสำหรับ .pmtiles: protomaps อ่านเฉพาะ byte-range เล็กๆ ของ archive ต่อ tile
+    // ไม่ใช่ทั้งไฟล์ ถ้า static server ตอบ 200 เต็มก้อนทุกครั้ง POC จะช้าผิดปกติ
+    // แล้วสรุปผิดว่า "Protomaps ช้า" ทั้งที่เป็นข้อจำกัดของ server. ใช้ stream ทุกไฟล์
+    // (แทน readFile ทั้งก้อน) + โฆษณา Accept-Ranges เสมอ
+    const st = await stat(file);
+    const range = req.headers['range'];
+    if(range){
+      const m = /^bytes=(\d*)-(\d*)$/.exec(range);
+      if(m){
+        let start = m[1]==='' ? undefined : parseInt(m[1],10);
+        let end   = m[2]==='' ? undefined : parseInt(m[2],10);
+        if(start===undefined){ start = Math.max(0, st.size-(end||0)); end = st.size-1; }   // suffix: bytes=-N
+        else if(end===undefined || end>=st.size){ end = st.size-1; }
+        if(isNaN(start) || start>end || start>=st.size){
+          res.writeHead(416, {'Content-Range':`bytes */${st.size}`, 'Accept-Ranges':'bytes'}).end(); return;
+        }
+        res.writeHead(206, {'Content-Type':type,'Accept-Ranges':'bytes','Content-Range':`bytes ${start}-${end}/${st.size}`,'Content-Length':end-start+1,'Cache-Control':cache});
+        createReadStream(file, {start, end}).pipe(res); return;
+      }
+    }
+    res.writeHead(200, {'Content-Type':type,'Accept-Ranges':'bytes','Content-Length':st.size,'Cache-Control':cache});
+    createReadStream(file).pipe(res);
   }catch(e){
     res.writeHead(404, {'Content-Type':'text/plain'}).end('404 '+e.message);
   }

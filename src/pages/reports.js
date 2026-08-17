@@ -1,4 +1,5 @@
 import {html, useState, useMemo, useRef, useEffect, useApp, Icon, SegmentBadge, num, pct, moneyC, SEG_COLOR, STATUS_COLOR, SEGMENTS, segTH, gapTH, tradingTH, countryTH, provinceTH, districtTH} from "../lib.js";
+import {basemap} from "../basemap.js";
 import {createPortal} from "react-dom";   // portal the Export dialog to <body> so the full-screen .slide-panel (overflow:hidden) can't clip it
 import {Card, Kpi, Btn, Badge, Grade, Table, Toggle, Meter} from "../ui.js";
 import {Donut, BarChart, Gauge, LineChart, ChartTip, useTip} from "../charts.js";
@@ -2343,7 +2344,7 @@ function RoutePlanMiniMap({stops}){
   useEffect(()=>{
     if(!ref.current || typeof L==="undefined") return;
     const map = L.map(ref.current,{zoomControl:false,attributionControl:true});
-    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",{subdomains:"abc",attribution:'&copy; OpenStreetMap'}).addTo(map);
+    basemap(map, "th");
     const pts = stops.map(c=>[c.latitude,c.longitude]);
     // เส้นตรงเชื่อมจุดตามลำดับ ใช้เส้นประ ตอกย้ำว่าเป็นเส้นประมาณการ ไม่ใช่เส้นถนนจริง
     if(pts.length>1) L.polyline(pts,{color:"#e60023",weight:2,dashArray:"5 4",opacity:.8}).addTo(map);

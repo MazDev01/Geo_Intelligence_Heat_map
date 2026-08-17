@@ -1,4 +1,5 @@
 import {html, useState, useEffect, useRef, useApp, Icon, num, money, moneyC, SEG_COLOR, fetchDrivingRoute} from "../lib.js";
+import {basemap} from "../basemap.js";
 import {Card, Kpi, Btn, Badge, Table} from "../ui.js";
 import {Gauge} from "../charts.js";
 
@@ -112,7 +113,7 @@ function RouteMap({center, route, origin}){
   const ref=useRef();
   useEffect(()=>{
     const map=L.map(ref.current,{zoomControl:false,attributionControl:true}).setView(center,12);
-    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",{subdomains:"abc",attribution:'&copy; OpenStreetMap'}).addTo(map);
+    basemap(map, "th");
     const pts=[[origin.latitude,origin.longitude],...route.stops.map(s=>[s.latitude,s.longitude])];
     L.circleMarker([origin.latitude,origin.longitude],{radius:8,color:"#34e0d0",fillColor:"#34e0d0",fillOpacity:.9,weight:2}).addTo(map).bindTooltip("Origin: "+origin.businessName);
     route.stops.forEach((s,i)=>L.marker([s.latitude,s.longitude]).addTo(map).bindTooltip(`${i+1}. ${s.businessName}`));
@@ -133,7 +134,7 @@ function MiniLocate({lat,lng,name}){
   const ref=useRef();
   useEffect(()=>{
     const map=L.map(ref.current,{zoomControl:false,attributionControl:true,dragging:false,scrollWheelZoom:false}).setView([lat,lng],13);
-    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",{subdomains:"abc",attribution:'&copy; OpenStreetMap'}).addTo(map);
+    basemap(map, "th");
     L.circleMarker([lat,lng],{radius:9,color:"#2563eb",fillColor:"#38bdf8",fillOpacity:.9,weight:2}).addTo(map).bindTooltip(name);
     setTimeout(()=>map.invalidateSize(),60);
     return ()=>map.remove();

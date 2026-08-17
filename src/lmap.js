@@ -1,10 +1,25 @@
 import {html, useRef, useEffect, segTH, provinceTH, segIconSVG, STATUS_COLOR} from "./lib.js";
 import {custPass, prosPass} from "./data.js";
+import {basemap} from "./basemap.js";
+import {BASEMAP_MAXZOOM} from "../config/basemap.js";
 
 // อ้าง window.L แบบปลอดภัย — เผื่อถูก import ฝั่ง Node (ทดสอบ SSR/พาร์ส) ที่ไม่มี window
 // พฤติกรรมในเบราว์เซอร์เหมือนเดิมทุกประการ (ยังเท่ากับ window.L เสมอเมื่อรันจริง)
 const L = (typeof window !== "undefined") ? window.L : undefined;
 const TH_BOUNDS = [[5.6,97.3],[20.7,105.7]];   // whole-Thailand framing bounds (overview view)
+
+// ── ขอบเขตประเทศไทย (จาก world.geojson) สำหรับวาดเส้นขอบประเทศเหนือ mask — โหลด/แคชครั้งเดียวทั้งแอป ──
+let _thaiOutline;
+async function loadThaiOutline(){
+  if(_thaiOutline!==undefined) return _thaiOutline;
+  try{ const w = await (await fetch("./data/world.geojson")).json();
+    const f = (w.features||[]).find(x=>x.properties && x.properties.name==="Thailand");
+    _thaiOutline = f ? f.geometry : null;
+  }catch{ _thaiOutline = null; }
+  return _thaiOutline;
+}
+// เครื่องหมายพื้นที่วงแหวน (shoelace) — ใช้ตัดสินทิศ winding เพื่อเจาะรู (hole) ของ mask ได้ทุกไฟล์
+function ringArea(r){ let a=0; for(let i=0,j=r.length-1;i<r.length;j=i++){ a += r[j][1]*r[i][0] - r[i][1]*r[j][0]; } return a; }
 
 // opportunity/count -> heat color
 function rampColor(t){ // 0 blue -> 1 red
@@ -39,14 +54,17 @@ export function LeafletMap({db, filters, layers, country="Thailand", onPickArea,
 
   // init once
   useEffect(()=>{
-    const map = L.map(ref.current, {zoomControl:true, attributionControl:true, preferCanvas:true})
+    const map = L.map(ref.current, {zoomControl:true, attributionControl:true, preferCanvas:true, maxZoom:BASEMAP_MAXZOOM})
       .setView(country==="Thailand"?[13.2,101]:[13,101], country==="Thailand"?6:5);
-    // OpenStreetMap standard tiles — unlike CARTO Voyager (English-only labels) these render place/road names
-    // in the local language from OSM's own data, so Thai names show for Thailand.
-    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",{
-      subdomains:"abc", maxZoom:19,
-      attribution:'&copy; OpenStreetMap contributors'}).addTo(map);
+    // แผนที่ฐาน Protomaps (vector, self-host) ผ่านโมดูลรวมศูนย์ — เลือกไฟล์ตาม viewport อัตโนมัติ
+    // ป้ายชื่อสถานที่/ถนนเป็นภาษาไทย (lang="th") · เน้นอาคาร+ชื่อถนน ไม่แสดง POI
+    basemap(map, "th");
     M.current.map = map; M.current.alive = true;
+    // ── Panes ของ mask ขอบเขตจังหวัด ──
+    // maskPane (z250) อยู่เหนือ tilePane(200) จึงปิด base ได้ · แต่ต่ำกว่า overlayPane(400)
+    // choropleth/heat/หมุด/เส้นทางจึงอยู่เหนือ mask เสมอ (ข้อมูลไม่ถูกบัง) · outlinePane(350) วาดเส้นขอบประเทศเหนือ mask
+    map.createPane("maskPane");    map.getPane("maskPane").style.zIndex="250";    map.getPane("maskPane").style.pointerEvents="none";
+    map.createPane("outlinePane"); map.getPane("outlinePane").style.zIndex="350"; map.getPane("outlinePane").style.pointerEvents="none";
     M.current.provinceLayer = L.geoJSON(null).addTo(map);
     M.current.heat = null; M.current.cluster = null;
     // VIEWPORT rendering: re-render only visible markers after a pan/zoom settles (§9, debounced)
@@ -114,6 +132,52 @@ export function LeafletMap({db, filters, layers, country="Thailand", onPickArea,
     };
     apply();
   },[lockProvince, db.provincesGeo]);
+
+  // ── Mask ขอบเขตจังหวัด: ปิดทุกอย่างนอกจังหวัดที่แสดง (กันประเทศเพื่อนบ้าน/ทะเล/จังหวัดอื่นเลอะ) ──
+  // TC → จังหวัดที่รับผิดชอบ · เลือกจังหวัดเดียว → จังหวัดนั้น · ภาพรวม → จังหวัดนำร่องทั้งหมด + เส้นขอบประเทศไทย
+  useEffect(()=>{
+    const m=M.current; if(!m.alive||!m.map) return;
+    let cancelled=false;
+    loadThaiOutline().then(outline=>{ if(cancelled||!m.alive) return; buildMask(outline); });
+    return ()=>{ cancelled=true; };
+  },[filters.province, lockProvince, db.provincesGeo, db.areaByProvince, dark]);
+
+  // สร้าง polygon ครอบโลกแล้วเจาะรูตามรูปจังหวัดที่ต้องแสดง (สีทึบปิด base) + เส้นขอบประเทศ
+  function buildMask(outlineGeom){
+    const m=M.current, map=m.map; if(!map || !db.provincesGeo) return;
+    // เลือกจังหวัดที่จะ"เปิด" (เจาะรูให้เห็น base)
+    let reveal;
+    if(lockProvince) reveal = new Set([lockProvince]);
+    else if(filters.province && filters.province!=="All") reveal = new Set([filters.province]);
+    else reveal = new Set(Object.keys(db.areaByProvince||{}));   // ภาพรวม → จังหวัดนำร่องทั้งหมด
+    if(m.maskLayer){ map.removeLayer(m.maskLayer); m.maskLayer=null; }
+    if(m.outlineLayer){ map.removeLayer(m.outlineLayer); m.outlineLayer=null; }
+    if(m.provEdge){ map.removeLayer(m.provEdge); m.provEdge=null; }
+    const world = [[-89,-179],[-89,179],[89,179],[89,-179]];      // วงนอกครอบทั้งโลก (lat,lng)
+    const outerSign = Math.sign(ringArea(world));
+    const holes = [];
+    db.provincesGeo.features.forEach(f=>{ if(!reveal.has(f.properties.name)) return;
+      const g=f.geometry, polys = g.type==="Polygon" ? [g.coordinates] : g.type==="MultiPolygon" ? g.coordinates : [];
+      polys.forEach(poly=>{ if(!poly[0]) return;
+        const ring = poly[0].map(([lng,lat])=>[lat,lng]);
+        if(Math.sign(ringArea(ring))===outerSign) ring.reverse();  // hole ต้องวนสวนทาง outer จึงเจาะทะลุได้ทุก winding
+        holes.push(ring); });
+    });
+    if(!holes.length) return;   // ยังไม่มี geojson / ไม่ตรงชื่อ → ไม่ต้อง mask (กันบังทั้งจอ)
+    const MASK = dark ? "#0e1626" : "#e9ecf1";                    // สีนอกพื้นที่ (สลับตาม dark mode ของแผนที่)
+    m.maskLayer = L.polygon([world, ...holes], {pane:"maskPane", stroke:false, fillColor:MASK, fillOpacity:1, interactive:false}).addTo(map);
+    if(outlineGeom){                                              // เส้นขอบประเทศไทย (จางสุด 1px) เหนือ mask — บริบทภาพรวม
+      const OUT = dark ? "rgba(226,232,240,.28)" : "rgba(30,45,80,.26)";
+      m.outlineLayer = L.geoJSON(outlineGeom, {pane:"outlinePane", interactive:false, style:{color:OUT, weight:1, fill:false}}).addTo(map);
+    }
+    // เส้นกรอบของจังหวัดที่ "เปิด" — กรอบให้จังหวัดนำร่อง/ที่เลือกเด่นชัด (เข้มกว่าเส้นขอบประเทศเล็กน้อย)
+    const revealFeatures = db.provincesGeo.features.filter(f=>reveal.has(f.properties.name));
+    if(revealFeatures.length){
+      const EDGE = dark ? "rgba(226,232,240,.5)" : "rgba(43,52,64,.5)";
+      m.provEdge = L.geoJSON({type:"FeatureCollection", features:revealFeatures},
+        {pane:"outlinePane", interactive:false, style:{color:EDGE, weight:1.2, fill:false}}).addTo(map);
+    }
+  }
 
   useEffect(()=>{ // product tour: fly to a point/zoom so markers or clusters become visible
     const m=M.current; if(!m.alive||!m.map||!focusPoint) return;

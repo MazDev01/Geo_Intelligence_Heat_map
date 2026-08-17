@@ -52,17 +52,19 @@ export function BarChart({data, height=180, color, horizontal, format=(v)=>v, ti
   const hover=(e,d,i)=>{ setHi(i); if(tipRows) show(e, tipTitle?tipTitle(d,i):d.label, tipRows(d,i)); };
   const leave=()=>{ setHi(-1); hide(); };
   if(horizontal){
-    return html`<div style=${{display:"flex",flexDirection:"column",gap:"11px",position:"relative"}}>
+    // บรรทัดเดียว: ชื่อ | แท่งสีบางๆ (ไม่มี track เทา ยาวตามสัดส่วน = บอก %) | ตัวเลขอยู่นอกแท่งด้านขวา (มีที่ว่างคั่น)
+    return html`<div style=${{display:"flex",flexDirection:"column",gap:"12px",position:"relative"}}>
       <${ChartTip} state=${tip}/>
-      ${data.map((d,i)=>html`<div key=${i} style=${{display:"flex",alignItems:"center",gap:"10px",fontSize:"12.5px",cursor:tipRows?"pointer":"default"}}
+      ${data.map((d,i)=>html`<div key=${i} style=${{display:"flex",alignItems:"center",gap:"12px",fontSize:"12.5px",cursor:tipRows?"pointer":"default"}}
         onMouseMove=${e=>hover(e,d,i)} onMouseLeave=${leave} ontouchstart=${e=>hover(e,d,i)}>
         <div style=${{width:"92px",color:"var(--muted)",flex:"none",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>${d.label}</div>
-        <div style=${{flex:1,height:"20px",borderRadius:"6px",background:"rgba(255,255,255,.05)",overflow:"hidden"}}>
-          <div style=${{width:(d.value/max*100)+"%",height:"100%",borderRadius:"6px",
+        <div style=${{flex:1,minWidth:0,display:"flex",alignItems:"center"}}>
+          <div style=${{width:(d.value/max*100)+"%",height:"8px",borderRadius:"999px",flex:"none",
             background:d.color||color||"linear-gradient(90deg,#e60023,#ff3b5c)",transition:"width .5s,filter .15s",
-            filter:hi===i?"brightness(1.12)":"none",
-            display:"flex",alignItems:"center",justifyContent:"flex-end",paddingRight:"7px",fontSize:"12px",fontWeight:700,color:"#04121a"}}>${format(d.value, d)}</div>
-        </div></div>`)}
+            filter:hi===i?"brightness(1.08)":"none"}}></div>
+        </div>
+        <div style=${{flex:"none",color:"var(--txt)",whiteSpace:"nowrap",textAlign:"right",minWidth:"30px"}}>${format(d.value, d)}</div>
+      </div>`)}
     </div>`;
   }
   const W=Math.max(data.length*46, 260), gap=14, bw=(W-gap*(data.length+1))/data.length;
@@ -84,7 +86,7 @@ let donutSeq=0;
 const DONUT_RED_RAMP=["#8a0014","#b30019","#e60023","#ff4d67","#ff8a9c","#ffbcc5"];
 // rampRed(i,n): สีของอันดับ i (เริ่ม 0) จาก n รายการที่เรียงมาก→น้อยแล้ว — มากสุด=เข้มสุด
 export const rampRed=(i,n)=> n<=1 ? "#e60023" : DONUT_RED_RAMP[Math.round(i*(DONUT_RED_RAMP.length-1)/(n-1))];
-export function Donut({data, size=150, thickness=22, center, animate=true}){
+export function Donut({data, size=150, thickness=14, center, animate=true}){
   const total = data.reduce((a,d)=>a+d.value,0)||1;
   // เรียงจากมาก→น้อย แล้วไล่สีแดงเข้ม→อ่อน (มากสุด = เข้มสุด)
   const segs = [...data].sort((a,b)=>b.value-a.value).map((d,i,arr)=>({...d,color:rampRed(i,arr.length)}));
@@ -107,7 +109,7 @@ export function Donut({data, size=150, thickness=22, center, animate=true}){
     return {d,i,dash,startOff,startAngle}; });
   const hover=(e,a)=>{ setHi(a.i); show(e, a.d.label,
     [{label:"จำนวน",value:nf(a.d.value)+" ราย"},{label:"สัดส่วน",value:Math.round(a.d.value/total*100)+"%"}]); };
-  return html`<div style=${{display:"flex",alignItems:"center",gap:"18px",flexWrap:"wrap",position:"relative"}}>
+  return html`<div style=${{display:"flex",alignItems:"center",justifyContent:"center",gap:"18px",flexWrap:"wrap",position:"relative"}}>
     <${ChartTip} state=${tip}/>
     <svg width=${size} height=${size} viewBox=${`0 0 ${size} ${size}`} style=${{overflow:"visible"}}>
       <circle cx=${size/2} cy=${size/2} r=${r} fill="none" stroke="rgba(15,23,42,.06)" stroke-width=${thickness}/>
