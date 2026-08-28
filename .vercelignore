@@ -1,3 +1,6 @@
+# ไฟล์ .pmtiles 166MB เกินลิมิต 100MB/ไฟล์ ของ Vercel static — ย้ายไป Vercel Blob แล้ว (ดู config/basemap.js)
+basemap/
+dev/
 geo-intel/
 .git/
 gen.mjs
