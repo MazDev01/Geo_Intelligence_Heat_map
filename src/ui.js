@@ -1,4 +1,4 @@
-import {html, Icon, cx, useState, useEffect, useRef} from "./lib.js";
+import {html, Icon, cx, useState, useEffect, useRef, thDate} from "./lib.js";
 import {createPortal} from "react-dom";   // portal Modal ไป <body> เพื่อไม่ให้ถูก .slide-panel (overflow:hidden + transform) กักไว้ในเนื้อหา — ป็อปอัพจึงคลุมเต็มจอ (รวมแถบเมนู)
 
 export function Card({title, sub, right, className, children, pad0, onClick, hoverable}){
@@ -13,8 +13,10 @@ export function Card({title, sub, right, className, children, pad0, onClick, hov
 
 export function Kpi({label, value, icon, iconBg, iconColor, delta, deltaUp, spark}){
   return html`<div class="kpi hoverable fade-in">
+    ${/* สีไอคอนตั้งต้น = แดงเข้มของแบรนด์ (ธีมสว่าง) — เดิมเป็นฟ้าอ่อน #dbe8ff ซึ่งเป็นสีสำหรับพื้นมืด
+           ทำให้ไอคอนจางจนแทบมองไม่เห็นบนกล่อง KPI พื้นอ่อน · กล่องที่ส่ง iconBg สีอื่นมาใช้สีตัวอักษรหลักแทน */""}
     ${icon&&html`<div class="kpi-ic" style=${{background:iconBg||"rgba(230, 0, 35,.15)"}}>
-      <${Icon} name=${icon} size=${19} color=${iconColor||"#dbe8ff"}/></div>`}
+      <${Icon} name=${icon} size=${19} color=${iconColor || (iconBg ? "var(--txt)" : "var(--accent-deep)")}/></div>`}
     <div class="kk">${label}</div>
     <div class="kv tnum">${value}</div>
     ${delta!=null&&html`<div class=${cx("kd", deltaUp?"up":"down")}>
@@ -26,7 +28,6 @@ export function Kpi({label, value, icon, iconBg, iconColor, delta, deltaUp, spar
 export function Badge({tone="neutral", children, icon}){
   return html`<span class=${"badge b-"+tone}>${icon&&html`<${Icon} name=${icon} size=${12}/>`}${children}</span>`;
 }
-export function Grade({g}){ return html`<span class=${"grade gr-"+g}>${g}</span>`; }
 
 // Small "i" info affordance with a tooltip. Works on hover (desktop) AND click/tap (mobile, no hover);
 // a click toggles it and an outside click closes it. `side="right"` opens the bubble leftward (use near
@@ -76,9 +77,10 @@ export function Meter({value, color, height}){
     <span style=${{width:Math.max(0,Math.min(100,value))+"%", background:color||"linear-gradient(90deg,#e60023,#ff3b5c)"}}></span></div>`;
 }
 
-export function Modal({title, onClose, children, footer, wide}){
+export function Modal({title, onClose, children, footer, wide, small}){
+  // small = กล่องยืนยันสั้น ๆ (ข้อความไม่กี่บรรทัด) ไม่ต้องกว้าง 560px เท่าป็อปอัพที่มีฟอร์ม
   const node = html`<div class="modal-ov" onClick=${e=>e.target.classList.contains("modal-ov")&&onClose()}>
-    <div class=${cx("modal",wide&&"wide")}>
+    <div class=${cx("modal",wide&&"wide",small&&"small")}>
       <div class="modal-h"><h2>${title}</h2>
         <button class="icon-btn" style=${{marginLeft:"auto",width:"32px",height:"32px"}} onClick=${onClose}>
           <${Icon} name="close" size=${16}/></button></div>
@@ -101,13 +103,24 @@ export function LoadingScreen({label="Loading geospatial data…"}){
   </div>`;
 }
 
-export function Table({cols, rows, onRow, empty="No records"}){
+export function Table({cols, rows, onRow, empty="No records", rowClass}){
   return html`<div class="table-wrap scrolly">
     <table class="table"><thead><tr>${cols.map((c,i)=>html`<th key=${i} style=${c.w?{width:c.w}:null}>${c.h}</th>`)}</tr></thead>
-    <tbody>${rows.length? rows.map((r,ri)=>html`<tr key=${ri} class=${onRow&&"clickable"} onClick=${onRow?()=>onRow(r,ri):null}>
+    <tbody>${rows.length? rows.map((r,ri)=>html`<tr key=${ri} class=${cx(onRow&&"clickable", rowClass&&rowClass(r,ri))} onClick=${onRow?()=>onRow(r,ri):null}>
       ${cols.map((c,ci)=>html`<td key=${ci}>${c.render? c.render(r,ri): r[c.key]}</td>`)}
     </tr>`) : html`<tr><td colSpan=${cols.length}><div class="emptybox">${empty}</div></td></tr>`}</tbody></table>
   </div>`;
+}
+
+/* ช่องเลือกวันที่แบบไทย — value/onChange ยังเป็น "YYYY-MM-DD" เหมือน <input type=date> ทุกประการ
+   className ส่งต่อไปที่ input ตัวจริง เพื่อให้ CSS ขนาดเดิมของแต่ละหน้ายังใช้ได้ */
+export function DateField({value, onChange, min, max, title, className, placeholder="วว/ดด/ปปปป"}){
+  return html`<span class="thdate">
+    <input type="date" class=${className} value=${value||""} title=${title}
+      min=${min||undefined} max=${max||undefined}
+      onChange=${e=>onChange&&onChange(e.target.value)} onInput=${e=>onChange&&onChange(e.target.value)}/>
+    <span class=${cx("thdate-lb", !value&&"ph")}>${value ? thDate(value) : placeholder}</span>
+  </span>`;
 }
 
 // Toast host
@@ -121,3 +134,47 @@ export function ToastHost(){
   return html`<div class="toast-wrap">${items.map(i=>html`<div key=${i.id} class="toast"
     style=${{borderLeftColor:border[i.tone]}}>${i.msg}</div>`)}</div>`;
 }
+
+
+/* ── แถบเมนูด้านข้างของโมดูลรายงาน TC ──
+   เดิมเป็นปุ่มกลม 2 อันวางพาดด้านบนสุดของหน้า เขียนซ้ำกัน 2 ที่ (reports.js ใช้ .rp-subtab
+   · visit-plan-report.js ใช้ .vp-subtab) สไตล์ไม่ตรงกันและแก้ต้องแก้สองที่
+   รวมเหลือตัวเดียวที่นี่ และย้ายมาเป็นคอลัมน์ซ้ายตามที่ผู้ใช้กำหนด
+   ใช้คู่กับ .tcrp-wrap ที่ห่อหน้า (กริด: เมนู 196px | เนื้อหา) */
+const TCRP_TABS = [
+  { id:"reports",     label:"แดชบอร์ด TC",        icon:"reports" },
+  { id:"visit-plans", label:"รายงานแผนการเข้าพบ", icon:"route"   },
+];
+export function TCReportNav({active, nav}){
+  return html`<nav class="tcrp-nav" aria-label="เมนูรายงาน">
+    <div class="tcrp-nav-h">รายงาน</div>
+    ${TCRP_TABS.map(t=>html`<button key=${t.id} class=${cx("tcrp-tab", active===t.id&&"on")}
+      aria-current=${active===t.id?"page":undefined}
+      onClick=${()=>{ if(active!==t.id && nav) nav(t.id); }}>
+      <${Icon} name=${t.icon} size=${15}/><span>${t.label}</span></button>`)}
+    <style>${TCRP_CSS}</style></nav>`;
+}
+const TCRP_CSS = `
+/* เมนูอยู่คอลัมน์ 1 · ลูกที่เหลือของ .page ไหลลงคอลัมน์ 2 เรียงเป็นแถวตามเดิม
+   ทำที่ CSS ล้วน จึงไม่ต้องห่อเนื้อหาหน้าใหม่ (htm พาร์สแต่ละ template แยกกัน เปิด/ปิด tag ข้าม template ไม่ได้)
+   row-gap 0 เพื่อคงระยะห่างเดิมที่แต่ละบล็อกมี margin ของตัวเองอยู่แล้ว */
+.tcrp-wrap{display:grid;grid-template-columns:196px minmax(0,1fr);gap:0 22px;align-items:start}
+.tcrp-wrap > *{grid-column:2;min-width:0}
+.tcrp-wrap > .tcrp-nav{grid-column:1;grid-row:1}
+.tcrp-nav{display:flex;flex-direction:column;gap:4px;position:sticky;top:0}
+.tcrp-nav-h{font-size:11px;font-weight:700;color:var(--dim);letter-spacing:.04em;padding:2px 12px 8px}
+.tcrp-tab{display:flex;align-items:center;gap:9px;width:100%;text-align:left;padding:10px 13px;border-radius:10px;
+  border:1px solid transparent;background:none;color:var(--muted);font-family:var(--font);font-size:13px;
+  font-weight:600;cursor:pointer;line-height:1.3}
+.tcrp-tab:hover{background:var(--surface2);color:var(--txt)}
+.tcrp-tab.on{background:var(--accent);border-color:var(--accent);color:#fff}
+/* จอแคบ: พับกลับเป็นแถวเดียวเหนือเนื้อหา ไม่ให้เมนูกินความกว้างของตาราง */
+@media(max-width:900px){
+  .tcrp-wrap{grid-template-columns:1fr;gap:12px 0}
+  .tcrp-wrap > *,.tcrp-wrap > .tcrp-nav{grid-column:1}
+  .tcrp-nav{flex-direction:row;position:static;flex-wrap:wrap}
+  .tcrp-nav-h{display:none}
+  .tcrp-tab{width:auto;border-radius:999px;border-color:var(--stroke2);background:var(--panel)}
+}
+@media print{.tcrp-nav{display:none!important}.tcrp-wrap{display:block}}
+`;

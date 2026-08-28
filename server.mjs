@@ -8,12 +8,15 @@ const ROOT = fileURLToPath(new URL('.', import.meta.url));
 const PORT = 5173;
 const MIME = {'.html':'text/html','.js':'text/javascript','.mjs':'text/javascript','.json':'application/json','.geojson':'application/json','.css':'text/css','.svg':'image/svg+xml','.png':'image/png','.ico':'image/x-icon','.pmtiles':'application/octet-stream'};
 
-// In-memory cache of parsed country-scoped datasets, so filtering a large table
-// by ?country= costs one parse per file (not per request) — the DB-side WHERE equivalent.
+// แคชผลพาร์สของไฟล์ข้อมูลที่กรองด้วย ?country= ไว้ในหน่วยความจำ (พาร์สครั้งเดียวต่อไฟล์ ไม่ใช่ต่อ request)
+// ⚠ ต้องผูกกับ mtime ของไฟล์: ก่อนหน้านี้แคชไม่มีวันหมดอายุ พอรัน gen.mjs ทับไฟล์ข้อมูล
+//   เซิร์ฟเวอร์จะยังตอบข้อมูลชุดเก่าต่อไปเงียบ ๆ จนกว่าจะรีสตาร์ต (เคยหลอกให้เข้าใจผิดว่าโค้ดฝั่งหน้าเว็บพัง)
 const _rowCache = new Map();
 async function scopedRows(file, country){
-  let rows = _rowCache.get(file);
-  if(!rows){ rows = JSON.parse(await readFile(file, 'utf8')); _rowCache.set(file, rows); }
+  const mtime = (await stat(file)).mtimeMs;
+  const hit = _rowCache.get(file);
+  let rows = hit && hit.mtime === mtime ? hit.rows : null;
+  if(!rows){ rows = JSON.parse(await readFile(file, 'utf8')); _rowCache.set(file, {mtime, rows}); }
   return Array.isArray(rows) ? rows.filter(r=>r && r.country===country) : rows;
 }
 

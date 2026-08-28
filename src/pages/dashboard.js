@@ -12,10 +12,8 @@ export function Dashboard(){
   // segment distribution (existing customers)
   const segCount = SEGMENTS.map(s=>({label:segTH(s), value:custs.filter(c=>c.segment===s).length, color:SEG_COLOR[s]}));
 
-  // business opportunity index (factors avg potential + gap ratio + prospect volume)
-  const ranked=[...areas].map(a=>{ const ratio=a.customerCount?a.prospectCount/a.customerCount:a.prospectCount;
-    const opp=Math.min(100,Math.round(0.45*a.avgPotentialScore + 0.2*Math.min(100,ratio*7) + 0.35*Math.min(100,a.prospectCount/9)));
-    return {...a,opp}; }).sort((x,y)=>y.opp-x.opp);
+  // ดัชนี Lead สูงรายจังหวัด — คำนวณไว้แล้วใน areas.json (gapScore)
+  const ranked=[...areas].map(a=>({...a, opp:a.gapScore||0})).sort((x,y)=>y.opp-x.opp);
   const avgOpp = Math.round(ranked.reduce((s,a)=>s+a.opp,0)/ranked.length);
 
   const topByCust=[...areas].sort((a,b)=>b.customerCount-a.customerCount).slice(0,6)
@@ -50,7 +48,7 @@ export function Dashboard(){
       <${Kpi} label="ลูกค้าปัจจุบัน" value=${num(custs.length)} icon="users" iconBg="rgba(230, 0, 35,.2)" delta="+4.2% จากเดือนก่อน" deltaUp=${true} spark=${spark([12,18,15,22,26,24,30])}/>
       <${Kpi} label="Lead (Prospect)" value=${num(pros.length)} icon="target" iconBg="rgba(255, 59, 92,.18)" delta="+8.1% จากเดือนก่อน" deltaUp=${true} spark=${spark([20,24,30,28,36,40,44])}/>
       <${Kpi} label="จังหวัดที่มีลูกค้า" value=${num(provincesWithCust)+" / 77"} icon="pin" iconBg="rgba(51,214,159,.18)" delta="ครอบคลุมทั่วประเทศ" deltaUp=${true}/>
-      <${Kpi} label="Opportunity Score เฉลี่ย" value=${avgOpp+"/100"} icon="bolt" iconBg="rgba(255,176,46,.18)" delta="ศักยภาพสูง" deltaUp=${true}/>
+      <${Kpi} label="Lead เฉลี่ย" value=${avgOpp+"/100"} icon="bolt" iconBg="rgba(255,176,46,.18)" delta="หมวดที่ยังขาดในเครือข่าย" deltaUp=${true}/>
     </div>
 
     <!-- SECTION 2 & 3: charts -->
@@ -65,12 +63,12 @@ export function Dashboard(){
 
     <!-- SECTION 4 & 5: rankings -->
     <div class="grid g2" style=${{marginBottom:"18px",alignItems:"start"}}>
-      <${Card} title="อันดับโอกาสทางธุรกิจ" sub="เรียงตาม Opportunity Score จากมากไปน้อย" pad0=${true}>
+      <${Card} title="อันดับพื้นที่ Lead สูง" sub="เรียงตามดัชนี Lead (0–100) จากมากไปน้อย" pad0=${true}>
         <${Table} cols=${[
           {h:"จังหวัด", render:r=>provinceTH(r.province)},
           {h:"Existing", render:r=>num(r.customerCount)},
           {h:"Prospect", render:r=>num(r.prospectCount)},
-          {h:"Opp Score", render:r=>html`<b>${r.opp}</b>`},
+          {h:"ดัชนีช่องว่าง", render:r=>html`<b>${r.opp}</b>`},
           {h:"Coverage", render:r=>pct(r.coverage)},
         ]} rows=${ranked.slice(0,10)} onRow=${r=>nav("area",{province:r.province})}/>
       </${Card}>
@@ -79,7 +77,7 @@ export function Dashboard(){
           style=${{padding:"9px 0",borderBottom:"1px solid var(--stroke)",cursor:"pointer",gap:"10px"}}>
           <div class="row" style=${{gap:"11px",flex:1,minWidth:0}}>
             <div style=${{width:"22px",height:"22px",borderRadius:"7px",flex:"none",display:"grid",placeItems:"center",fontSize:"12.5px",fontWeight:700,
-              background:i<3?"rgba(255,90,60,.18)":"rgba(255,255,255,.05)",color:i<3?"#ff8a6e":"var(--muted)"}}>${i+1}</div>
+              background:i<3?"rgba(255,90,60,.18)":"rgba(30,45,80,.07)",color:i<3?"#ff8a6e":"var(--muted)"}}>${i+1}</div>
             <span style=${{fontSize:"13px",fontWeight:600,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>${provinceTH(a.province)}</span></div>
           <div style=${{width:"84px"}}><${Meter} value=${a.opp} color=${heatColor(a.opp)}/></div>
           <b style=${{width:"28px",textAlign:"right"}}>${a.opp}</b>
@@ -99,7 +97,7 @@ export function Dashboard(){
       </${Card}>
       <${Card} title="การแจ้งเตือน" sub="ธุรกิจล่าสุด">
         ${notifs.map((n,i)=>html`<div key=${i} class="row" style=${{gap:"11px",padding:"9px 0",borderBottom:"1px solid var(--stroke)",alignItems:"flex-start"}}>
-          <div style=${{width:"28px",height:"28px",borderRadius:"8px",flex:"none",display:"grid",placeItems:"center",background:"rgba(255,255,255,.04)"}}>
+          <div style=${{width:"28px",height:"28px",borderRadius:"8px",flex:"none",display:"grid",placeItems:"center",background:"rgba(30,45,80,.05)"}}>
             <${Icon} name=${n.icon} size=${14} color=${n.tone==="good"?"#33d69f":n.tone==="bad"?"#ff8a6e":n.tone==="warn"?"#ffb02e":"#e60023"}/></div>
           <div style=${{flex:1}}><div style=${{fontSize:"12.5px"}}>${n.t}</div><div class="dim" style=${{fontSize:"12px",marginTop:"2px"}}>${n.time}</div></div></div>`)}
       </${Card}>

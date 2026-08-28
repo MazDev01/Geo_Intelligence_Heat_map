@@ -1,13 +1,21 @@
 import {readFile, writeFile} from 'node:fs/promises';
-import {PROVINCES, PROVINCE_KEYS, DISTRICT_META, SEGMENTS as SEG, GRADE_BANDS, gradeCounts, validateGeoData, segZero} from './src/mock/geoData.js';
+import {PROVINCES, PROVINCE_KEYS, DISTRICT_META, SEGMENTS as SEG, GAP_REF, demandGap, validateGeoData, segZero} from './src/mock/geoData.js';
 import {makeRounds, deriveVisitStatus} from './src/visit-rounds.js';
+
+// ═══════════════════════════════════════════════════════════════════════════
+// gen.mjs — สร้างไฟล์ข้อมูลใน data/ ให้แอปอ่าน
+//   ลูกค้า (customers) = **ข้อมูลจริงจาก Barter** อ่านตรงจาก data/source-customers.json (ไม่สุ่ม ไม่แต่งเติม)
+//                        1,662 ราย · 39 จังหวัด · 12 หมวดธุรกิจ · ฟิลด์ที่มีคือ ชื่อ/หมวด/ที่อยู่/จังหวัด/อำเภอ/
+//                        พิกัด/โทรศัพท์/เว็บไซต์/เฟซบุ๊ก/วันที่เริ่มเป็นลูกค้า — **ไม่มียอดขายและไม่มีสถานะการค้า**
+//   Lead (prospects)   = ยังเป็นข้อมูลจำลอง สร้างเฉพาะ 4 จังหวัดโฟกัส ตามยอดใน PROVINCES
+// สร้างซ้ำได้: `node gen.mjs` (RNG เป็น seed คงที่ → Lead ชุดเดิมทุกครั้ง)
+// ═══════════════════════════════════════════════════════════════════════════
 
 // ---------- deterministic RNG ----------
 function mulberry32(a){return function(){a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296;};}
 const R = mulberry32(20260711);
 const pick = arr => arr[Math.floor(R()*arr.length)];
 const rint = (a,b)=>Math.floor(a+R()*(b-a+1));
-const rflt = (a,b)=>+(a+R()*(b-a)).toFixed(4);
 
 // ---------- province geometry ----------
 // หมายเหตุ: geojson ถูกแก้ property name ของ feature ชายฝั่งตะวันออก เป็น "Pattaya" แล้ว (พัทยาใช้ขอบเขตพื้นที่ชายฝั่งตะวันออกเดิม)
@@ -25,7 +33,7 @@ function inProvince(pt,rings){return rings.some(r=>pip(pt,r));}
 const PROV = {};
 for(const f of prov.features){const rings=outerRings(f.geometry);PROV[f.properties.name]={rings,bbox:bboxOf(rings),center:centroidOf(rings)};}
 
-// ---------- อำเภอ/เขต (จาก geoData single source) ----------
+// ---------- อำเภอ/เขต ของ 4 จังหวัดโฟกัส (ใช้กระจาย Lead จำลอง) ----------
 // [ชื่ออังกฤษ, น้ำหนักกระจายข้อมูล]
 const DISTRICTS = Object.fromEntries(
   Object.entries(DISTRICT_META).map(([prov,list])=>[prov, list.map(([en,,w])=>[en,w])]));
@@ -35,127 +43,124 @@ function districtFor(province){
   for(const [name,w] of list){ if(r<w) return name; r-=w; } return list[list.length-1][0];
 }
 
-// ---------- naming ----------
+// ═══════════ 1) ลูกค้า — ข้อมูลจริง อ่านตรงจากไฟล์ ไม่มีการสุ่มใด ๆ ═══════════
+const SOURCE = JSON.parse(await readFile('data/source-customers.json','utf8'));
+const customers = SOURCE.map(r=>({
+  id:r.id,                       // = รหัสลูกค้าจากระบบเดิม (AccountNo) · ต่อท้าย -2/-3 เมื่อหนึ่งบัญชีมีหลายสาขา
+  accountNo:r.accountNo,
+  businessName:r.businessName,
+  segment:r.segment,
+  status:'Existing',
+  country:'Thailand',
+  province:r.province,
+  district:r.district,
+  address:r.address,
+  latitude:r.latitude,
+  longitude:r.longitude,
+  phone:r.phone,
+  website:r.website,
+  facebook:r.facebook,
+  dateJoin:r.dateJoin,           // วันที่เริ่มเป็นลูกค้า (จากไฟล์)
+  created_at:r.dateJoin,         // ฟิลด์ที่ตัวกรองช่วงเวลาทั้งระบบใช้ = วันที่เริ่มเป็นลูกค้า
+}));
+
+// ═══════════ 2) Lead — ข้อมูลจำลอง เฉพาะ 4 จังหวัดโฟกัส ═══════════
 const PFX=['ABC','Grand','Royal','Riverside','Sunset','Emerald','Golden','Ocean','Metro','Central','Lotus','Sapphire','Orchid','Bamboo','Nova','Aster','Siam','Baan','Chao','Thara','Imperial','Prime','Summit','Vista','Lumpini','Andaman','Mekong'];
 const SFX={
+  Manufacturing:['Industry','Manufacturing','Supplies','Works','Materials'],
+  HomeLiving:['Furniture','Home','Decor','Living','Interior'],
   FoodBeverage:['Restaurant','Kitchen','Bistro','Cafe','Eatery','Seafood'],
   HealthBeauty:['Clinic','Spa','Salon','Wellness','Beauty','Aesthetic'],
-  Hotel:['Hotel','Resort','Suites','Residence','Bay Resort','Boutique Hotel'],
-  MarketingEvents:['Agency','Studio','Events','Media','Creative'],
-  AutoTransport:['Auto','Garage','Motors','Logistics','Transport'],
-  HomeLiving:['Furniture','Home','Decor','Living','Interior'],
-  Education:['Academy','School','Institute','Learning','Tutoring'],
-  BusinessServices:['Consulting','Partners','Services','Office','Advisory'],
   Retail:['Mall','Plaza','Store','Mart','Outlet','Emporium'],
-  ITElectronics:['Tech','Digital','Electronics','Systems','IT Solutions'],
-  CleaningMaintenance:['Cleaning','Service','Maintenance','Care','Facility'],
-  Other:['Group','Center','Enterprise','Co'] };
-const TYPE={FoodBeverage:'อาหารและเครื่องดื่ม',HealthBeauty:'สุขภาพและความงาม',Hotel:'โรงแรมและที่พัก',
-  MarketingEvents:'การตลาดและอีเวนต์',AutoTransport:'ยานยนต์และขนส่ง',HomeLiving:'บ้านและเฟอร์นิเจอร์',
-  Education:'การศึกษาและฝึกอบรม',BusinessServices:'บริการธุรกิจและวิชาชีพ',Retail:'ค้าปลีกและอุปโภคบริโภค',
-  ITElectronics:'ไอทีและอิเล็กทรอนิกส์',CleaningMaintenance:'ทำความสะอาดและซ่อมบำรุง',Other:'อื่น ๆ'};
+  ProfessionalServices:['Agency','Consulting','Partners','Advisory','Media','Creative'],
+  AutoTransport:['Auto','Garage','Motors','Logistics','Transport'],
+  Hospitality:['Hotel','Resort','Suites','Residence','Bay Resort','Boutique Hotel'],
+  Technology:['Tech','Digital','Electronics','Systems','IT Solutions'],
+  PetAnimal:['Pet Shop','Animal Care','Pet Clinic','Grooming'],
+  ArtsCulture:['Studio','Gallery','Atelier','Craft','Workshop'],
+  RealEstate:['Property','Estate','Residence','Land','Realty'] };
 const ROADS=['Sukhumvit','Rama IX','Phahonyothin','Silom','Charoen Krung','Ratchada','Beach','Nimman'];
 const SEGMENTS=SEG;
 const bizName=seg=>pick(PFX)+' '+pick(SFX[seg]);
 const segFor=top=> R()<0.45? top : pick(SEGMENTS);
-const dateStr=()=>{const d=rint(0,330);const t=new Date(Date.UTC(2026,6,11)-d*864e5);return t.toISOString().slice(0,10);};
-const oppFromRatio=(pot,ratio)=>Math.min(100,Math.round(0.55*pot+0.45*Math.min(100,ratio*7)));
+// อีเมลของ Lead (ข้อมูลจำลอง — Lead ยังไม่ใช่ลูกค้า จึงยังไม่มีข้อมูลติดต่อจริงในระบบ)
+const MAIL_DOMAINS=['gmail.com','hotmail.com','outlook.co.th','yahoo.com'];
+const slug = n => n.toLowerCase().replace(/[^a-z0-9]+/g,'').slice(0,18);
+const emailOf = (name,id)=> R()<0.55
+  ? 'contact@'+slug(name)+id.slice(-3)+'.co.th'
+  : slug(name)+id.slice(-3)+'@'+pick(MAIL_DOMAINS);
 
-let cSeq=1,pSeq=1;
-const customers=[], prospects=[];
-
+let pSeq=1;
+const prospects=[];
 function samplePoint(name){
   const p=PROV[name]; if(!p) return null;
   const b=p.bbox;
   for(let k=0;k<60;k++){const pt=[b[0]+R()*(b[2]-b[0]),b[1]+R()*(b[3]-b[1])];if(inProvince(pt,p.rings))return pt;}
   return p.center;
 }
-function addCustomer(country,province,lng,lat,seg){
-  const pot=rint(45,99);
-  customers.push({id:'CUS'+String(cSeq++).padStart(5,'0'),businessName:bizName(seg),businessType:TYPE[seg],segment:seg,status:'Existing',country,province,district:districtFor(province),address:rint(1,999)+' '+pick(ROADS)+' Rd',latitude:+lat.toFixed(4),longitude:+lng.toFixed(4),salesValue:rint(60,1500)*1000,tradingStatus:pick(['Active','Active','Active','Dormant','At Risk']),lastPurchaseDate:dateStr(),potentialScore:pot,opportunityScore:oppFromRatio(pot,6)});
-}
 function addProspect(country,province,lng,lat,seg){
-  prospects.push({id:'PRO'+String(pSeq++).padStart(5,'0'),businessName:bizName(seg),category:seg,segment:seg,status:'Prospect',country,province,district:districtFor(province),address:rint(1,999)+' '+pick(ROADS)+' Rd',latitude:+lat.toFixed(4),longitude:+lng.toFixed(4),rating:rflt(3.2,5),reviewCount:rint(15,1600),hasWebsite:R()<0.55,hasPhone:R()<0.8});
+  const id='PRO'+String(pSeq++).padStart(5,'0'), name=bizName(seg);
+  prospects.push({id,businessName:name,category:seg,segment:seg,status:'Prospect',country,province,district:districtFor(province),address:rint(1,999)+' '+pick(ROADS)+' Rd',email:emailOf(name,id),latitude:+lat.toFixed(4),longitude:+lng.toFixed(4)});
 }
-
-// ---------- สร้างข้อมูล 4 จังหวัด (ยอดคงที่ตามสเปก geoData) ----------
 for(const sp of PROVINCES){
-  for(let i=0;i<sp.customers;i++){const pt=samplePoint(sp.key);if(pt)addCustomer('Thailand',sp.key,pt[0],pt[1],segFor(sp.topSegment));}
   for(let i=0;i<sp.prospects;i++){const pt=samplePoint(sp.key);if(pt)addProspect('Thailand',sp.key,pt[0],pt[1],segFor(sp.topSegment));}
 }
 
-// ---------- ให้คะแนนผู้มุ่งหวัง = บังคับสัดส่วนเกรด A:B:C = 45:30:25 ต่อจังหวัด (ข้อ 7.2) ----------
-// A=80-100 · B=60-79 · C=<60 · คะแนนภายในแต่ละแถบสุ่มแบบ deterministic (คงที่ทุกครั้งที่ gen)
-for(const sp of PROVINCES){
-  const ps = prospects.filter(p=>p.province===sp.key);
-  const g = gradeCounts(sp.prospects);   // {A,B,C}
-  const ratio = sp.customers ? sp.prospects/sp.customers : sp.prospects;
-  ps.forEach((p,i)=>{
-    const band = i<g.A ? 'A' : i<g.A+g.B ? 'B' : 'C';
-    const [lo,hi] = GRADE_BANDS[band];
-    p.potentialScore = lo + Math.floor(R()*(hi-lo+1));
-    p.grade = band;
-    p.opportunityScore = oppFromRatio(p.potentialScore, ratio);
-  });
-}
-
-// ---------- areas.json (4 จังหวัด) ----------
+// ═══════════ 3) areas.json — ทุกจังหวัดที่มีลูกค้าหรือ Lead (ไม่ใช่แค่ 4 จังหวัดแล้ว) ═══════════
+const provNames = [...new Set([...customers.map(c=>c.province), ...prospects.map(p=>p.province)])]
+  .filter(n=>PROV[n]);
 const areas=[];
-for(const sp of PROVINCES){
-  const name=sp.key;
+for(const name of provNames){
   const cs=customers.filter(c=>c.province===name);
   const ps=prospects.filter(p=>p.province===name);
   const dist=segZero();cs.forEach(c=>dist[c.segment]++);ps.forEach(p=>dist[p.segment]++);
-  const avgPot=ps.length?Math.round(ps.reduce((a,p)=>a+p.potentialScore,0)/ps.length):0;
-  const ratio=cs.length?ps.length/cs.length:ps.length;
+  const g=demandGap(cs,ps,GAP_REF.province);
   const b=PROV[name].bbox;
-  areas.push({province:name,center:PROV[name].center,customerCount:cs.length,prospectCount:ps.length,avgPotentialScore:avgPot,coverage:Math.min(100,Math.round(cs.length/(cs.length+ps.length)*100)),density:+(cs.length/((b[2]-b[0])*(b[3]-b[1])+.01)).toFixed(1),salesTotal:cs.reduce((a,c)=>a+c.salesValue,0),opportunityScore:oppFromRatio(avgPot,ratio),marketGap:ratio>=10?'High':ratio>=5?'Medium':'Low',topSegment:Object.entries(dist).sort((a,b)=>b[1]-a[1])[0][0],segmentDistribution:dist});
+  areas.push({province:name,center:PROV[name].center,customerCount:cs.length,prospectCount:ps.length,
+    coverage:(cs.length+ps.length)?Math.min(100,Math.round(cs.length/(cs.length+ps.length)*100)):0,
+    density:+(cs.length/((b[2]-b[0])*(b[3]-b[1])+.01)).toFixed(1),
+    gapScore:g.gapScore,gapLevel:g.gapLevel,gapCount:g.gapCount,gapDepth:g.gapDepth,gapBreadth:g.gapBreadth,
+    topGapSegment:g.topGapSegment,gapSegs:g.gapSegs,
+    topSegment:Object.entries(dist).sort((a,b)=>b[1]-a[1])[0][0],segmentDistribution:dist});
 }
-areas.sort((a,b)=>b.opportunityScore-a.opportunityScore);
+areas.sort((a,b)=>b.gapScore-a.gapScore);
 
-// ---------- districts.json (ระดับอำเภอ/เขต — ทั้ง 4 จังหวัด) ----------
+// ═══════════ 4) districts.json — ระดับอำเภอ/เขต สร้างจากข้อมูลที่มีจริง ═══════════
+const dkeys = new Map();
+for(const r of customers.concat(prospects)){
+  if(!r.district) continue;
+  const k=r.province+'|'+r.district;
+  if(!dkeys.has(k)) dkeys.set(k,{province:r.province,district:r.district});
+}
 const districts=[];
-for(const [province,list] of Object.entries(DISTRICTS)){
-  for(const [name] of list){
-    const cs=customers.filter(c=>c.province===province&&c.district===name);
-    const ps=prospects.filter(p=>p.province===province&&p.district===name);
-    if(cs.length+ps.length===0)continue;
-    const dist=segZero();cs.forEach(c=>dist[c.segment]++);ps.forEach(p=>dist[p.segment]++);
-    const avgPot=ps.length?Math.round(ps.reduce((a,p)=>a+p.potentialScore,0)/ps.length):0;
-    const ratio=cs.length?ps.length/cs.length:ps.length;
-    districts.push({province,district:name,customerCount:cs.length,prospectCount:ps.length,avgPotentialScore:avgPot,
-      coverage:Math.min(100,Math.round(cs.length/(cs.length+ps.length)*100)),salesTotal:cs.reduce((a,c)=>a+c.salesValue,0),
-      opportunityScore:oppFromRatio(avgPot,ratio),marketGap:ratio>=10?'High':ratio>=5?'Medium':'Low',
-      topSegment:Object.entries(dist).sort((a,b)=>b[1]-a[1])[0][0],segmentDistribution:dist});
-  }
+for(const {province,district} of dkeys.values()){
+  const cs=customers.filter(c=>c.province===province&&c.district===district);
+  const ps=prospects.filter(p=>p.province===province&&p.district===district);
+  if(cs.length+ps.length===0)continue;
+  const dist=segZero();cs.forEach(c=>dist[c.segment]++);ps.forEach(p=>dist[p.segment]++);
+  const g=demandGap(cs,ps,GAP_REF.district);
+  districts.push({province,district,customerCount:cs.length,prospectCount:ps.length,
+    coverage:Math.min(100,Math.round(cs.length/(cs.length+ps.length)*100)),
+    gapScore:g.gapScore,gapLevel:g.gapLevel,gapCount:g.gapCount,gapDepth:g.gapDepth,gapBreadth:g.gapBreadth,
+    topGapSegment:g.topGapSegment,gapSegs:g.gapSegs,
+    topSegment:Object.entries(dist).sort((a,b)=>b[1]-a[1])[0][0],segmentDistribution:dist});
 }
-districts.sort((a,b)=>b.opportunityScore-a.opportunityScore);
+districts.sort((a,b)=>b.gapScore-a.gapScore);
 
-// ---------- countries.json (มีเฉพาะไทย) ----------
+// ═══════════ 5) countries.json ═══════════
 const countries=[];
 {
   const cs=customers, ps=prospects;
-  const ratio=cs.length?ps.length/cs.length:ps.length;
-  const avgPot=ps.length?Math.round(ps.reduce((a,p)=>a+p.potentialScore,0)/ps.length):0;
-  countries.push({country:'Thailand',center:[13.0,101.0],customerCount:cs.length,prospectCount:ps.length,coverage:Math.min(100,Math.round(cs.length/(cs.length+ps.length)*100)),opportunityScore:oppFromRatio(avgPot,ratio),salesTotal:cs.reduce((a,c)=>a+c.salesValue,0),hasProvinces:true});
+  const g=demandGap(cs,ps,GAP_REF.country);
+  countries.push({country:'Thailand',center:[13.0,101.0],customerCount:cs.length,prospectCount:ps.length,coverage:Math.min(100,Math.round(cs.length/(cs.length+ps.length)*100)),gapScore:g.gapScore,gapLevel:g.gapLevel,gapCount:g.gapCount,gapDepth:g.gapDepth,gapBreadth:g.gapBreadth,topGapSegment:g.topGapSegment,gapSegs:g.gapSegs,hasProvinces:true});
 }
 
-// ---------- วันที่เพิ่มเข้าระบบ (created_at) — ตัวสุ่มแยก RT ----------
+// ---------- วันที่เพิ่ม Lead เข้าระบบ (created_at) — ตัวสุ่มแยก RT ----------
+// ลูกค้าใช้ dateJoin จากไฟล์จริงเป็น created_at อยู่แล้ว จึงเหลือแค่ Lead ที่ต้องสุ่ม
 const RT = mulberry32(20260713);
 const rtint = (a,b)=>Math.floor(a+RT()*(b-a+1));
 const ANCHOR = Date.UTC(2026,6,13);
 const backToISO = d => new Date(ANCHOR - d*864e5).toISOString().slice(0,10);
-const daysBack  = iso => Math.round((ANCHOR - Date.parse(iso))/864e5);
-for(const c of customers){
-  const lb = daysBack(c.lastPurchaseDate);
-  const cold = c.tradingStatus==='Dormant'||c.tradingStatus==='At Risk';
-  let back;
-  if(lb<=120 && !cold && RT()<0.7){ back = lb + rtint(0,10); }
-  else if(RT() < (cold?0.8:0.52)){ back = rtint(348,365); }
-  else{ back = rtint(0,347); }
-  if(back < lb) back = lb + rtint(0,25);
-  c.created_at = backToISO(back);
-}
 for(const p of prospects){
   const back = RT()<0.35 ? rtint(352,365) : Math.round(350*Math.pow(RT(),1.7));
   p.created_at = backToISO(back);
@@ -163,7 +168,7 @@ for(const p of prospects){
 
 // ---------- ทีมผู้ประสานงานการค้า (TC) + สถานะการเข้าพบ — ตัวสุ่มแยก RTC ----------
 const RTC = mulberry32(20260714);
-// จุดยึด TC ตามภูมิภาคของ 4 จังหวัด (2 จุดในกรุงเทพฯ เพื่อให้เกิดพื้นที่ทับซ้อนในเมือง)
+// จุดยึด TC ตามภูมิภาคของ 4 จังหวัดโฟกัส (2 จุดในกรุงเทพฯ เพื่อให้เกิดพื้นที่ทับซ้อนในเมือง)
 const TC_SEEDS = [
   {tc:'ธนพล ศรีวัฒน์',       lat:18.79, lng:98.98},   // เชียงใหม่
   {tc:'ณัฐริกา พงษ์ไพบูลย์', lat:13.86, lng:100.62},  // กรุงเทพฯ ตอนเหนือ-ตะวันออก
@@ -171,6 +176,7 @@ const TC_SEEDS = [
   {tc:'ศุภมาส เจริญสุข',      lat:12.93, lng:100.90},  // พัทยา (ภาคตะวันออก)
   {tc:'ปิยะนุช วงศ์สกุล',     lat:7.90,  lng:98.40},   // ภูเก็ต (ภาคใต้)
 ];
+const FOCUS = new Set(PROVINCE_KEYS);
 const idHash = id => { let h=0; for(let i=0;i<id.length;i++) h=(h*31+id.charCodeAt(i))>>>0; return h; };
 const assignTC = (lat,lng,id)=>{
   const ds=TC_SEEDS.map(s=>({tc:s.tc, d:(lat-s.lat)*(lat-s.lat)+(lng-s.lng)*(lng-s.lng)})).sort((a,b)=>a.d-b.d);
@@ -178,9 +184,10 @@ const assignTC = (lat,lng,id)=>{
   if(second && second.d <= near.d*2.0 && (idHash(id)&1)) return second.tc;
   return near.tc;
 };
-for(const c of customers) c.tc_owner = assignTC(c.latitude, c.longitude, c.id);
+// ลูกค้านอก 4 จังหวัดโฟกัส = ยังไม่มี TC ดูแล (พื้นที่ไร้ผู้ดูแล — ดูหน้า "จัดการขอบเขตพื้นที่การขาย")
+for(const c of customers) c.tc_owner = FOCUS.has(c.province) ? assignTC(c.latitude, c.longitude, c.id) : null;
 for(const p of prospects) p.tc_owner = assignTC(p.latitude, p.longitude, p.id);
-// ── รอบการเข้าพบ (visit rounds) — สถานะผู้มุ่งหวัง derive จากรอบ (ย้ายจาก visit_status เดิม) ──
+// ── รอบการเข้าพบ (visit rounds) — สถานะ Lead derive จากรอบ ──
 // สัดส่วนสถานการณ์: รอเข้าพบ 50% · นัดหมายแล้ว 15% · รอรอบถัดไป 20% · ใกล้ปิดการขาย 5% · ปิดโอกาส 10%
 const isoBack = d => backToISO(d);                     // d>0 = อดีต · d<0 = อนาคต
 const pickScenario = ()=>{ const r=RTC();
@@ -188,10 +195,10 @@ const pickScenario = ()=>{ const r=RTC();
 for(const p of prospects){
   const sc = pickScenario();
   p.visitRounds = makeRounds(sc, p.tc_owner, RTC, isoBack);
-  p.visit_status = deriveVisitStatus(p.visitRounds);   // สรุปกลับเป็นฟิลด์เดิม เพื่อให้รายงาน/แผนที่ที่อ้าง visit_status ทำงานได้เหมือนเดิม
+  p.visit_status = deriveVisitStatus(p.visitRounds);
 }
 
-// ---------- ตรวจกฎความสอดคล้อง (ข้อ 7.3) ก่อนเขียนไฟล์ — throw ถ้าไม่ผ่าน ----------
+// ---------- ตรวจกฎความสอดคล้องก่อนเขียนไฟล์ — throw ถ้าไม่ผ่าน ----------
 validateGeoData({customers, prospects});
 
 await writeFile('data/customers.json',JSON.stringify(customers));
@@ -199,8 +206,10 @@ await writeFile('data/prospects.json',JSON.stringify(prospects));
 await writeFile('data/areas.json',JSON.stringify(areas));
 await writeFile('data/districts.json',JSON.stringify(districts));
 await writeFile('data/countries.json',JSON.stringify(countries,null,2));
-console.log('✓ ผ่าน validate 7.3 · customers:',customers.length,'prospects:',prospects.length,'areas:',areas.length,'districts:',districts.length,'countries:',countries.length);
-for(const sp of PROVINCES){
-  const ps=prospects.filter(p=>p.province===sp.key); const g={A:0,B:0,C:0}; ps.forEach(p=>g[p.grade]++);
-  console.log(`  ${sp.th}: ลูกค้า ${customers.filter(c=>c.province===sp.key).length} · ผู้มุ่งหวัง ${ps.length} · A/B/C ${g.A}/${g.B}/${g.C}`);
+console.log('✓ ผ่าน validate · ลูกค้า(จริง):',customers.length,'· Lead(จำลอง):',prospects.length,'· จังหวัด:',areas.length,'· อำเภอ/เขต:',districts.length);
+const noTC = customers.filter(c=>!c.tc_owner);
+console.log('  ลูกค้าที่ยังไม่มี TC ดูแล (นอก 4 จังหวัดโฟกัส):',noTC.length,'ราย ใน',new Set(noTC.map(c=>c.province)).size,'จังหวัด');
+for(const a of areas.slice(0,8)){
+  const sp=PROVINCES.find(x=>x.key===a.province);
+  console.log(`  ${sp?sp.th:a.province}: ลูกค้า ${a.customerCount} · Lead ${a.prospectCount} · Lead ${a.gapScore} (${a.gapLevel}) · หมวดที่ขาดสุด ${a.topGapSegment}`);
 }

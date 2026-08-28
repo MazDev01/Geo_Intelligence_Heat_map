@@ -1,4 +1,5 @@
 import {segTH, SEG_COLOR, SEGMENTS, provinceTH} from "./lib.js";
+import {demandGap, GAP_REF} from "./mock/geoData.js";
 
 /* ---------------- ตัวกรองช่วงเวลาของแดชบอร์ดผู้บริหาร ----------------
    กรองจากฟิลด์ created_at (วันที่เพิ่มเข้าระบบ) ที่ gen.mjs ใส่ไว้ให้ทุกรายการ
@@ -14,8 +15,8 @@ export const RANGES = [
   {id:"all", label:"ทั้งหมด",      cmp:"จากเดือนก่อน"},
 ];
 
-const TH_MON = ["ม.ค.","ก.พ.","มี.ค.","เม.ย.","พ.ค.","มิ.ย.","ก.ค.","ส.ค.","ก.ย.","ต.ค.","พ.ย.","ธ.ค."];
-export const thDate = t => { const d=new Date(t); return d.getUTCDate()+" "+TH_MON[d.getUTCMonth()]+" "+(d.getUTCFullYear()+543); };  // ปีพุทธศักราช
+import {thDate} from "./lib.js";   // ตัวแปลงวันที่กลางของระบบ (เวลาไทย · ปี พ.ศ.)
+export {thDate};
 
 // ขอบเขตของช่วงที่เลือก นับรวมทั้งวันหัวและวันท้าย — "ทั้งหมด" คืน null แปลว่าไม่กรองอะไรเลย
 function windowOf(id, ref){
@@ -49,7 +50,7 @@ function sparkOf(arr, w){
 
 /* คำนวณทุกตัวเลขของแดชบอร์ดใหม่จากรายการที่ผ่านตัวกรองแล้ว
    ต้องคำนวณยอดรายจังหวัดขึ้นใหม่เอง เพราะ areas ที่โหลดมาเป็นยอดสรุปของข้อมูลทั้งก้อน
-   ไม่ได้แยกตามช่วงเวลา ถ้าเอามาใช้ตรงๆ ตารางอันดับกับ Heat Ranking จะไม่ขยับตามตัวกรอง */
+   ไม่ได้แยกตามช่วงเวลา ถ้าเอามาใช้ตรงๆ ตารางอันดับกับอันดับ Lead จะไม่ขยับตามตัวกรอง */
 export function calcView(custs, pros, areas, rangeId){
   // วันอ้างอิง = วันที่ข้อมูลใหม่สุดที่มีอยู่จริง ไม่ได้อิงนาฬิกาของเครื่อง
   // เพื่อให้ผลการกรองคงที่ ไม่ว่าจะเปิดดูวันไหน
@@ -65,21 +66,19 @@ export function calcView(custs, pros, areas, rangeId){
   // ยอดรายจังหวัดจากรายการที่กรองแล้ว — ไล่ตามลำดับเดิมของ areas เสมอ
   // เพื่อให้เวลาคะแนนเท่ากัน ลำดับที่เรียงออกมาเหมือนเดิมทุกประการ (Array.sort เป็นแบบเสถียร)
   const stat={};
-  const slot=p=>(stat[p]=stat[p]||{c:0,p:0,pot:0});
-  for(const c of fCusts) slot(c.province).c++;
-  for(const p of fPros ){ const e=slot(p.province); e.p++; e.pot+=p.potentialScore||0; }
+  const slot=p=>(stat[p]=stat[p]||{c:[],p:[]});
+  for(const c of fCusts) slot(c.province).c.push(c);
+  for(const p of fPros ) slot(p.province).p.push(p);
   const fAreas=[];
   for(const a of areas){
-    const e=stat[a.province]; if(!e || e.c+e.p===0) continue;
-    fAreas.push({province:a.province, center:a.center, customerCount:e.c, prospectCount:e.p,
-      avgPotentialScore: e.p ? Math.round(e.pot/e.p) : 0,
-      coverage: Math.min(100, Math.round(e.c/(e.c+e.p)*100))});
+    const e=stat[a.province]; if(!e || e.c.length+e.p.length===0) continue;
+    const g=demandGap(e.c, e.p, GAP_REF.province);
+    fAreas.push({province:a.province, center:a.center, customerCount:e.c.length, prospectCount:e.p.length,
+      coverage: Math.min(100, Math.round(e.c.length/(e.c.length+e.p.length)*100)), ...g});
   }
 
-  // สูตรคะแนนโอกาสเดิม ไม่ได้แก้ เปลี่ยนแค่ชุดข้อมูลที่ป้อนเข้าไป
-  const ranked = fAreas.map(a=>{ const ratio=a.customerCount?a.prospectCount/a.customerCount:a.prospectCount;
-    const opp=Math.min(100,Math.round(0.45*a.avgPotentialScore + 0.2*Math.min(100,ratio*7) + 0.35*Math.min(100,a.prospectCount/9)));
-    return {...a,opp}; }).sort((x,y)=>y.opp-x.opp);
+  // อันดับพื้นที่ = ดัชนี Lead สูงของช่วงเวลาที่เลือก (คิดใหม่จากรายการที่กรองแล้ว)
+  const ranked = fAreas.map(a=>({...a, opp:a.gapScore})).sort((x,y)=>y.opp-x.opp);
   const withC = ranked.filter(a=>a.customerCount>0);
 
   // ช่วงที่ใช้คำนวณแนวโน้ม — ตอนเลือก "ทั้งหมด" ไม่มีขอบเขตให้เทียบ จึงใช้ 30 วันล่าสุดเทียบ 30 วันก่อนหน้า
@@ -88,7 +87,7 @@ export function calcView(custs, pros, areas, rangeId){
 
   return {
     ref, win, fCusts, fPros, ranked,
-    // คะแนนเฉลี่ยคิดเฉพาะจังหวัดที่มีลูกค้า ตามสูตรเดิมของหน้านี้
+    // ดัชนีช่องว่างเฉลี่ยคิดเฉพาะจังหวัดที่มีลูกค้า ตามฐานเดิมของหน้านี้
     // ส่งจำนวนจังหวัดที่ใช้เฉลี่ยออกไปด้วย ป้ายกำกับจะได้บอกฐานที่ใช้คำนวณได้ตรงจริง
     avgOpp: Math.round(withC.reduce((s,a)=>s+a.opp,0)/Math.max(1,withC.length)),
     withCCount: withC.length,

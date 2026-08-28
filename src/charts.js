@@ -11,12 +11,12 @@ if(typeof document!=="undefined" && !document.getElementById("chart-anim-css")){
 @keyframes donutDraw{to{stroke-dashoffset:0}}
 @keyframes lineReveal{to{transform:scaleX(1)}}
 @keyframes markPop{to{opacity:1;transform:scale(1)}}
-.chart-tip{position:fixed;z-index:9999;pointer-events:none;background:#0e1524;border:1px solid rgba(255,255,255,.16);
-  border-radius:10px;padding:9px 11px;box-shadow:0 12px 34px rgba(0,0,0,.5);font-size:12px;min-width:120px;max-width:240px}
-.chart-tip .ct-title{font-weight:800;color:#fff;margin-bottom:6px;font-size:12.5px}
-.chart-tip .ct-row{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:2px 0;color:var(--ink-2,#c3c2b7)}
+.chart-tip{position:fixed;z-index:9999;pointer-events:none;background:var(--surface);border:1px solid var(--stroke2);
+  border-radius:10px;padding:9px 11px;box-shadow:var(--shadow-lg,0 12px 34px rgba(0,0,0,.14));font-size:12px;min-width:120px;max-width:240px}
+.chart-tip .ct-title{font-weight:800;color:var(--txt);margin-bottom:6px;font-size:12.5px}
+.chart-tip .ct-row{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:2px 0;color:var(--muted)}
 .chart-tip .ct-row i{display:inline-block;width:9px;height:9px;border-radius:3px;margin-right:6px;vertical-align:-1px}
-.chart-tip .ct-row b{color:#fff;font-variant-numeric:tabular-nums}`;
+.chart-tip .ct-row b{color:var(--txt);font-variant-numeric:tabular-nums}`;
   document.head.appendChild(st);
 }
 const nf = v => Number(v).toLocaleString("th-TH");
@@ -142,7 +142,7 @@ export function Gauge({value, size=120, label}){
   const r=52, c=Math.PI*r, v=Math.max(0,Math.min(100,value));
   const col = v>=85?"#33d69f":v>=70?"#ffb02e":"#ff5a5a";
   return html`<svg width=${size} height=${size*0.62} viewBox="0 0 120 74">
-    <path d="M8 66 A52 52 0 0 1 112 66" fill="none" stroke="rgba(255,255,255,.08)" stroke-width="11" stroke-linecap="round"/>
+    <path d="M8 66 A52 52 0 0 1 112 66" fill="none" stroke="rgba(30,45,80,.10)" stroke-width="11" stroke-linecap="round"/>
     <path d="M8 66 A52 52 0 0 1 112 66" fill="none" stroke=${col} stroke-width="11" stroke-linecap="round"
       stroke-dasharray=${c} stroke-dashoffset=${c-(v/100)*c} style=${{transition:"stroke-dashoffset .6s"}}/>
     <text x="60" y="54" text-anchor="middle" fill="var(--txt)" font-size="26" font-weight="700">${Math.round(v)}</text>

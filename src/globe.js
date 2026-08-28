@@ -181,7 +181,7 @@ export function Globe({countries=[], world, flyTo, onArrive, small, pins=[], hov
       transparent:true, opacity:.95, blending:THREE.AdditiveBlending, depthWrite:false}));
     st.world.add(st.dotLayer);
     st.halos.clear();
-    [...countries].sort((a,b)=>b.opportunityScore-a.opportunityScore).slice(0,6).forEach(c=>{ const v=latLngVec(c.center[0],c.center[1],1.02);
+    [...countries].sort((a,b)=>b.gapScore-a.gapScore).slice(0,6).forEach(c=>{ const v=latLngVec(c.center[0],c.center[1],1.02);
       const s=new THREE.Sprite(new THREE.SpriteMaterial({map:st.glow,color:0xff5a3c,transparent:true,
         blending:THREE.AdditiveBlending,depthWrite:false})); s.position.copy(v); s.scale.set(.16,.16,1); st.halos.add(s);});
   },[countries]);

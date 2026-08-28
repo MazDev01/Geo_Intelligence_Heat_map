@@ -20,9 +20,8 @@ export function haversine(a,b){
   const s=Math.sin(dLat/2)**2+Math.cos(a.latitude*Math.PI/180)*Math.cos(b.latitude*Math.PI/180)*Math.sin(dLng/2)**2;
   return 2*R*Math.asin(Math.sqrt(s));
 }
-const opp = c => c.opportunityScore ?? c.potentialScore ?? 50;
-
-// Greedy nearest-next from the office, lightly biased toward higher-opportunity customers.
+// Greedy nearest-next from the office — ระยะทางล้วน
+// (ระบบไม่ให้คะแนนศักยภาพรายบริษัทแล้ว จึงไม่มีตัวถ่วงลำดับตามคะแนน)
 export function optimizeOrder(office, custs){
   const rem=[...custs], order=[]; let cur=office;
   while(rem.length){
@@ -31,7 +30,7 @@ export function optimizeOrder(office, custs){
   }
   return order;
 }
-const cost = (from,c)=> haversine(from,c) * (1 - 0.12*(opp(c)/100));   // priority nudge
+const cost = (from,c)=> haversine(from,c);
 
 // Metrics for a GIVEN order (office → ordered stops). Does not reorder.
 export function computeRoute(office, ordered){

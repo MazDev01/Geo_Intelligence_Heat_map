@@ -42,10 +42,10 @@
   --dropdown-hover-bg:#fff1f2;             /* ชมพูจางมาก (ตาม accent แบรนด์) เมื่อ hover */
   --dropdown-active-text:#b30019;          /* ชมพูแบรนด์ (เข้มพอให้ contrast ~4.9:1 บนพื้นชมพูอ่อน) ตัวหนา */
   --dropdown-active-bg:#ffe4e6;            /* ชมพูอ่อน tint ของ accent — แถวที่ถูกเลือกอยู่ */
-  /* สีสื่อข้อมูล (คงเดิม): หมุดลูกค้า/Lead, heatmap, เกรด — ไม่เปลี่ยนเป็นแดง-ชมพู */
+  /* สีสื่อข้อมูล (คงเดิม): หมุดลูกค้า/Lead, heat Lead — ไม่เปลี่ยนเป็นแดง-ชมพู */
   --existing:#2563eb; --prospect:#0ea5e9; --heat:#ff5a3c; --heat2:#ffb02e;
   --good:#15a34a; --warn:#c67a09; --bad:#dc2626; --purple:#7c3aed;
-  --a:#15a34a; --b:#d68a10; --c:#dc2626;   /* เกรด A เขียว · B เหลือง · C แดง (ไฟจราจร) */
+  --gap-low:#15a34a; --gap-mid:#d68a10; --gap-high:#dc2626;   /* ระดับ Lead: ต่ำ เขียว · ปานกลาง เหลือง · สูง แดง */
   --font:'Noto Sans Thai',sans-serif;
 
   /* ===== Design Token (โครงสร้างเดียวกับ design-system) — ปรับสีเป็นโทนแดง-ชมพู ===== */
@@ -130,6 +130,14 @@ label,.nav-item,.tab,.chip{font-weight:500}   /* labels & menus */
 .nav-item.on{background:linear-gradient(90deg,rgba(230, 0, 35,.16),rgba(230, 0, 35,.04));color:var(--accent-deep)}
 .nav-item.on::before{content:"";position:absolute;left:0;top:8px;bottom:8px;width:3px;border-radius:3px;background:var(--accent2)}
 .nav-item .ic{width:18px;height:18px;flex:none;opacity:.9}
+/* ── เมนูย่อยใต้เมนูหลัก (เช่น จัดการข้อมูล) ── */
+.nav-item.has-sub{margin-bottom:2px}
+.nav-sub{position:relative;margin:0 0 6px 25px;padding-left:11px;border-left:1px solid var(--stroke2)}
+.nav-subitem{padding:7px 10px;border-radius:8px;color:var(--muted);font-size:12.5px;font-weight:500;
+  cursor:pointer;transition:.15s;margin-bottom:2px}
+.nav-subitem:hover{background:rgba(30,45,80,.05);color:var(--txt)}
+.nav-subitem.on{background:var(--accent-soft);color:var(--accent-deep);font-weight:700}
+.collapsed .nav-sub{display:none}
 .collapsed .nav-item{justify-content:center;padding:11px}
 .collapsed .nav-item .lb{display:none}
 .sb-foot{padding:12px 14px;border-top:1px solid var(--stroke);font-size:12.5px;color:var(--dim)}
@@ -156,7 +164,9 @@ label,.nav-item,.tab,.chip{font-weight:500}   /* labels & menus */
    ยิ่ง "บีบ" ช่องว่างนั้นให้แคบลงอีก ถนนจึงหายไปกับพื้นหลัง
    ค่าใหม่จึงกลับทิศเป็น brightness>1 (ยกโทนมืดที่ถูกบดให้ลอยขึ้น) และ contrast>1 (ถ่างระยะห่างให้กว้างขึ้น)
    ทำให้ขอบถนนและตัวอักษรชื่อสถานที่แยกออกจากพื้นหลังชัดเจน */
-.map-dark .leaflet-tile-pane{filter:invert(1) hue-rotate(195deg) brightness(.68) contrast(1.06) saturate(.2)}
+.map-dark .leaflet-tile-pane,
+/* ชั้นแผ่นดินโลก (ใต้ tile) ต้องกลับสีชุดเดียวกัน ไม่งั้นโหมดมืดจะเห็นแผ่นดินเพื่อนบ้านสว่างโพลนตัดกับ tile */
+.map-dark .leaflet-land-pane{filter:invert(1) hue-rotate(195deg) brightness(.68) contrast(1.06) saturate(.2)}
 .searchbox{margin-left:8px;display:flex;align-items:center;gap:8px;background:rgba(30,45,80,.04);
   border:1px solid var(--stroke2);border-radius:10px;padding:8px 12px;min-width:260px}
 .searchbox input{background:none;border:none;color:var(--txt);font-size:13px;width:100%;outline:none}
@@ -169,7 +179,7 @@ label,.nav-item,.tab,.chip{font-weight:500}   /* labels & menus */
 .userbtn{display:flex;align-items:center;gap:10px;padding:5px 12px 5px 5px;border-radius:22px;border:1px solid var(--stroke2)}
 .userbtn:hover{border-color:var(--accent)}
 .avatar{width:32px;height:32px;border-radius:50%;background:linear-gradient(135deg,#ff3b5c,#e60023);
-  display:grid;place-items:center;font-size:12.5px;font-weight:700;color:#04121a;flex:none}
+  display:grid;place-items:center;font-size:12.5px;font-weight:700;color:#fff;flex:none}
 .userbtn .un{font-size:12.5px;font-weight:700;line-height:1.15}
 .userbtn .ur{font-size:11.5px;color:var(--dim)}
 .role-pill{font-size:11px;font-weight:700;letter-spacing:.6px;padding:3px 9px;border-radius:20px;text-transform:uppercase}
@@ -208,6 +218,23 @@ label,.nav-item,.tab,.chip{font-weight:500}   /* labels & menus */
    ประกาศไว้ที่เดียวตรงนี้ เพื่อให้ทุกหน้ารายงานใช้หน้าตาชุดเดียวกันได้ ไม่ต้องเขียนซ้ำ */
 .op-slicers{display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end;margin-bottom:16px;padding:12px 14px;
   background:var(--panel);border:1px solid var(--stroke);border-radius:var(--r)}
+/* ช่องเลือกวันที่แบบไทย — ซ่อนตัวเลขของเบราว์เซอร์ แล้ววาด "11 ก.ค. 2569" ทับ
+   ปุ่มปฏิทินด้านขวายังเห็นและกดได้ตามปกติ (::-webkit-calendar-picker-indicator ไม่ถูกซ่อน) */
+.thdate{position:relative;display:inline-flex;align-items:center}
+.thdate input[type=date]::-webkit-datetime-edit{opacity:0}
+.thdate input[type=date]{color:transparent}
+.thdate-lb{position:absolute;left:11px;top:50%;transform:translateY(-50%);pointer-events:none;
+  font-size:13px;color:var(--txt);white-space:nowrap}
+.thdate-lb.ph{color:var(--dim)}
+/* แถบเลขหน้าใช้ร่วม */
+.pager{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;
+  margin-top:12px;font-size:12.5px}
+.pager-b{min-width:30px;height:30px;padding:0 8px;border-radius:8px;cursor:pointer;
+  border:1px solid var(--stroke2);background:var(--surface);color:var(--muted);
+  font-family:var(--font);font-size:12.5px}
+.pager-b:hover:not(:disabled){border-color:var(--accent);color:var(--txt)}
+.pager-b.on{background:var(--accent);border-color:var(--accent);color:#fff}
+.pager-b:disabled{opacity:.45;cursor:not-allowed}
 .op-lab{display:flex;flex-direction:column;gap:4px;font-size:11.5px;font-weight:700;color:var(--muted)}
 .op-sel{padding:8px 10px;border-radius:9px;border:var(--dropdown-border);background:var(--dropdown-bg);color:var(--dropdown-text);box-shadow:var(--dropdown-shadow);
   font-family:var(--font);font-size:12.5px;min-width:148px}
@@ -256,17 +283,14 @@ label,.nav-item,.tab,.chip{font-weight:500}   /* labels & menus */
 .b-bad{background:rgba(220,38,38,.13);color:#c81e1e}
 .b-info{background:rgba(255, 59, 92,.15);color:var(--accent-deep)}
 .b-neutral{background:rgba(147,163,196,.14);color:var(--muted)}
-.grade{width:24px;height:24px;border-radius:7px;display:grid;place-items:center;font-size:12px;font-weight:700;color:#fff}
-.gr-A{background:var(--a)}.gr-B{background:var(--b)}.gr-C{background:var(--c)}
-/* hero grade tile (detail panel potential score) — reuses the system grade palette (A best = green) */
-.grade-hero{width:56px;height:56px;flex:none;border-radius:13px;display:grid;place-items:center;
-  font-size:30px;font-weight:800;color:#fff;line-height:1}
-.grade-hero[data-g="A"]{background:var(--a)}
-.grade-hero[data-g="B"]{background:var(--b)}
-.grade-hero[data-g="C"]{background:var(--c)}
+/* ระดับ Lead (High-Demand Gap) — ใช้แทนป้ายเกรด A/B/C เดิม */
+.gaplv{padding:2px 10px;border-radius:999px;font-size:11.5px;font-weight:800;color:#fff}
+.gaplv.g-High{background:var(--gap-high)}
+.gaplv.g-Medium{background:var(--gap-mid)}
+.gaplv.g-Low{background:var(--gap-low)}
 /* "i" info tooltip — hover + click, closes on outside click */
 .infotip{position:relative;display:inline-flex;vertical-align:middle}
-.infotip-i{width:16px;height:16px;border-radius:50%;border:1px solid var(--stroke2);background:rgba(255,255,255,.05);
+.infotip-i{width:16px;height:16px;border-radius:50%;border:1px solid var(--stroke2);background:rgba(30,45,80,.07);
   color:var(--muted);font-size:11.5px;font-weight:700;font-style:italic;font-family:var(--font);cursor:pointer;
   display:grid;place-items:center;line-height:1;padding:0;transition:.15s}
 .infotip-i:hover{color:var(--txt);border-color:var(--accent)}
@@ -291,15 +315,17 @@ label,.nav-item,.tab,.chip{font-weight:500}   /* labels & menus */
 
 /* buttons */
 .btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;padding:10px 16px;border-radius:10px;
-  font-size:13px;font-weight:600;transition:.16s;white-space:nowrap}
+  font-size:13px;font-weight:600;transition:.16s;white-space:nowrap;cursor:pointer;user-select:none}
+.btn:disabled{cursor:not-allowed}
 .btn.sm{padding:7px 12px;font-size:12px}
-.btn.primary{background:linear-gradient(135deg,#e60023,#ff3b5c);color:#04121a;box-shadow:0 10px 24px rgba(230, 0, 35,.32)}
+.btn.primary{background:linear-gradient(135deg,#e60023,#ff3b5c);color:#fff;box-shadow:0 10px 24px rgba(230, 0, 35,.32)}
 .btn.primary:hover{transform:translateY(-1px);box-shadow:0 14px 30px rgba(255, 59, 92,.36)}
 .btn.ghost{border:1px solid var(--stroke2);color:var(--muted)}
 .btn.ghost:hover{color:var(--txt);border-color:var(--accent)}
-.btn.solid{background:rgba(255,255,255,.05);border:1px solid var(--stroke2);color:var(--txt)}
-.btn.solid:hover{background:rgba(255,255,255,.09)}
-.btn.danger{background:rgba(255,90,90,.14);border:1px solid rgba(255,90,90,.4);color:#ff9a9a}
+.btn.solid{background:rgba(30,45,80,.07);border:1px solid var(--stroke2);color:var(--txt)}
+.btn.solid:hover{background:rgba(30,45,80,.10)}
+.btn.danger{background:rgba(220,38,38,.08);border:1px solid rgba(220,38,38,.35);color:#b30019}
+.btn.danger:hover{background:rgba(220,38,38,.14);border-color:rgba(220,38,38,.55)}
 .btn:disabled{opacity:.4;cursor:not-allowed}
 
 /* forms */
@@ -327,18 +353,18 @@ input[type=range]{width:100%;accent-color:var(--accent2)}
   font-weight:700;padding:11px 14px;border-bottom:1px solid var(--stroke);position:sticky;top:0;background:var(--surface)}
 .table td{padding:11px 14px;border-bottom:1px solid var(--stroke)}
 .table tbody tr{transition:.12s}
-.table tbody tr:hover{background:rgba(255,255,255,.03)}
+.table tbody tr:hover{background:rgba(30,45,80,.05)}
 .table tr.clickable{cursor:pointer}
 .table-wrap{overflow:auto;border-radius:var(--r);border:1px solid var(--stroke);background:var(--surface)}
 
 /* tabs */
-.tabs{display:flex;gap:4px;background:rgba(255,255,255,.03);border:1px solid var(--stroke);border-radius:11px;padding:4px}
-.tab{padding:8px 15px;border-radius:8px;font-size:12.5px;font-weight:600;color:var(--muted)}
+.tabs{display:flex;gap:4px;background:rgba(30,45,80,.05);border:1px solid var(--stroke);border-radius:11px;padding:4px}
+.tab{padding:8px 15px;border-radius:8px;font-size:12.5px;font-weight:600;color:var(--muted);cursor:pointer;user-select:none}
 .tab.on{background:var(--accent);color:#fff}
 .tab:hover:not(.on){color:var(--txt)}
 
 /* progress / meter */
-.meter{height:9px;border-radius:6px;background:rgba(255,255,255,.07);overflow:hidden}
+.meter{height:9px;border-radius:6px;background:rgba(30,45,80,.10);overflow:hidden}
 .meter > span{display:block;height:100%;border-radius:6px}
 .seg-bar{height:11px;border-radius:6px;overflow:hidden;display:flex}
 .seg-bar span{height:100%}
@@ -346,7 +372,7 @@ input[type=range]{width:100%;accent-color:var(--accent2)}
 .dotc{width:10px;height:10px;border-radius:50%;flex:none}
 
 /* skeleton */
-.skeleton{background:linear-gradient(90deg,rgba(255,255,255,.04),rgba(255,255,255,.09),rgba(255,255,255,.04));
+.skeleton{background:linear-gradient(90deg,rgba(30,45,80,.05),rgba(30,45,80,.10),rgba(30,45,80,.05));
   background-size:200% 100%;animation:sk 1.3s infinite;border-radius:8px}
 @keyframes sk{to{background-position:-200% 0}}
 
@@ -357,6 +383,7 @@ input[type=range]{width:100%;accent-color:var(--accent2)}
 .modal{width:min(560px,96vw);max-height:90vh;overflow-y:auto;background:var(--surface);border:1px solid var(--stroke2);
   border-radius:16px;box-shadow:var(--shadow)}
 .modal.wide{width:min(920px,96vw)}
+.modal.small{width:min(400px,94vw)}
 .modal-h{padding:20px 24px;border-bottom:1px solid var(--stroke);display:flex;align-items:center}
 .modal-h h2{font-size:18px;margin:0}
 .modal-b{padding:22px 24px}
@@ -420,8 +447,11 @@ input[type=range]{width:100%;accent-color:var(--accent2)}
 /* ============ GLOBE / MAP CONTAINERS ============ */
 .globe-stage{position:relative;flex:1;min-height:0}
 #globe-canvas{position:absolute;inset:0}
-/* พื้นหลัง map = สีพื้นดินของธีม Protomaps (สว่าง) — บริเวณนอก tile/นอกพื้นที่ให้บริการจะเป็นเทา-แทนกลมกลืน (เดิม #0a1120 กรมท่าเข้ม ไว้ใช้ raster) */
+/* พื้นหลัง map ค่าเริ่มต้น = สีพื้นดินของธีม Protomaps (mini map ทุกตัวใช้ค่านี้เหมือนเดิม) */
 .leaflet-container{background:#e2dfda!important;font-family:var(--font)}
+/* .map-sea = สี "น้ำ" ของธีม (namedFlavor("light").water) — lmap.js ใส่ให้เฉพาะบทบาทที่เข้าเงื่อนไข
+   ไฟล์ basemap เป็น extract เฉพาะไทย นอกกรอบไม่มี tile · พื้นสีน้ำทำให้อ่านเป็นทะเลต่อเนื่อง ไม่ใช่ช่องว่าง */
+.leaflet-container.map-sea{background:#80deea!important}
 .leaflet-control-attribution{background:rgba(255,255,255,.78)!important;color:#5b6472!important}
 .leaflet-control-attribution a{color:#2b3440!important}
 /* ป้ายแจ้งเมื่ออยู่นอกพื้นที่ให้บริการ (ไม่มีไฟล์ basemap ครอบคลุม) — ขั้นที่ 5 fallback */
@@ -434,7 +464,7 @@ input[type=range]{width:100%;accent-color:var(--accent2)}
   box-shadow:0 6px 18px rgba(0,0,0,.35);backdrop-filter:blur(12px);display:grid;place-items:center;cursor:pointer;
   color:var(--txt);padding:0;transition:transform .16s ease, box-shadow .16s ease, background .16s ease}
 .layers-fab:hover{transform:translateY(-1px);box-shadow:0 9px 24px rgba(0,0,0,.45)}
-.layers-fab.on{background:var(--accent2);border-color:var(--accent2);color:#04121a}
+.layers-fab.on{background:var(--accent2);border-color:var(--accent2);color:#fff}
 /* กล่องยึดตำแหน่งกลุ่มปุ่มมุมขวาบน — ลูกทุกตัววางแบบ absolute เทียบมุมขวาบนของกล่องนี้
    ไอคอนเลเยอร์กับแผงเลเยอร์จึงมีขอบบนตรงกันเป๊ะ (ไม่มี margin/gap มาดันแผงให้ต่ำลง) */
 .layers-widget{width:0;height:0}
@@ -491,7 +521,7 @@ input[type=range]{width:100%;accent-color:var(--accent2)}
 /* merged Filter+Layer panel — collapsible section header (accordion) */
 .acc-head{display:flex;align-items:center;justify-content:space-between;width:100%;gap:8px;padding:12px 14px;
   border:none;background:transparent;color:var(--txt);font-family:var(--font);cursor:pointer;transition:.15s}
-.acc-head:hover{background:rgba(255,255,255,.045)}
+.acc-head:hover{background:rgba(30,45,80,.05)}
 /* post-login globe intro — Skip button (bottom-right, clear of the topbar and the centred globe hint) */
 .intro-skip{position:fixed;bottom:28px;right:28px;z-index:2200;display:inline-flex;align-items:center;gap:6px;
   font-family:var(--font);font-size:13px;font-weight:600;color:var(--txt);cursor:pointer;padding:9px 16px;border-radius:22px;
@@ -531,9 +561,9 @@ input[type=range]{width:100%;accent-color:var(--accent2)}
 .plan-ring{width:100%;height:100%;border-radius:50%;border:3px solid #ff3b5c;background:rgba(255,122,168,.12);
   box-shadow:0 0 14px rgba(255,122,168,.7);animation:planPop .3s ease}
 .plan-num{width:100%;height:100%;border-radius:50%;display:grid;place-items:center;font-family:var(--font);
-  font-size:14px;font-weight:800;color:#04121a;background:linear-gradient(135deg,#ff3b5c,#e60023);
+  font-size:14px;font-weight:800;color:#fff;background:linear-gradient(135deg,#ff3b5c,#e60023);
   border:2px solid #fff;box-shadow:0 3px 10px rgba(0,0,0,.5);animation:planPop .3s ease}
-.plan-office{width:100%;height:100%;border-radius:50%;display:grid;place-items:center;font-size:15px;color:#04121a;
+.plan-office{width:100%;height:100%;border-radius:50%;display:grid;place-items:center;font-size:15px;color:#fff;
   background:#ffb02e;border:2px solid #fff;box-shadow:0 3px 10px rgba(0,0,0,.5)}
 @keyframes planPop{from{opacity:0;transform:scale(.4)}to{opacity:1;transform:scale(1)}}
 .cluster-pin{background:transparent}

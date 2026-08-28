@@ -2,16 +2,18 @@
 // src/visit-rounds.js — โมเดล "รอบการเข้าพบ" (visit rounds) + การ derive สถานะLead
 // หลักการ: Lead 1 ราย มีได้หลายรอบ · "สถานะ" ไม่เก็บตรง ๆ แต่ derive จากรอบล่าสุดเสมอ
 // (สแตกจริงเป็น client — ไม่มี cache column/DB job แบบ Supabase; คำนวณสดจาก rounds ทุกครั้ง)
-// ทุกข้อความไทย · สีสถานะเลือกให้ไม่ซ้ำกับสีเกรด A/B/C
+// ทุกข้อความไทย · สีสถานะเลือกให้อ่านง่ายและไม่ชนกับสีหมวดธุรกิจ
 // ═══════════════════════════════════════════════════════════════════════════
 
 // ── ค่าตัวเลือกในรอบ (ใช้ทั้งฟอร์มและ mock) ──
+import {thDate, thDateTime} from "./lib.js";   // ตัวแปลงวันที่กลางของระบบ
+
 export const INTEREST = ["สนใจมาก","สนใจ","ขอคิดดู","ไม่สนใจ"];          // ระดับความสนใจ
 export const OUTCOME  = ["ต้องติดตามต่อ","พร้อมปิดดีล","ปิดการขาย"];      // ผลลัพธ์รอบ (เมื่อเข้าพบเสร็จ)
 export const ROUND_STATUS = ["นัดแล้ว","เสร็จสิ้น","ยกเลิก"];             // สถานะของรอบ
 export const CANCEL_REASONS = ["ไม่สะดวกช่วงนี้","ราคาไม่ตรง","ติดคู่แข่ง","ปิดกิจการ","ติดต่อไม่ได้","อื่น ๆ"];
 
-// ── สถานะLeadที่ derive ได้ (สีต่างจากเกรด A/B/C โดยเจตนา) ──
+// ── สถานะLeadที่ derive ได้จากรอบการเข้าพบ ──
 export const VSTATUS = {
   waiting:     { key:"waiting",     label:"รอเข้าพบ",           color:"#64748b", tone:"neutral", icon:"target" },
   appointment: { key:"appointment", label:"นัดหมายแล้ว",        color:"#2563eb", tone:"info",    icon:"calendar" },
@@ -85,12 +87,7 @@ export const inTodayPlan  = (planHistory, today=PLAN_TODAY)=> (planHistory||[]).
 export const visitedToday = (planHistory, today=PLAN_TODAY)=> (planHistory||[]).filter(e=>e.date===today && e.visited).length;
 
 // ── วันที่ พ.ศ. ──
-const THMON=["ม.ค.","ก.พ.","มี.ค.","เม.ย.","พ.ค.","มิ.ย.","ก.ค.","ส.ค.","ก.ย.","ต.ค.","พ.ย.","ธ.ค."];
-export function beDate(iso, withTime){
-  if(!iso) return "—"; const d=new Date(iso); if(isNaN(d)) return "—";
-  const s=d.getDate()+" "+THMON[d.getMonth()]+" "+(d.getFullYear()+543);
-  return withTime ? s+" "+String(d.getHours()).padStart(2,"0")+":"+String(d.getMinutes()).padStart(2,"0") : s;
-}
+export const beDate = (iso, withTime) => withTime ? thDateTime(iso) : thDate(iso);   // ใช้ตัวแปลงกลาง
 
 // back-compat: สรุปเป็น visit_status เดิม (ครอบคลุมแล้ว = เคยเข้าพบเสร็จ ≥ 1 รอบ)
 export function deriveVisitStatus(rounds){

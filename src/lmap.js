@@ -1,27 +1,46 @@
-import {html, useRef, useEffect, segTH, provinceTH, segIconSVG, STATUS_COLOR} from "./lib.js";
+import {html, useRef, useEffect, useApp, segTH, provinceTH, segIconSVG, SEG_COLOR} from "./lib.js";
 import {custPass, prosPass} from "./data.js";
-import {basemap} from "./basemap.js";
+import {demandGap, GAP_REF, GAP_TH} from "./mock/geoData.js";
+import {basemap, EARTH} from "./basemap.js";   // EARTH มาจาก namedFlavor("light") ไม่ใช่ literal
 import {BASEMAP_MAXZOOM} from "../config/basemap.js";
+import {roleCode} from "./permissions.js";   // แปลง role → code (ADMIN/SALES_MANAGER/TC) กันสตริงดิบกระจาย
 
 // อ้าง window.L แบบปลอดภัย — เผื่อถูก import ฝั่ง Node (ทดสอบ SSR/พาร์ส) ที่ไม่มี window
 // พฤติกรรมในเบราว์เซอร์เหมือนเดิมทุกประการ (ยังเท่ากับ window.L เสมอเมื่อรันจริง)
 const L = (typeof window !== "undefined") ? window.L : undefined;
 const TH_BOUNDS = [[5.6,97.3],[20.7,105.7]];   // whole-Thailand framing bounds (overview view)
 
-// ── ขอบเขตประเทศไทย (จาก world.geojson) สำหรับวาดเส้นขอบประเทศเหนือ mask — โหลด/แคชครั้งเดียวทั้งแอป ──
-let _thaiOutline;
+// ── ชั้นแผ่นดินโลก (world.geojson) วาดใต้ tile ──
+// ไฟล์ basemap-th-*.pmtiles เป็น extract เฉพาะไทย (ตรวจจาก directory จริง: z6 ครอบ lon 95.6–106.9 · z5 ครอบ 90–112.5)
+// นอกกรอบนั้นไม่มี tile เลย จอกว้างจึงเห็นเป็นพื้นสีน้ำล้วนรอบประเทศ
+// แก้โดยวาดรูปแผ่นดินของทุกประเทศจาก world.geojson (180 ประเทศ) ไว้ "ใต้" tile
+// ในกรอบที่มี tile → tile ทับหมด เห็นรายละเอียดเหมือนเดิม · นอกกรอบ → เห็นแผ่นดินเพื่อนบ้านเป็นแผนที่ปกติ
+const LAND_FILL = EARTH;       // สีพื้นดินจาก Protomaps style — ต่อเนื่องกับพื้นดินของ tile
+const LAND_EDGE = "#c3bdb4";   // เส้นเขตแดนประเทศ อ่อนกว่าพื้นเล็กน้อย
+
+// ── ขอบเขตของฟีเจอร์ "แผ่นดินสำรอง + พื้นสีทะเล" ──
+// false = บทบาท TC ข้ามทั้งหมด ใช้ผลลัพธ์เดิม (ไม่สร้าง layer ไม่โหลด geojson ไม่เปลี่ยนสีพื้น)
+// สลับเป็น true เมื่อไหร่ TC จะได้เหมือนบทบาทอื่นทันที
+const APPLY_TO_TC = false;
+
+// ── world.geojson — โหลด/แคชครั้งเดียวทั้งแอป (ใช้ทั้งเส้นขอบไทยและชั้นแผ่นดินโลก) ──
+let _world;
+function loadWorld(){
+  if(_world===undefined){
+    _world = fetch("./data/world.geojson").then(r=>r.json()).catch(()=>null);
+  }
+  return _world;
+}
+// ขอบเขตประเทศไทย สำหรับวาดเส้นขอบประเทศเหนือ mask
 async function loadThaiOutline(){
-  if(_thaiOutline!==undefined) return _thaiOutline;
-  try{ const w = await (await fetch("./data/world.geojson")).json();
-    const f = (w.features||[]).find(x=>x.properties && x.properties.name==="Thailand");
-    _thaiOutline = f ? f.geometry : null;
-  }catch{ _thaiOutline = null; }
-  return _thaiOutline;
+  const w = await loadWorld();
+  const f = w && (w.features||[]).find(x=>x.properties && x.properties.name==="Thailand");
+  return f ? f.geometry : null;
 }
 // เครื่องหมายพื้นที่วงแหวน (shoelace) — ใช้ตัดสินทิศ winding เพื่อเจาะรู (hole) ของ mask ได้ทุกไฟล์
 function ringArea(r){ let a=0; for(let i=0,j=r.length-1;i<r.length;j=i++){ a += r[j][1]*r[i][0] - r[i][1]*r[j][0]; } return a; }
 
-// opportunity/count -> heat color
+// ดัชนี Lead (0–1) -> สี choropleth
 function rampColor(t){ // 0 blue -> 1 red
   const stops=[[0,[43,111,255]],[.4,[37,208,224]],[.65,[255,176,46]],[1,[255,59,30]]];
   for(let i=0;i<stops.length-1;i++){ const [a,ca]=stops[i],[b,cb]=stops[i+1];
@@ -45,12 +64,31 @@ function kdeRadiusPx(map){
   const mpp = 40075016.686 * Math.cos(lat*Math.PI/180) / Math.pow(2, z+8);   // เมตรต่อพิกเซล
   return Math.max(2, Math.min(40, Math.round(KDE_METERS/mpp)));
 }
+/* ── น้ำหนัก "Lead สูง" ของแต่ละ Lead สำหรับ heat map ──────────────────
+   heat ไม่ได้แปลว่า "จุดหนาแน่น" อีกต่อไป แต่แปลว่า "หมวดธุรกิจที่ Barter ยังขาดในย่านนั้น"
+   น้ำหนักของ Lead หนึ่งราย = ขนาดช่องว่างของ (อำเภอ × หมวดธุรกิจ) ของตัวเอง เทียบช่องว่างสูงสุดในชุดข้อมูล
+     ช่องว่าง = max(0, จำนวน Lead − จำนวนสมาชิกเครือข่ายปัจจุบัน) ในอำเภอ+หมวดเดียวกัน
+   หมวดที่มีสมาชิกครบแล้วจึงเกือบไม่ให้ความร้อน ส่วนหมวดที่ขาดหนักจะร้อนสุด                       */
+const GAP_KEY = x => x.province+"|"+x.district+"|"+x.segment;
+function gapWeigher(cs, ps){
+  const supply=new Map(), demand=new Map();
+  for(const c of cs){ const k=GAP_KEY(c); supply.set(k,(supply.get(k)||0)+1); }
+  for(const q of ps){ const k=GAP_KEY(q); demand.set(k,(demand.get(k)||0)+1); }
+  const gap=new Map(); let max=1;
+  for(const [k,d] of demand){ const g=Math.max(0, d-(supply.get(k)||0)); gap.set(k,g); if(g>max) max=g; }
+  // 0.12 = พื้นจาง ๆ ให้ยังเห็นว่ามีธุรกิจอยู่ แม้หมวดนั้นไม่ขาดแล้ว
+  return x => 0.12 + 0.88*((gap.get(GAP_KEY(x))||0)/max);
+}
+
 // แปลงระดับซูมเป็นชื่อโหมด
 function zoomModeOf(z){ return z < ZOOM_HEAT_MAX ? "heat" : z < ZOOM_CLUSTER_MAX ? "cluster" : "marker"; }
 
 export function LeafletMap({db, filters, layers, country="Thailand", onPickArea, onPickCustomer, onMapMode, focusProvince, highlight, focusPoint, plan, route, office, planRoutes, clusters, territories, dark, lockProvince}){
   const ref = useRef();
   const M = useRef({});
+  // useApp() คืน undefined ถ้าอยู่นอก Provider → ถือว่า "ไม่เข้าเงื่อนไข" ไว้ก่อน (ปลอดภัยฝั่ง TC)
+  const app = useApp();
+  const seaFallback = APPLY_TO_TC || (!!app && !!app.user && roleCode(app.user.role) !== "TC");
 
   // init once
   useEffect(()=>{
@@ -58,13 +96,23 @@ export function LeafletMap({db, filters, layers, country="Thailand", onPickArea,
       .setView(country==="Thailand"?[13.2,101]:[13,101], country==="Thailand"?6:5);
     // แผนที่ฐาน Protomaps (vector, self-host) ผ่านโมดูลรวมศูนย์ — เลือกไฟล์ตาม viewport อัตโนมัติ
     // ป้ายชื่อสถานที่/ถนนเป็นภาษาไทย (lang="th") · เน้นอาคาร+ชื่อถนน ไม่แสดง POI
-    basemap(map, "th");
+    // เก็บทั้ง base และ lbl — ทุกที่ที่ add/remove ต้องทำพร้อมกัน (ป้ายชื่อห้ามลอยบนพื้นเปล่า)
+    const bm = basemap(map, "th");
+    M.current.baseLayer = bm.base; M.current.labelLayer = bm.lbl;
     M.current.map = map; M.current.alive = true;
     // ── Panes ของ mask ขอบเขตจังหวัด ──
     // maskPane (z250) อยู่เหนือ tilePane(200) จึงปิด base ได้ · แต่ต่ำกว่า overlayPane(400)
     // choropleth/heat/หมุด/เส้นทางจึงอยู่เหนือ mask เสมอ (ข้อมูลไม่ถูกบัง) · outlinePane(350) วาดเส้นขอบประเทศเหนือ mask
+    // landPane (z150) อยู่ "ใต้" tilePane(200) — tile ที่มีข้อมูลจึงทับแผ่นดินหยาบนี้เสมอ
+    map.createPane("landPane");    map.getPane("landPane").style.zIndex="150";    map.getPane("landPane").style.pointerEvents="none";
     map.createPane("maskPane");    map.getPane("maskPane").style.zIndex="250";    map.getPane("maskPane").style.pointerEvents="none";
     map.createPane("outlinePane"); map.getPane("outlinePane").style.zIndex="350"; map.getPane("outlinePane").style.pointerEvents="none";
+    // Canvas renderer ต่อ pane — ผูกกับ container โดยตรง เลื่อนพร้อม tile (CSS transform) จึง "ไม่กระพริบ" ตอน drag
+    // (ถ้าใช้ SVG renderer ดีฟอลต์ SVG overlay จะ repaint ช้ากว่า tile layer ทำให้เห็น tile ใต้ mask แว่บนึง)
+    // padding กว้าง (mask 1.5) กัน "แถบไม่ถูก mask" โผล่ที่ขอบตอนลากไกล
+    M.current.landRenderer    = L.canvas({pane:"landPane",    padding:1.5});
+    M.current.maskRenderer    = L.canvas({pane:"maskPane",    padding:1.5});
+    M.current.outlineRenderer = L.canvas({pane:"outlinePane", padding:1.5});
     M.current.provinceLayer = L.geoJSON(null).addTo(map);
     M.current.heat = null; M.current.cluster = null;
     // VIEWPORT rendering: re-render only visible markers after a pan/zoom settles (§9, debounced)
@@ -73,6 +121,11 @@ export function LeafletMap({db, filters, layers, country="Thailand", onPickArea,
     map.on("moveend", ()=>{ clearTimeout(M.current.mt); M.current.mt=setTimeout(()=>{ if(M.current.build) M.current.build(); }, 80); });   // 80ms: marker ปรับขนาดทันหลังซูม/เลื่อนทุกครั้ง (moveend ยิงหลัง zoom ด้วย)
     // ดับเบิลคลิก (ระดับแผนที่ ยิงชัวร์เสมอ) → ยกเลิกการเปิดแผงวิเคราะห์พื้นที่ที่ค้างจากคลิกเดียว แล้วปล่อยให้ doubleClickZoom ซูมเข้าตามปกติ
     map.on("dblclick", ()=>{ if(M.current.areaCT){ clearTimeout(M.current.areaCT); M.current.areaCT=null; } });
+    // clip ป้ายชื่อ: SVG ของ clipPath อยู่ "ใน labelPane" จึงใช้ระบบพิกัดเดียวกับเนื้อหาใน pane
+    // ตอนลาก Leaflet ไม่ได้เปลี่ยน origin ของ layer point — แค่ transform ตัว map-pane ทั้งก้อน clip จึงเลื่อนตามเอง
+    // ค่า layer point เปลี่ยนเฉพาะตอน _resetView (ซูม) → ผูกแค่ viewreset/zoomend ก็พอ ไม่ต้อง move/movestart/moveend
+    // ผลคือ clip ตรงตลอดทั้งระหว่างลากและตอนหยุด และไม่มี reflow ทุกเฟรม
+    map.on("viewreset zoomend", ()=>updateLabelClip());
     setTimeout(()=>{ if(!M.current.alive) return; map.invalidateSize();
       // frame the whole country so it is centred and fully visible (~75% of the viewport) — BUT only when no
       // province is selected. If we mount already scoped to a province (post-login picker → fly to province),
@@ -83,6 +136,21 @@ export function LeafletMap({db, filters, layers, country="Thailand", onPickArea,
     buildBase();
     return ()=>{ M.current.alive = false; clearTimeout(M.current.mt); map.remove(); };
   },[]);
+
+  // ── ชั้นแผ่นดินโลก + พื้นสีทะเล · เฉพาะบทบาทที่เข้าเงื่อนไข ──
+  // ไม่เข้าเงื่อนไข = ออกตั้งแต่บรรทัดแรก ไม่ fetch ไม่สร้าง layer ไม่แตะคลาสของ container
+  useEffect(()=>{
+    const m=M.current; if(!m.alive||!m.map) return;
+    if(!seaFallback) return;
+    m.map.getContainer().classList.add("map-sea");      // พื้น = สีน้ำจาก style (กฎ .map-sea ใน index.html)
+    let cancelled=false;
+    loadWorld().then(w=>{
+      if(cancelled || !m.alive || !m.map || !w || m.landLayer) return;
+      m.landLayer = L.geoJSON(w, {pane:"landPane", renderer:m.landRenderer, interactive:false,
+        style:{fillColor:LAND_FILL, fillOpacity:1, color:LAND_EDGE, weight:0.7, opacity:1}}).addTo(m.map);
+    });
+    return ()=>{ cancelled=true; };
+  },[seaFallback]);
 
   // Rebuild province + heat when filters/layers change OR when a data stage streams in
   // (aggregates → province outlines → customer detail). Skip first run — init already built.
@@ -118,7 +186,26 @@ export function LeafletMap({db, filters, layers, country="Thailand", onPickArea,
   // ── ล็อกแผนที่ให้ TC อยู่เฉพาะจังหวัดที่รับผิดชอบ (maxBounds + minZoom) — มองข้าม/เลื่อนไปจังหวัดอื่นไม่ได้ ──
   useEffect(()=>{
     const m=M.current; if(!m.alive||!m.map) return; const map=m.map;
-    if(!lockProvince){ map.setMaxBounds(null); map.setMinZoom(0); return; }
+    if(!lockProvince){
+      map.setMaxBounds(null);
+      if(country!=="Thailand"){ map.setMinZoom(0); return; }
+      // TC (ที่ยังไม่มีจังหวัดรับผิดชอบ) — ใช้ค่าเดิม ไม่แตะ
+      if(!seaFallback){ map.setMinZoom(3); return; }
+      // ผู้บริหาร/แอดมิน: เพดานซูมออกที่ผู้ใช้กำหนด = ลึกกว่า "ทั้งประเทศพอดีจอ" 1 ระดับ
+      // วัดแล้ว: ระดับพอดีจอ (getBoundsZoom) ที่จอ 1900px กว้าง 41.8° lon — เห็นอินเดีย/ฟิลิปปินส์ กว้างเกินที่ต้องการ
+      // ลึกลงอีก 1 ระดับ = ~20.9° lon เห็นไทยกับเพื่อนบ้านติดกันพอดี (ตัดปลายเหนือ-ใต้ไปบ้าง ซึ่งผู้ใช้ยอมรับ)
+      // ยังผูกกับ getBoundsZoom จึงขยับตามขนาดจอเสมอ ไม่ใช่เลขตายตัว
+      const OUT_LIMIT_OFFSET = 1;
+      const fit=()=>{
+        if(!m.alive||!m.map) return;
+        const mz=map.getBoundsZoom(L.latLngBounds(TH_BOUNDS), false, L.point(28,28)) + OUT_LIMIT_OFFSET;
+        map.setMinZoom(mz);
+        if(map.getZoom()<mz) map.setZoom(mz);
+      };
+      fit();
+      map.on("resize", fit);            // ย่อ/ขยายหน้าต่างแล้วเพดานต้องขยับตาม
+      return ()=>map.off("resize", fit);
+    }
     let tries=0;
     const apply=()=>{ if(!m.alive||!map) return;
       const f=m.provFeatures && m.provFeatures[lockProvince];
@@ -131,7 +218,7 @@ export function LeafletMap({db, filters, layers, country="Thailand", onPickArea,
       if(map.getZoom()<mz) map.setZoom(mz);
     };
     apply();
-  },[lockProvince, db.provincesGeo]);
+  },[lockProvince, country, seaFallback, db.provincesGeo]);
 
   // ── Mask ขอบเขตจังหวัด: ปิดทุกอย่างนอกจังหวัดที่แสดง (กันประเทศเพื่อนบ้าน/ทะเล/จังหวัดอื่นเลอะ) ──
   // TC → จังหวัดที่รับผิดชอบ · เลือกจังหวัดเดียว → จังหวัดนั้น · ภาพรวม → จังหวัดนำร่องทั้งหมด + เส้นขอบประเทศไทย
@@ -147,9 +234,11 @@ export function LeafletMap({db, filters, layers, country="Thailand", onPickArea,
     const m=M.current, map=m.map; if(!map || !db.provincesGeo) return;
     // เลือกจังหวัดที่จะ"เปิด" (เจาะรูให้เห็น base)
     let reveal;
+    // ภาพรวมทั้งประเทศ (ไม่ล็อกจังหวัด และไม่ได้กรองจังหวัด) → เห็นแผนที่ไทยเต็มตัว ไม่มีแผ่นทึบปิด
+    const wholeCountry = !lockProvince && (!filters.province || filters.province==="All");
     if(lockProvince) reveal = new Set([lockProvince]);
     else if(filters.province && filters.province!=="All") reveal = new Set([filters.province]);
-    else reveal = new Set(Object.keys(db.areaByProvince||{}));   // ภาพรวม → จังหวัดนำร่องทั้งหมด
+    else reveal = new Set(db.provincesGeo.features.map(f=>f.properties.name));   // ครบ 77 จังหวัด
     if(m.maskLayer){ map.removeLayer(m.maskLayer); m.maskLayer=null; }
     if(m.outlineLayer){ map.removeLayer(m.outlineLayer); m.outlineLayer=null; }
     if(m.provEdge){ map.removeLayer(m.provEdge); m.provEdge=null; }
@@ -165,18 +254,43 @@ export function LeafletMap({db, filters, layers, country="Thailand", onPickArea,
     });
     if(!holes.length) return;   // ยังไม่มี geojson / ไม่ตรงชื่อ → ไม่ต้อง mask (กันบังทั้งจอ)
     const MASK = dark ? "#0e1626" : "#e9ecf1";                    // สีนอกพื้นที่ (สลับตาม dark mode ของแผนที่)
-    m.maskLayer = L.polygon([world, ...holes], {pane:"maskPane", stroke:false, fillColor:MASK, fillOpacity:1, interactive:false}).addTo(map);
+    if(!wholeCountry)   // มุมมองทั้งประเทศไม่ต้องมีแผ่นทึบ — เห็นแผนที่ไทยเต็มตัว
+      m.maskLayer = L.polygon([world, ...holes], {pane:"maskPane", renderer:m.maskRenderer, stroke:false, fillColor:MASK, fillOpacity:1, interactive:false}).addTo(map);
     if(outlineGeom){                                              // เส้นขอบประเทศไทย (จางสุด 1px) เหนือ mask — บริบทภาพรวม
       const OUT = dark ? "rgba(226,232,240,.28)" : "rgba(30,45,80,.26)";
-      m.outlineLayer = L.geoJSON(outlineGeom, {pane:"outlinePane", interactive:false, style:{color:OUT, weight:1, fill:false}}).addTo(map);
+      m.outlineLayer = L.geoJSON(outlineGeom, {pane:"outlinePane", renderer:m.outlineRenderer, interactive:false, style:{color:OUT, weight:1, fill:false}}).addTo(map);
     }
     // เส้นกรอบของจังหวัดที่ "เปิด" — กรอบให้จังหวัดนำร่อง/ที่เลือกเด่นชัด (เข้มกว่าเส้นขอบประเทศเล็กน้อย)
     const revealFeatures = db.provincesGeo.features.filter(f=>reveal.has(f.properties.name));
     if(revealFeatures.length){
       const EDGE = dark ? "rgba(226,232,240,.5)" : "rgba(43,52,64,.5)";
       m.provEdge = L.geoJSON({type:"FeatureCollection", features:revealFeatures},
-        {pane:"outlinePane", interactive:false, style:{color:EDGE, weight:1.2, fill:false}}).addTo(map);
+        {pane:"outlinePane", renderer:m.outlineRenderer, interactive:false, style:{color:EDGE, weight:1.2, fill:false}}).addTo(map);
     }
+    // clip ป้ายชื่อ(labelPane) ให้เหลือเฉพาะรูปจังหวัดที่เปิด → label ไม่โผล่ทับพื้นที่ที่ถูก mask
+    m.revealFeatures = revealFeatures;
+    updateLabelClip();
+  }
+
+  // clip labelPane ตามรูปจังหวัดที่เปิด — ใช้ layer point (พิกัดเดียวกับ content ของ pane)
+  // SVG ต้องอยู่ "ใน labelPane" ไม่ใช่ document.body ไม่งั้น userSpaceOnUse คนละระบบพิกัดกับ pane
+  // marker ไม่โดน clip นี้เพราะอยู่คนละ pane (markerPane)
+  function updateLabelClip(){
+    const m=M.current, map=m.map; if(!map) return;
+    const pane=map.getPane("labelPane"); if(!pane) return;
+    const feats=m.revealFeatures;
+    if(!feats || !feats.length){ pane.style.clipPath="none"; return; }   // ไม่มี reveal → ไม่ clip (โชว์ label ทั้งหมด)
+    const rings=[];
+    feats.forEach(f=>{ const g=f.geometry, polys= g.type==="Polygon" ? [g.coordinates] : g.type==="MultiPolygon" ? g.coordinates : [];
+      polys.forEach(poly=>{ if(!poly[0]) return;
+        const pts=poly[0].map(([lng,lat])=>{ const p=map.latLngToLayerPoint([lat,lng]); return p.x.toFixed(1)+","+p.y.toFixed(1); });
+        rings.push(pts.join(" ")); }); });
+    let svg=pane.querySelector("#label-clip-svg");
+    if(!svg){ svg=document.createElementNS("http://www.w3.org/2000/svg","svg"); svg.id="label-clip-svg";
+      svg.setAttribute("width","0"); svg.setAttribute("height","0");
+      svg.style.cssText="position:absolute;width:0;height:0;overflow:hidden"; pane.appendChild(svg); }
+    svg.innerHTML='<defs><clipPath id="label-clip" clipPathUnits="userSpaceOnUse">'+rings.map(p=>'<polygon points="'+p+'"/>').join("")+'</clipPath></defs>';
+    pane.style.clipPath="url(#label-clip)";
   }
 
   useEffect(()=>{ // product tour: fly to a point/zoom so markers or clusters become visible
@@ -293,16 +407,24 @@ export function LeafletMap({db, filters, layers, country="Thailand", onPickArea,
     M.current.cs=cs; M.current.ps=ps; M.current.op=layers.op||{};   // stash for viewport marker rendering + opacity
     const opProv=((layers.op&&layers.op.province)??100)/100;
 
+    // ── ระดับสีรายจังหวัด = ดัชนี Lead สูง (ไม่ใช่จำนวนระเบียนดิบ) ──
     const cnt={}; [...cs,...ps].forEach(x=>{cnt[x.province]=(cnt[x.province]||0)+1;});
-    const maxc=Math.max(1,...Object.values(cnt));
+    const provGap={};
+    { const byProv={};
+      cs.forEach(c=>{ (byProv[c.province]=byProv[c.province]||{c:[],p:[]}).c.push(c); });
+      ps.forEach(q=>{ (byProv[q.province]=byProv[q.province]||{c:[],p:[]}).p.push(q); });
+      for(const [pv,o] of Object.entries(byProv)) provGap[pv]=demandGap(o.c,o.p,GAP_REF.province); }
+    const maxc=100;   // gapScore เป็นสเกล 0–100 อยู่แล้ว
     // Per-province count for the hover TOOLTIP — must reflect the HOVERED province regardless of which
     // province is currently selected. `cnt` above is filtered by filters.province, so once a province is
     // selected every OTHER province's cnt is 0; recompute here ignoring the province filter (segment /
     // status / score still apply, matching the no-selection case).
     const tipF={...filters, province:"All"};
-    const cntTip={};
-    db.customers.forEach(c=>{ if(c.country===country && custPass(c,tipF)) cntTip[c.province]=(cntTip[c.province]||0)+1; });
-    db.prospects.forEach(p=>{ if(p.country===country && prosPass(p,tipF)) cntTip[p.province]=(cntTip[p.province]||0)+1; });
+    const cntTip={}, tipBy={};
+    db.customers.forEach(c=>{ if(c.country===country && custPass(c,tipF)){ cntTip[c.province]=(cntTip[c.province]||0)+1; (tipBy[c.province]=tipBy[c.province]||{c:[],p:[]}).c.push(c); } });
+    db.prospects.forEach(p=>{ if(p.country===country && prosPass(p,tipF)){ cntTip[p.province]=(cntTip[p.province]||0)+1; (tipBy[p.province]=tipBy[p.province]||{c:[],p:[]}).p.push(p); } });
+    const provGapTip={};
+    for(const [pv,o] of Object.entries(tipBy)) provGapTip[pv]=demandGap(o.c,o.p,GAP_REF.province);
 
     M.current.provinceLayer.clearLayers();
     M.current.provFeatures={};
@@ -320,7 +442,7 @@ export function LeafletMap({db, filters, layers, country="Thailand", onPickArea,
         // the choropleth fill is on. fillOpacity must stay a hair above 0 even on the "off" polygons: the canvas
         // renderer (preferCanvas) won't hit-test a fully-transparent fill, so 0 = dead clicks.
         style:f=>{
-          const t=(cnt[f.properties.name]||0)/maxc;
+          const t=((provGap[f.properties.name]||{}).gapScore||0)/maxc;
           const isSelected = selected===f.properties.name;
           const isDimmed = selected && !isSelected;
           const baseFillOpacity = showFill ? (cnt[f.properties.name]?0.16+t*0.4:0.04)*opProv : 0;
@@ -341,7 +463,10 @@ export function LeafletMap({db, filters, layers, country="Thailand", onPickArea,
           });
           if(!showFill) return;   // tooltip + hover highlight only when the choropleth fill is visible
           const a=db.areaByProvince[pname];
-          lyr.bindTooltip(`<div class="mk-tip"><b>${provinceTH(pname)}</b><br/>ลูกค้า: ${cntTip[pname]||0} · โอกาส ${a?a.opportunityScore:"-"}</div>`,{sticky:true});
+          const gTip=provGapTip[pname];
+          lyr.bindTooltip(`<div class="mk-tip"><b>${provinceTH(pname)}</b><br/>ธุรกิจในพื้นที่: ${cntTip[pname]||0}`
+            + (gTip ? `<br/>Lead ${gTip.gapScore} (${GAP_TH[gTip.gapLevel]}) · ยังขาด ${gTip.gapCount} ราย` : (a?`<br/>Lead ${a.gapScore}`:""))
+            + `</div>`,{sticky:true});
           lyr.on("mouseover",()=>lyr.setStyle({weight:2.4,color:"#38bdf8"}));
           lyr.on("mouseout",()=>gj.resetStyle(lyr));
         }});
@@ -357,30 +482,28 @@ export function LeafletMap({db, filters, layers, country="Thailand", onPickArea,
     const wantHeat = layers.zoomModes ? true : !!layers.heat;
     const kde = !!layers.kde;   // โหมด KDE (รัศมีเมตร) สำหรับแผนที่สรุปหน้ารายงาน
     const kr = kde ? kdeRadiusPx(map) : 0;
-    // Heat ต้องเคารพสวิตช์เลเยอร์เฉพาะ "แผนที่หลัก" (zoomModes): ปิด "ลูกค้าปัจจุบัน"/"Lead" (หรือกรองเกรด) แล้ว
-    // จุดของกลุ่มนั้นต้องหายจาก heat ไปพร้อมกัน · ส่วนแผนที่สรุปหน้ารายงาน (manual/kde) ตั้ง existing/prospect=false
-    // เพื่อซ่อน "หมุด" แต่ heat ยังต้องรวมทุกจุด — จึงข้ามการกรองนี้
+    // heat = Lead สูง จึงคิดจาก "Lead" (อุปสงค์ที่ยังไม่ถูกเติม) เป็นหลัก
+    // ลูกค้าปัจจุบันคือฝั่งอุปทาน — ไม่เพิ่มความร้อน แต่ไป "หักลบ" ช่องว่างในน้ำหนักของ gapWeigher()
+    // ปิดเลเยอร์ "Lead" บนแผนที่หลัก (zoomModes) = ปิด heat ไปด้วย เพราะไม่มีอุปสงค์ให้วัด
     const autoHeat   = !!layers.zoomModes;
-    const showCsHeat = !autoHeat || layers.existing!==false;
     const showPsHeat = !autoHeat || layers.prospect!==false;
-    const gradeOkHeat = x => !autoHeat || !layers.grades || layers.grades[x.grade]!==false;
-    const gradeSig = autoHeat && layers.grades ? Object.keys(layers.grades).filter(g=>layers.grades[g]===false).join("") : "";
     const heatSig = wantHeat ? (fine?"f":"a")+"|"+cs.length+"|"+ps.length+"|"+areasLen+"|"+(kde?"kde":HEAT_RADIUS)+"|"+(filters.province||"All")+"|"+
-      (showCsHeat?"C":"")+(showPsHeat?"P":"")+"|"+gradeSig+"|"+
+      (showPsHeat?"P":"")+"|"+
       Object.keys(filters.segments).filter(k=>filters.segments[k]).join() : "off";
     if(M.current.heatSig!==heatSig){
       if(M.current.heat){ map.removeLayer(M.current.heat); M.current.heat=null; }
       if(wantHeat){
+        const wGap = fine ? gapWeigher(cs, ps) : null;
         const pts = fine
-          ? [ ...(showCsHeat?cs:[]), ...(showPsHeat?ps.filter(gradeOkHeat):[]) ].map(x=>[x.latitude,x.longitude,0.7])   // เฉพาะจุดของเลเยอร์ที่เปิดไว้
-          : (db.areas||[]).filter(a=>a.center).map(a=>[a.center[0],a.center[1], Math.min(1,((showCsHeat?a.customerCount:0)+(showPsHeat?a.prospectCount:0))/300)]).filter(p=>p[2]>0);
+          ? (showPsHeat?ps:[]).map(x=>[x.latitude,x.longitude, wGap(x)])   // Lead ถ่วงน้ำหนักด้วยช่องว่างของหมวดในอำเภอนั้น
+          : (db.areas||[]).filter(a=>a.center).map(a=>[a.center[0],a.center[1], Math.min(1,(showPsHeat?(a.gapCount||0):0)/GAP_REF.province)]).filter(p=>p[2]>0);
         M.current.heat=L.heatLayer(pts,
           // KDE: รัศมีเมตร(แปลงเป็นพิกเซลตามซูม) blur เล็กตามรัศมี · ปกติ: รัศมีพิกเซลคงที่แบบเดิม
           // smaller radius/blur → the true point distribution shows through instead of blurring into a smooth
           // symmetric blob; higher `max` spreads the ramp across density levels so only the densest cores go deep red.
-          {radius: kde?kr:(fine?HEAT_RADIUS:36), blur: kde?Math.max(2,Math.round(kr*0.6)):(fine?12:22), maxZoom:11, max: fine?12:1.1, minOpacity:0.2,
-           // full rainbow spectrum (Longdo Map style): blue → cyan → green → yellow → orange → red,
-           // ramping from low to high density.
+          {radius: kde?kr:(fine?HEAT_RADIUS:36), blur: kde?Math.max(2,Math.round(kr*0.6)):(fine?12:22), maxZoom:11, max: fine?8:1.1, minOpacity:0.2,
+           // full rainbow spectrum (Longdo Map style): น้ำเงิน → ฟ้า → เขียว → เหลือง → ส้ม → แดง
+           // ไล่จาก "Lead ต่ำ" (หมวดที่มีสมาชิกครบแล้ว) ไป "Lead สูง" (หมวดที่ Barter ยังขาดหนัก)
            gradient:{0.1:"#1a4bd8",0.25:"#1ec7e6",0.4:"#26e07a",0.55:"#c8e622",0.7:"#ffc233",0.85:"#ff6a1a",1:"#d81e1e"}}).addTo(map);
         // leaflet.heat@0.2.0 hardcodes its canvas into overlayPane (ignores any `pane` option), so markers and
         // choropleth share that pane with it. A NEGATIVE z-index forces the heat canvas into overlayPane's
@@ -404,7 +527,7 @@ export function LeafletMap({db, filters, layers, country="Thailand", onPickArea,
   //  buildMarkers) — a zoom threshold alone can't stay smooth because heaviness tracks marker COUNT.
   const LOD_ZOOM = 9;    // icons appear once a single PROVINCE fills the screen (~z9); country z5 stays tiny dots
   function markerIcon(x, op, zoom, colorOverride){
-    const color = colorOverride || STATUS_COLOR[x.status] || "#1565C0";
+    const color = colorOverride || SEG_COLOR[x.segment] || "#64748b";   // สีหมุดตามหมวดธุรกิจ (ไม่ใช่สถานะแล้ว)
     // เริ่มต้นเท่าเส้นผ่านศูนย์กลางจริงของจุดกลม (circleMarker) ที่ zoom=LOD_ZOOM พอดี
     // (dotRadius ที่ zoom=9 = 4.4 → เส้นผ่านศูนย์กลาง 8.8 ≈ 9) เพื่อสลับจากจุดกลมเป็นไอคอนแบบไร้รอยต่อ
     // แล้วขยายต่อเนื่องเป็นเส้นตรงไปจนถึง 34px ที่ zoom 13
@@ -440,13 +563,15 @@ export function LeafletMap({db, filters, layers, country="Thailand", onPickArea,
     if(!showPoints) return;
     const b=map.getBounds().pad(0.25);
     const cs=(layers.existing!==false?(M.current.cs||[]):[]).filter(x=>b.contains([x.latitude,x.longitude]));
-    const ps=(layers.prospect!==false?(M.current.ps||[]):[]).filter(x=>b.contains([x.latitude,x.longitude])
-      && (!layers.grades || layers.grades[x.grade]!==false));   // กรองตามเกรด A/B/C (สวิตช์ในกล่องเลเยอร์)
+    const ps=(layers.prospect!==false?(M.current.ps||[]):[]).filter(x=>b.contains([x.latitude,x.longitude]));
     // auto: ชั้น cluster เมื่ออยู่โหมด cluster · แมนนวล: ตาม layers.cluster + เกณฑ์จำนวนเดิม
-    const useCluster = auto ? (mode==="cluster") : (layers.cluster && (cs.length+ps.length)>60);
+    const useCluster = auto ? (mode!=="heat") : (layers.cluster && (cs.length+ps.length)>60);
+    // ระยะรวมคลัสเตอร์ (พิกเซล) ตามระดับซูม — ยิ่งซูมเข้ายิ่งแคบ จนเหลือรวมแค่หมุดที่ทับกันจริง
+    const clusterRadiusAtZoom = z => z>=17 ? 14 : z>=16 ? 18 : z>=15 ? 24 : z>=14 ? 30 : z>=13 ? 38 : z>=12 ? 48 : 70;
     const grp = useCluster
-      ? L.markerClusterGroup({chunkedLoading:false, maxClusterRadius:70, showCoverageOnHover:false,
-          zoomToBoundsOnClick:false, iconCreateFunction:clusterIcon})   // custom clusterclick (below) drives zoom / detail-panel
+      ? L.markerClusterGroup({chunkedLoading:false, maxClusterRadius:clusterRadiusAtZoom, showCoverageOnHover:false,
+          spiderfyDistanceMultiplier:1.6,   // หมุดที่พิกัดซ้ำกันเป๊ะ ต้องกางออกให้ห่างพอจะกดทีละอันได้
+          zoomToBoundsOnClick:false, iconCreateFunction:clusterIcon})   // custom clusterclick (below) drives zoom / spiderfy
       : L.layerGroup();
     if(useCluster){   // hover reveals the full breakdown (with names) — also covers small count-only bubbles
       grp.on("clustermouseover", e=>{
@@ -454,18 +579,16 @@ export function LeafletMap({db, filters, layers, country="Thailand", onPickArea,
         e.layer.bindTooltip(clusterBreakdown(e.layer), {direction:"top", offset:[0,-r], className:"gc-tt"}).openTooltip();
       });
       grp.on("clustermouseout", e=>e.layer.closeTooltip());
-      // click a cluster → ZOOM IN to spread it apart (standard clustering). Once it can no
-      // longer zoom to break apart (already at max / a single tight area), open the area
-      // detail panel instead. The hover breakdown tooltip above keeps working independently.
+      // คลิกคลัสเตอร์ → ซูมเข้าไปให้มันแตกออก (พฤติกรรมมาตรฐาน)
+      // ถ้าซูมต่อแล้วก็ยังแตกไม่ได้ (พิกัดซ้ำกัน/แน่นสุด ๆ) → กางหมุดออกเป็นวง (spiderfy) ให้กดเลือกทีละอันได้
+      // tooltip สรุปหมวดธุรกิจตอน hover ยังทำงานแยกจากกันตามเดิม
       grp.on("clusterclick", e=>{
         const cl=e.layer, bounds=cl.getBounds(), cur=map.getZoom();
         const fitZoom=map.getBoundsZoom(bounds);
         if(fitZoom > cur){
           map.flyToBounds(bounds, {padding:[48,48], duration:0.55, maxZoom:Math.min(fitZoom, cur+3)});
-        } else {
-          const counts={}; cl.getAllChildMarkers().forEach(m=>{const p=m.options.prov; if(p)counts[p]=(counts[p]||0)+1;});
-          const top=Object.entries(counts).sort((a,b)=>b[1]-a[1])[0];
-          if(top && onPickArea) onPickArea(top[0]);
+        } else if(cl.spiderfy){
+          cl.spiderfy();
         }
       });
     }
@@ -480,14 +603,15 @@ export function LeafletMap({db, filters, layers, country="Thailand", onPickArea,
     const dotMode = !useCluster && (zoom <= LOD_ZOOM || (cs.length+ps.length) > ICON_CAP);
     const dotRadius = Math.max(2, Math.min(5, 2 + (zoom-5)*0.6));   // ~2px (ซูมกว้างสุด z5) → ~5px (ใกล้จุดสลับเป็นไอคอน); ต่อเนื่องกับ size เริ่มต้นของ markerIcon
     // โหมดเน้นสถานะการเข้าพบ (เปิดผ่าน layers.visit เท่านั้น) — ใช้ในหน้ารายงานสรุปข้อมูลรายพื้นที่
-    // Leadที่ "ยังไม่เข้าพบ" = เทา (ช่องว่างที่ยังไม่เข้าถึง) · ศักยภาพสูง (เกรด A/B) ที่เข้าพบแล้ว = แดง
+    // Leadที่ "ยังไม่เข้าพบ" = เทา (ช่องว่างที่ยังไม่เข้าถึง) · Lead ในหมวดที่พื้นที่ยังขาดและเข้าพบแล้ว = แดง
     // ถ้าไม่ได้เปิด layers.visit จะคืน null ทุกกรณี สีหมุดจึงเหมือนเดิมทุกหน้า (ไม่กระทบที่อื่น)
-    const GRAY_UNVISIT="#9aa4b2", RED_HIPOT="#ff3b1e";
+    const GRAY_UNVISIT="#9aa4b2", RED_GAP="#ff3b1e";
+    const wGapMk = layers.visit ? gapWeigher(M.current.cs||[], M.current.ps||[]) : null;
     const visitColor = x => { if(!layers.visit || x.status!=="Prospect") return null;
       if((x.visit_status||"ยังไม่เข้าพบ")==="ยังไม่เข้าพบ") return GRAY_UNVISIT;
-      return (x.grade==="A"||x.grade==="B") ? RED_HIPOT : null; };
+      return wGapMk(x) >= 0.5 ? RED_GAP : null; };
     const add=(arr,isCust)=>arr.forEach(x=>{
-      const o=(isCust?(op.existing??90):(op.prospect??85))/100;
+      const o=(isCust?(op.existing??90):(op.prospect??40))/100;   // ลูกค้า = ทึบชัด · Lead = จาง (แยกด้วยความทึบ ไม่ใช่สี)
       const cov=visitColor(x);
       let m;
       if(dotMode){   // tiny solid STATUS-coloured dot, canvas-rendered — no stroke/border/shadow at all.
@@ -497,13 +621,13 @@ export function LeafletMap({db, filters, layers, country="Thailand", onPickArea,
         // swallow every polygon click (the regression). Dots are added after the polygons, so they
         // still draw on top and stay clickable themselves.
         m=L.circleMarker([x.latitude,x.longitude],{radius:dotRadius, stroke:false,
-          fillColor:cov||STATUS_COLOR[x.status]||"#1565C0", fillOpacity:o,
+          fillColor:cov||SEG_COLOR[x.segment]||"#64748b", fillOpacity:o,
           seg:x.segment, status:x.status, prov:x.province});
       } else {
-        m=L.marker([x.latitude,x.longitude],{icon:markerIcon(x,isCust?(op.existing??90):(op.prospect??85),zoom,cov),
+        m=L.marker([x.latitude,x.longitude],{icon:markerIcon(x,isCust?(op.existing??90):(op.prospect??40),zoom,cov),
           seg:x.segment, status:x.status, prov:x.province, keyboard:false});
       }
-      m.bindTooltip(`<div class="mk-tip"><b>${x.businessName}</b><br/>${x.id} · ${segTH(x.segment)} · ${isCust?"ลูกค้าปัจจุบัน":"Lead · คะแนน "+x.potentialScore}</div>`,{direction:"top",offset:[0,-16]});
+      m.bindTooltip(`<div class="mk-tip"><b>${x.businessName}</b><br/>${x.id} · ${segTH(x.segment)} · ${isCust?"สมาชิกเครือข่ายปัจจุบัน":"Lead"}</div>`,{direction:"top",offset:[0,-16]});
       m.on("click",()=>onPickCustomer&&onPickCustomer(x));   // detail panel reads THIS marker
       grp.addLayer(m);
     });

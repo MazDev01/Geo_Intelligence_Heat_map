@@ -1,75 +1,105 @@
-import {html, useState, useEffect, useMemo, useApp, Icon, num, pct, roleTH, provinceTH, segTH, moneyC, STATUS_COLOR} from "../lib.js";
-import {SEGMENTS, SEG_COLOR, OTHER_COLOR, gradeOf, DISTRICT_TH} from "../mock/geoData.js";
+import {html, useState, useEffect, useMemo, useApp, Icon, num, pct, roleTH, provinceTH, segTH, STATUS_COLOR, thDate, thDateTime, thMonth} from "../lib.js";
+import {SEGMENTS, SEG_COLOR, OTHER_COLOR, DISTRICT_TH, GAP_REF, GAP_TH, demandGap, gapBySegment} from "../mock/geoData.js";
 import {LeafletMap} from "../lmap.js";   // แผนที่ความร้อนระดับประเทศ (ใช้ตัวเดียวกับหน้าอื่น)
 import {getAudit, subscribeAudit, pushAudit} from "../audit.js";
-import {Card, Kpi, Btn, Badge, Toggle, Field, Table, Tabs, Modal, Meter, toast} from "../ui.js";
+import {Card, Kpi, Btn, Badge, Toggle, Field, Table, Tabs, Modal, Meter, DateField, toast} from "../ui.js";
 import {Dropdown} from "../select.js";
-import {MasterData} from "./master-data.js";   // "ข้อมูลหลัก" ย้ายมาเป็นแท็บย่อยของหน้าตั้งค่าระบบ
 import {genLeads} from "./lead-management.js";   // ไปป์ไลน์ "จัดการ Lead" — โชว์จำนวนคงค้างในงานที่รอดำเนินการ
 import {LineChart, BarChart, Donut, Sparkline} from "../charts.js";
-import {calcView, RANGES, thDate} from "../timefilter.js";
+import {calcView, RANGES} from "../timefilter.js";   // thDate มาจาก lib.js โดยตรงแล้ว
 import {ExportDialog, defaultReportName, downloadXLS} from "./reports.js";   // ป็อปอัพส่งออก (ใช้ร่วมกับหน้ารายงาน)
-import {downloadCSV} from "../data.js";
+import {downloadCSV, areaCoverage} from "../data.js";
 import {canExport, EXPORT_ROLES, EXPORT_FORMATS, getExportPerms, setExportPerms} from "../export-perms.js";
+import {NOTIF_EVENTS, PRIORITY_TH, getSysNotif, setSysNotif} from "../notifications.js";
+import {ROLES, SCOPES, DEFAULT_SCOPE, PERM_MODULES, PERM_INDEX, PERM_COUNT, GUARD_KEY,
+  permByRole, roleGrants, roleForbids, effectivePerms, realOverrides} from "../permissions.js";
 
 /* ================= จัดการผู้ใช้ ================= */
-const SEED_USERS = [
+// ชื่อ TC ใช้ชุดเดียวกับทีมภาคสนามใน src/mock/geoData.js (TC_TEAM) — ตัวตนของ TC ไม่ผูกกับชื่อจังหวัด
+// เพราะ "ขอบเขตพื้นที่บริการ" ย้ายได้ (ดูส่วน "จัดการขอบเขตพื้นที่การขาย" ท้ายหน้าจัดการข้อมูล)
+// province = จังหวัดหลักในโปรไฟล์ · null = ยังไม่มีพื้นที่ในความดูแล
+export const SEED_USERS = [
   {id:1,name:"System Administrator",email:"admin@geointel.io",role:"Administrator",status:"Active",last:"2026-07-11 09:12"},
   {id:2,name:"ผู้บริหารภูมิภาค",email:"management@geointel.io",role:"Management",status:"Active",last:"2026-07-11 08:40"},
-  {id:3,name:"TC · กรุงเทพฯ",email:"tc.bkk@geointel.io",role:"Trade Coordinator",province:"Bangkok Metropolis",status:"Active",last:"2026-07-10 17:22"},
-  {id:4,name:"TC · พัทยา",email:"tc.pty@geointel.io",role:"Trade Coordinator",province:"Pattaya",status:"Suspended",last:"2026-07-02 11:05"},
+  {id:3,name:"ณัฐริกา พงษ์ไพบูลย์",email:"tc.bkk@geointel.io",role:"Trade Coordinator",province:"Bangkok Metropolis",status:"Active",last:"2026-07-10 17:22"},
+  {id:4,name:"ศุภมาส เจริญสุข",email:"tc.pty@geointel.io",role:"Trade Coordinator",province:"Pattaya",status:"Active",last:"2026-07-02 11:05"},
   {id:5,name:"David Chen",email:"david@geointel.io",role:"Administrator",status:"Active",last:"2026-07-11 07:58"},
-  {id:6,name:"TC · เชียงใหม่",email:"tc.cm@geointel.io",role:"Trade Coordinator",province:"Chiang Mai",status:"Active",last:"2026-07-11 08:10"},
-  {id:7,name:"TC · ภูเก็ต",email:"tc.hkt@geointel.io",role:"Trade Coordinator",province:"Phuket",status:"Active",last:"2026-07-10 16:00"},
-  {id:8,name:"TC · ยังไม่กำหนดพื้นที่",email:"tc.new@geointel.io",role:"Trade Coordinator",province:null,status:"Active",last:"—"},
+  {id:6,name:"ธนพล ศรีวัฒน์",email:"tc.cm@geointel.io",role:"Trade Coordinator",province:"Chiang Mai",status:"Active",last:"2026-07-11 08:10"},
+  {id:7,name:"ปิยะนุช วงศ์สกุล",email:"tc.hkt@geointel.io",role:"Trade Coordinator",province:"Phuket",status:"Active",last:"2026-07-10 16:00"},
+  {id:8,name:"วีรภัทร ตันติพงศ์",email:"tc.new@geointel.io",role:"Trade Coordinator",province:null,status:"Active",last:"—"},
+  {id:9,name:"กิตติศักดิ์ อารยะกุล",email:"tc.kit@geointel.io",role:"Trade Coordinator",province:null,status:"Active",last:"2026-07-09 13:40"},
 ];
-const statTH = s => s==="Active"?"ใช้งานอยู่":s==="Suspended"?"ระงับ":s;
 export function Users(){
+  const {user:me}=useApp();
   const [users,setUsers]=useState(SEED_USERS);
   const [edit,setEdit]=useState(null);
   const [perm,setPerm]=useState(null);
+  const [delUser,setDelUser]=useState(null);   // บัญชีที่รอยืนยันลบ
   const [roleF,setRoleF]=useState("All");   // ตัวกรองตามบทบาท
+  const [search,setSearch]=useState("");    // ค้นหาชื่อ/อีเมล
   const save=u=>{ setUsers(list=> u.id? list.map(x=>x.id===u.id?u:x) : [...list,{...u,id:Date.now(),status:"Active",last:"—"}]);
     setEdit(null); toast(u.id?"อัปเดตผู้ใช้แล้ว":"สร้างผู้ใช้แล้ว","good"); };
   const del=u=>{ setUsers(list=>list.filter(x=>x.id!==u.id)); toast("ลบผู้ใช้แล้ว","bad"); };
-  const shown = users.filter(u=> roleF==="All" || u.role===roleF);   // แถวหลังกรองบทบาท
+  // บันทึกสิทธิ์: เขียน log ทีละรายการตามกติกา G5 (เปลี่ยนของใคร จากอะไรเป็นอะไร)
+  const savePerm=(target, next, changes)=>{
+    setUsers(list=>list.map(x=> x.id===target.id ? {...x, role:next.role, scope:next.scope, permOverrides:next.overrides} : x));
+    for(const c of changes) pushAudit({action:"แก้ไขสิทธิ์ผู้ใช้", category:"แก้ไข",
+      detail:`${target.name} · ${c.key} : ${c.from} → ${c.to}`});
+    setPerm(null);
+    toast(changes.length? `บันทึกสิทธิ์แล้ว ${changes.length} รายการ` : "ไม่มีการเปลี่ยนแปลง", changes.length?"good":"info");
+  };
+  const q = search.trim().toLowerCase();
+  const shown = users.filter(u=> (roleF==="All" || u.role===roleF)
+    && (!q || u.name.toLowerCase().includes(q) || u.email.toLowerCase().includes(q)));
+  const initials = s => (s||"").trim().split(/\s+/).map(w=>w[0]||"").slice(0,2).join("");
+  const roleCls = r => r==="Administrator" ? "adm" : r==="Management" ? "mgr" : "tc";
 
-  return html`<div class="page fade-in">
-    <div class="page-head"><div><div class="eyebrow">การดูแลระบบ</div><h1>จัดการผู้ใช้</h1>
-      <div class="sub">จัดการผู้ใช้ บทบาท และสิทธิ์การเข้าถึงของแพลตฟอร์ม</div></div>
-      <div class="ph-right"><${Btn} variant="outline" icon="plus" onClick=${()=>setEdit({name:"",email:"",role:"Trade Coordinator"})}>เพิ่มผู้ใช้</${Btn}></div></div>
+  return html`<div class="page fade-in um-page">
+    <div class="page-head">
+      <div><h1>จัดการผู้ใช้</h1>
+        <div class="sub">จัดการบัญชีและสิทธิ์การเข้าถึงระบบ</div></div>
+      <div class="ph-right">
+        <${Btn} variant="primary" icon="plus"
+          onClick=${()=>setEdit({name:"",email:"",role:"Trade Coordinator"})}>เพิ่มผู้ใช้</${Btn}></div>
+    </div>
 
-    <div class="grid g4" style=${{marginBottom:"16px"}}>
+    <!-- สรุปจำนวนตามบทบาท — การ์ดเตี้ยกว่าปกติ ไม่ให้แย่งพื้นที่ไปจากตาราง -->
+    <div class="grid g4 um-kpis">
       <${Kpi} label="ผู้ใช้ทั้งหมด" value=${users.length} icon="users"/>
       <${Kpi} label="ผู้ดูแลระบบ" value=${users.filter(u=>u.role==="Administrator").length} icon="shield"/>
       <${Kpi} label="ผู้ประสานงานการค้า (TC)" value=${users.filter(u=>u.role==="Trade Coordinator").length} icon="user"/>
-      <${Kpi} label="ใช้งานอยู่" value=${users.filter(u=>u.status==="Active").length} icon="check"/>
+      <${Kpi} label="ผู้บริหาร" value=${users.filter(u=>u.role==="Management").length} icon="check"/>
     </div>
 
-    <!-- ตัวกรองตามบทบาท — กรองแถวในตารางบัญชีผู้ใช้ -->
-    <div class="op-slicers" style=${{marginBottom:"14px"}}>
-      <label class="op-lab">👤 บทบาท
-        <${Dropdown} value=${roleF} onChange=${setRoleF}
-          options=${[["All","ทุกบทบาท"],["Administrator","ผู้ดูแลระบบ"],["Management","ผู้บริหาร"],["Trade Coordinator","ผู้ประสานงานการค้า (TC)"]]}/></label>
-      <span class="dim" style=${{fontSize:"12.5px",alignSelf:"center"}}>แสดง ${shown.length} จาก ${users.length} บัญชี</span>
-      ${roleF!=="All" && html`<button class="op-clear" onClick=${()=>setRoleF("All")}>ล้างตัวกรอง</button>`}
+    <!-- แถบเครื่องมือ: ค้นหา + กรองบทบาท อยู่แถวเดียวกัน · ห่อบรรทัดเองเมื่อจอแคบ -->
+    <div class="um-bar">
+      <div class="searchbox um-search"><${Icon} name="search" size=${15}/>
+        <input placeholder="ค้นหาชื่อหรืออีเมล…" value=${search} onInput=${e=>setSearch(e.target.value)}/></div>
+      <div class="um-dd"><${Dropdown} value=${roleF} onChange=${setRoleF}
+        options=${[["All","ทุกบทบาท"],["Administrator","ผู้ดูแลระบบ"],["Management","ผู้บริหาร"],["Trade Coordinator","ผู้ประสานงานการค้า (TC)"]]}/></div>
+      ${(roleF!=="All"||q) && html`<button class="um-clear" onClick=${()=>{setRoleF("All");setSearch("");}}>ล้าง</button>`}
     </div>
 
-    <${Card} pad0=${true}>
-      <${Table} empty="ไม่มีบัญชีในบทบาทนี้" cols=${[
-        {h:"ผู้ใช้", render:u=>html`<div class="row" style=${{gap:"10px"}}><span class="avatar" style=${{width:"30px",height:"30px",fontSize:"12.5px"}}>${u.name.split(" ").map(s=>s[0]).slice(0,2).join("")}</span>
-          <div><div style=${{fontWeight:600}}>${u.name}</div><div class="dim" style=${{fontSize:"12.5px"}}>${u.email}</div></div></div>`},
-        {h:"บทบาท", render:u=>html`<${Badge} tone=${u.role==="Administrator"?"bad":"info"}>${roleTH(u.role)}</${Badge}>`},
-        {h:"สถานะ", render:u=>html`<${Badge} tone=${u.status==="Active"?"good":"warn"}>${statTH(u.status)}</${Badge}>`},
-        {h:"เข้าสู่ระบบล่าสุด", render:u=>html`<span class="dim mono" style=${{fontSize:"12px"}}>${u.last}</span>`},
-        {h:"การจัดการ", w:"220px", render:u=>html`<div class="row" style=${{gap:"6px"}}>
-          <${Btn} size="sm" variant="ghost" icon="edit" onClick=${()=>setEdit(u)}>แก้ไข</${Btn}>
-          <${Btn} size="sm" variant="ghost" icon="key" onClick=${()=>{setPerm(u);}}>สิทธิ์</${Btn}>
-          <button class="icon-btn" style=${{width:"30px",height:"30px"}} onClick=${()=>toast("ส่งลิงก์รีเซ็ตไปยัง "+u.email+" แล้ว","info")}><${Icon} name="refresh" size=${14}/></button>
-          <button class="icon-btn" style=${{width:"30px",height:"30px"}} onClick=${()=>del(u)}><${Icon} name="trash" size=${14} color="#ff9a9a"/></button>
+    <!-- ตารางเป็นตัวเอกของหน้า — Table วาดกรอบการ์ดให้อยู่แล้ว จึงไม่ต้องมี Card ซ้อนอีกชั้น -->
+    <div class="um-table">
+      <${Table} empty="ไม่พบบัญชีตามเงื่อนไขนี้" cols=${[
+        {h:"ผู้ใช้", render:u=>html`<div class="um-user">
+          <span class=${"um-av "+roleCls(u.role)}>${initials(u.name)}</span>
+          <div style=${{minWidth:0}}>
+            <div class="um-nm">${u.name}</div>
+            <div class="um-em">${u.email}</div></div></div>`},
+        {h:"บทบาท", w:"210px", render:u=>html`<span class=${"um-role "+roleCls(u.role)}>${roleTH(u.role)}</span>`},
+        {h:"เข้าสู่ระบบล่าสุด", w:"170px", render:u=>html`<span class="um-last">${u.last==="—"?"—":thDateTime(u.last)}</span>`},
+        {h:"การจัดการ", w:"230px", render:u=>html`<div class="um-act">
+          <button class="um-btn" onClick=${()=>setEdit(u)}><${Icon} name="edit" size=${14}/>แก้ไข</button>
+          <button class="um-btn" onClick=${()=>setPerm(u)}><${Icon} name="key" size=${14}/>สิทธิ์</button>
+          <button class="um-del" onClick=${()=>setDelUser(u)} title="ลบบัญชี"
+            aria-label=${"ลบบัญชี "+u.name}><${Icon} name="trash" size=${15}/></button>
         </div>`},
       ]} rows=${shown}/>
-    </${Card}>
+    </div>
+    <style>${UM_CSS}</style>
+
 
     ${edit && html`<${Modal} title=${edit.id?"แก้ไขผู้ใช้":"เพิ่มผู้ใช้"} onClose=${()=>setEdit(null)}
       footer=${html`<${Btn} variant="ghost" onClick=${()=>setEdit(null)}>ยกเลิก</${Btn}>
@@ -83,15 +113,231 @@ export function Users(){
       </form>
     </${Modal}>`}
 
-    ${perm && html`<${Modal} title=${"สิทธิ์ · "+perm.name} onClose=${()=>setPerm(null)}
-      footer=${html`<${Btn} variant="outline" icon="check" onClick=${()=>{setPerm(null);toast("บันทึกสิทธิ์แล้ว","good");}}>ใช้งาน</${Btn}>`}>
-      ${["ดูแดชบอร์ด","ส่งออกรายงาน","จัดการผู้ใช้","เชื่อมต่อข้อมูล","ตั้งค่าระบบ","ดูบันทึกการตรวจสอบ"].map((p,i)=>
-        html`<div key=${p} class="row between" style=${{padding:"11px 0",borderBottom:"1px solid var(--stroke)"}}>
-          <span style=${{fontSize:"13px"}}>${p}</span><${PToggle} on=${perm.role==="Administrator"||i<2}/></div>`)}
+    ${delUser && html`<${Modal} title="ยืนยันการลบบัญชี" small=${true} onClose=${()=>setDelUser(null)}
+      footer=${html`<${Btn} variant="ghost" onClick=${()=>setDelUser(null)}>ยกเลิก</${Btn}>
+        <${Btn} variant="danger" icon="trash" onClick=${()=>{ del(delUser); setDelUser(null); }}>ยืนยันลบ</${Btn}>`}>
+      <div style=${{fontSize:"13px",lineHeight:1.8}}>ลบ <b>${delUser.name}</b> (${delUser.email}) ออกจากระบบ?</div>
     </${Modal}>`}
+
+    ${perm && html`<${PermissionDialog} key=${perm.id} target=${perm} users=${users} me=${me}
+      onClose=${()=>setPerm(null)} onSave=${savePerm}/>`}
+    <style>${PERM_CSS}</style>
   </div>`;
 }
-function PToggle({on}){ const [v,setV]=useState(on); return html`<${Toggle} on=${v} onChange=${setV}/>`; }
+
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   ป็อปอัพจัดการสิทธิ์รายบุคคล — 3 ชั้นตามเอกสารแบบจำลองสิทธิ์
+     บทบาท (ชุดสำเร็จรูป) → สิทธิ์รายเมนู (เปิด/ปิดรายบุคคล) → ขอบเขตข้อมูล
+   กติกาที่บังคับในหน้านี้: G1 (เหลือผู้ให้สิทธิ์ ≥1 คน) · G2 (แก้ของตัวเองไม่ได้)
+   · G5 (ทุกการเปลี่ยนแปลงลง audit ทีละรายการ)
+   หมายเหตุ: UI ชั้นนี้ทำหน้าที่ "ซ่อน/แสดง" เท่านั้น การบังคับสิทธิ์จริงต้องทำที่เซิร์ฟเวอร์
+   ═══════════════════════════════════════════════════════════════════════════ */
+const thRole  = r => (ROLES.find(x=>x.key===r)||{}).th || r;
+const thScope = s => (SCOPES.find(x=>x.key===s)||{}).th || s;
+
+function PermissionDialog({target, users, me, onClose, onSave}){
+  const prevScope = target.scope || DEFAULT_SCOPE[target.role] || "own_area";
+  const [role,setRole]   = useState(target.role);
+  const [scope,setScope] = useState(prevScope);
+  const [ov,setOv]       = useState(()=>({...(target.permOverrides||{})}));
+  const [open,setOpen]   = useState("");
+
+  const isSelf = !!(me && me.email && me.email===target.email);          // G2
+  const otherGuards = users.filter(u=> u.id!==target.id
+    && effectivePerms(u.role, u.permOverrides||{}).has(GUARD_KEY)).length;
+  const lastGuard = otherGuards===0;                                     // G1
+
+  const has = k => Object.prototype.hasOwnProperty.call(ov,k) ? !!ov[k] : roleGrants(k, role);
+  const lockReason = k => {
+    if(isSelf) return "แก้สิทธิ์ของตัวเองไม่ได้";
+    if(roleForbids(k, role)) return "บทบาทนี้ถือสิทธิ์นี้ไม่ได้ — ต้องเปลี่ยนบทบาทก่อน";
+    if(k===GUARD_KEY && lastGuard && has(k)) return "ต้องเหลือผู้ให้สิทธิ์อย่างน้อย 1 คน";
+    return null;
+  };
+  const toggle = k => { const r=lockReason(k); if(r){ toast(r,"warn"); return; } setOv(m=>({...m,[k]:!has(k)})); };
+  // เปลี่ยนบทบาท = รีเซ็ตสิทธิ์กลับเป็นค่าตั้งต้นของบทบาทใหม่ทั้งหมด (UX2 ในเอกสาร)
+  const changeRole = r => { if(isSelf) { toast("แก้บทบาทของตัวเองไม่ได้","warn"); return; }
+    setRole(r); setOv({}); setScope(DEFAULT_SCOPE[r]||"own_area"); };
+
+  const diff = realOverrides(role, ov);
+  const prevDiff = realOverrides(target.role, target.permOverrides||{});
+  const roleChanged = role!==target.role, scopeChanged = scope!==prevScope;
+  const changes = (()=>{
+    const out=[];
+    if(roleChanged)  out.push({key:"บทบาท",        from:thRole(target.role), to:thRole(role)});
+    if(scopeChanged) out.push({key:"ขอบเขตข้อมูล", from:thScope(prevScope),  to:thScope(scope)});
+    const lbl = (m,k)=> Object.prototype.hasOwnProperty.call(m,k) ? (m[k]?"เปิด":"ปิด") : "ตามบทบาท";
+    for(const k of new Set([...Object.keys(prevDiff), ...Object.keys(diff)])){
+      const a=lbl(prevDiff,k), b=lbl(diff,k);
+      if(a!==b) out.push({key:k, from:a, to:b});
+    }
+    return out;
+  })();
+
+  const eff = effectivePerms(role, ov);
+
+  return html`<${Modal} title=${"สิทธิ์ · "+target.name} onClose=${onClose}
+    footer=${html`<span class="pm-diff">${changes.length
+        ? html`ต่างจากเดิม <b>${changes.length} รายการ</b>`
+        : html`<span class="dim">ยังไม่มีการเปลี่ยนแปลง</span>`}</span>
+      <${Btn} variant="ghost" onClick=${onClose}>ยกเลิก</${Btn}>
+      <${Btn} variant="primary" icon="check" disabled=${isSelf||!changes.length}
+        onClick=${()=>onSave(target,{role,scope,overrides:diff},changes)}>บันทึกและบันทึก log</${Btn}>`}>
+
+    <!-- ชั้นที่ 1 · บทบาท -->
+    <div class="pm-field">
+      <label>บทบาท</label>
+      <${Dropdown} value=${role} onChange=${changeRole} disabled=${isSelf}
+        options=${ROLES.map(r=>[r.key, r.code])}/>
+    </div>
+
+    <!-- ชั้นที่ 3 · ขอบเขตข้อมูล -->
+    <div class="pm-field">
+      <label>ขอบเขตข้อมูล</label>
+      <div class="pm-segbar">
+        ${SCOPES.map(sc=>html`<button key=${sc.key} class=${"pm-seg"+(scope===sc.key?" on":"")}
+          disabled=${isSelf} onClick=${()=>!isSelf&&setScope(sc.key)}>${sc.th}</button>`)}
+      </div>
+    </div>
+
+    <!-- ชั้นที่ 2 · สิทธิ์รายเมนู -->
+    <div class="pm-field">
+      <label>สิทธิ์รายเมนู <span class="dim">(${eff.size}/${PERM_COUNT} รายการ)</span></label>
+      <div class="pm-acc">
+        ${PERM_MODULES.map(m=>{
+          const total=m.perms.length;
+          const on=m.perms.filter(([k])=>eff.has(k)).length;
+          const custom=m.perms.filter(([k])=>Object.prototype.hasOwnProperty.call(diff,k)).length;
+          const isOpen=open===m.key;
+          return html`<div key=${m.key}>
+            <button class=${"pm-row"+(isOpen?" open":"")} onClick=${()=>setOpen(isOpen?"":m.key)}>
+              <span class="pm-car">${isOpen?"⌄":"›"}</span>
+              <span class="pm-nm">${m.name}</span>
+              <span class="pm-cnt">${on}/${total}</span>
+              <span class=${"pm-pill"+(custom?"":" inh")}>${custom?("กำหนดเอง "+custom):"ตามบทบาท"}</span>
+            </button>
+            ${isOpen ? html`<div class="pm-open">
+              ${m.perms.map(([k,label])=>{ const reason=lockReason(k), forbid=roleForbids(k,role);
+                return html`<div key=${k} class=${"pm-perm"+(forbid?" off":"")}>
+                  <span class="pm-key" title=${k}>${k}</span>
+                  <span class="pm-lb">${label}</span>
+                  ${permByRole(k,role)==="o" && !Object.prototype.hasOwnProperty.call(diff,k)
+                    ? html`<span class="pm-tag">ต้องเปิดเอง</span>` : ""}
+                  <button class=${"pm-sw"+(has(k)&&!forbid?" on":"")+(reason?" lock":"")}
+                    title=${reason||""} aria-label=${label}
+                    onClick=${()=>toggle(k)}></button>
+                </div>`; })}
+            </div>` : ""}
+          </div>`;
+        })}
+      </div>
+    </div>
+  </${Modal}>`;
+}
+
+const PERM_CSS = `
+.pm-sub{font-size:12.5px;color:var(--muted);margin:-4px 0 14px}
+.pm-field{display:flex;flex-direction:column;gap:6px;margin-bottom:16px}
+.pm-field > label{font-size:12.5px;font-weight:600;color:var(--txt)}
+.pm-hint{font-size:11.5px;color:var(--dim);line-height:1.5}
+.pm-segbar{display:flex;gap:6px;flex-wrap:wrap}
+.pm-seg{border:1px solid var(--stroke2);border-radius:999px;padding:6px 13px;cursor:pointer;
+  font-family:var(--font);font-size:12.5px;font-weight:400;color:var(--muted);background:var(--surface)}
+.pm-seg:hover:not(:disabled){border-color:var(--accent);color:var(--txt)}
+.pm-seg.on{background:var(--accent);border-color:var(--accent);color:#fff}
+.pm-seg:disabled{opacity:.55;cursor:not-allowed}
+.pm-acc{border:1px solid var(--stroke2);border-radius:10px;overflow:hidden}
+.pm-row{width:100%;display:flex;align-items:center;gap:10px;padding:10px 12px;cursor:pointer;
+  border:none;border-bottom:1px solid var(--stroke);background:var(--surface);
+  font-family:var(--font);font-size:13.5px;color:var(--txt);text-align:left}
+.pm-row:last-child{border-bottom:none}
+.pm-row:hover{background:var(--surface2)}
+.pm-row.open{background:var(--surface2)}
+.pm-car{color:var(--dim);width:12px;flex:none;font-size:12px}
+.pm-nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pm-cnt{font-size:11.5px;color:var(--dim);font-variant-numeric:tabular-nums;flex:none}
+.pm-pill{font-size:10.5px;padding:2px 8px;border-radius:999px;flex:none;
+  background:rgba(245,158,11,.14);color:#b45309;border:1px solid rgba(245,158,11,.35)}
+.pm-pill.inh{background:var(--surface2);color:var(--dim);border-color:var(--stroke2)}
+.pm-open{background:var(--surface2);padding:4px 12px 10px;border-bottom:1px solid var(--stroke)}
+.pm-perm{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px dashed var(--stroke)}
+.pm-perm:last-child{border-bottom:none}
+.pm-perm.off{opacity:.5}
+.pm-key{font-size:11px;color:var(--dim);flex:none;width:158px;font-variant-numeric:tabular-nums;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pm-lb{flex:1;min-width:0;font-size:12.5px;color:var(--txt)}
+.pm-tag{font-size:10.5px;color:var(--dim);border:1px dashed var(--stroke2);border-radius:6px;padding:1px 6px;flex:none}
+.pm-sw{width:36px;height:20px;border-radius:999px;position:relative;flex:none;cursor:pointer;padding:0;
+  background:var(--surface3,rgba(30,45,80,.10));border:1px solid var(--stroke2)}
+.pm-sw::after{content:"";position:absolute;top:2px;left:2px;width:14px;height:14px;border-radius:50%;
+  background:var(--surface);box-shadow:0 1px 2px rgba(0,0,0,.25);transition:left .15s}
+.pm-sw.on{background:var(--accent);border-color:var(--accent)}
+.pm-sw.on::after{left:18px;background:#fff}
+.pm-sw.lock{opacity:.45;cursor:not-allowed}
+.pm-note{display:flex;gap:9px;padding:11px 13px;border-radius:10px;font-size:12.5px;line-height:1.55;margin-bottom:14px}
+.pm-note.stop{background:rgba(220,38,38,.08);border:1px solid rgba(220,38,38,.3);color:#b30019}
+.pm-note b{display:block;font-weight:600}
+.pm-diff{font-size:12.5px;color:var(--muted);margin-right:auto}
+.pm-diff b{color:var(--txt)}
+`;
+
+
+/* ═══ หน้า "จัดการผู้ใช้" — ปรับเฉพาะการจัดวาง/สไตล์ ไม่แตะตรรกะ ═══
+   ใช้คอมโพเนนต์เดิมทั้งหมด (Kpi · Table · Dropdown · Btn · Modal) แค่ปรับสัดส่วนให้กระชับ
+   และให้ตารางเป็นตัวเอกของหน้า ตามแนวทาง Enterprise admin dashboard */
+const UM_CSS = `
+/* การ์ดสรุป: เตี้ยลงจากค่ามาตรฐาน ไม่ให้สูงเกินตาราง */
+.um-kpis{margin-bottom:14px}
+.um-kpis .kpi{padding:12px 14px}
+.um-kpis .kpi .kk{font-size:11.5px;letter-spacing:.5px}
+.um-kpis .kpi .kv{font-size:22px;margin-top:1px}
+.um-kpis .kpi .kpi-ic{width:30px;height:30px;border-radius:9px;top:11px;right:11px}
+.um-kpis .kpi .kpi-ic svg{width:16px;height:16px}
+
+/* แถบเครื่องมือ */
+.um-bar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px}
+.um-search{margin-left:0;flex:0 1 320px;min-width:220px}
+.um-dd{width:210px;flex:none}
+.um-clear{border:none;background:none;cursor:pointer;font-family:var(--font);font-size:12.5px;
+  color:var(--muted);padding:8px 6px;text-decoration:underline;text-underline-offset:3px}
+.um-clear:hover{color:var(--accent-deep)}
+
+/* ตาราง: แถวสูงพอดี เส้นคั่นบางลง */
+.um-table .table td{padding:12px 14px}
+.um-table .table th{font-size:11.5px;letter-spacing:.5px}
+.um-table .table tbody tr:last-child td{border-bottom:none}
+
+.um-user{display:flex;align-items:center;gap:11px;min-width:0}
+.um-av{flex:none;width:34px;height:34px;border-radius:50%;display:grid;place-items:center;
+  font-size:12px;font-weight:700;letter-spacing:.3px}
+.um-av.adm{background:rgba(230,0,35,.10);color:var(--accent-deep)}
+.um-av.mgr{background:rgba(47,127,224,.12);color:#1e4fa8}
+.um-av.tc{background:rgba(100,116,139,.14);color:#475569}
+.um-nm{font-size:13.5px;font-weight:600;color:var(--txt);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.um-em{font-size:12px;color:var(--dim);margin-top:1px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+.um-role{display:inline-block;font-size:12px;padding:4px 11px;border-radius:999px;white-space:nowrap}
+.um-role.adm{background:rgba(230,0,35,.08);color:var(--accent-deep);border:1px solid rgba(230,0,35,.22)}
+.um-role.mgr{background:rgba(47,127,224,.09);color:#1e4fa8;border:1px solid rgba(47,127,224,.24)}
+.um-role.tc{background:rgba(100,116,139,.10);color:#475569;border:1px solid rgba(100,116,139,.24)}
+.um-last{font-size:12.5px;color:var(--muted);font-variant-numeric:tabular-nums}
+
+/* ปุ่มจัดการ: ชิดขวา ระยะเท่ากัน ขนาดเล็กกว่าเนื้อหาในแถว */
+.um-act{display:flex;align-items:center;gap:7px;justify-content:flex-end}
+.um-btn{display:inline-flex;align-items:center;gap:6px;cursor:pointer;font-family:var(--font);
+  font-size:12.5px;color:var(--muted);padding:6px 11px;border-radius:8px;
+  border:1px solid var(--stroke2);background:var(--surface)}
+.um-btn:hover{color:var(--txt);border-color:var(--accent);background:var(--surface2)}
+.um-del{width:30px;height:30px;display:grid;place-items:center;cursor:pointer;padding:0;
+  border:1px solid transparent;border-radius:8px;background:none;color:#c2410c}
+.um-del:hover{background:rgba(220,38,38,.08);border-color:rgba(220,38,38,.28);color:#b30019}
+
+@media(max-width:900px){
+  .um-dd{width:100%}
+  .um-search{flex:1 1 100%}
+}
+`;
 
 /* ================= เชื่อมต่อข้อมูล ================= */
 export function Integration(){
@@ -104,7 +350,7 @@ export function Integration(){
   const mapping=[
     ["customer_id","id","string","✓"],["company_name","businessName","string","✓"],
     ["gps_lat","latitude","float","✓"],["gps_lng","longitude","float","✓"],
-    ["industry_code","segment","enum","✓"],["ytd_sales","salesValue","integer","✓"],["last_txn","lastPurchaseDate","date","✓"]];
+    ["industry_code","segment","enum","✓"],["phone","phone","string","✓"],["date_join","dateJoin","date","✓"]];
   // ประวัติการนำเข้าไฟล์ (ชื่อไฟล์, แหล่งที่มา, วันที่อัปโหลด, จำนวนแถวที่นำเข้าสำเร็จ, สถานะ)
   const imports=[
     ["customers_2026-07-11.xlsx","ลูกค้า","11 ก.ค. 2026","2,301","สำเร็จ"],
@@ -112,8 +358,7 @@ export function Integration(){
     ["customers_2026-07-05.xlsx","ลูกค้า","05 ก.ค. 2026","2,254","มีข้อผิดพลาด"]];
 
   return html`<div class="page fade-in">
-    <div class="page-head"><div><div class="eyebrow">การดูแลระบบ</div><h1>เชื่อมต่อข้อมูล</h1>
-      <div class="sub">การนำเข้าไฟล์ Excel/CSV การจับคู่คอลัมน์ การตรวจสอบข้อมูล และประวัติการนำเข้า</div></div></div>
+    <div class="page-head"><div><h1>เชื่อมต่อข้อมูล</h1></div></div>
 
     <div class="grid g2" style=${{marginBottom:"16px"}}>
       ${sources.map(c=>html`<${Card} key=${c.name} className="hoverable">
@@ -157,30 +402,19 @@ export function Integration(){
 
 /* ================= ตั้งค่าระบบ ================= */
 export function Config(){
-  const [open,setOpen]=useState({scoring:true,layers:true,notif:false,mining:false,perms:false});
+  const [open,setOpen]=useState({layers:true,notif:false,perms:false});
   const toggleSec=k=>setOpen(o=>({...o,[k]:!o[k]}));
-  // แท็บระดับบนของหน้าตั้งค่าระบบ: [ตั้งค่าระบบ · ข้อมูลหลัก] — "ข้อมูลหลัก" ย้ายจากเมนูแยกมาเป็นแท็บย่อยที่นี่
-  const _q0 = new URLSearchParams(location.search);
-  const MD_TYPES = ["segments","areas","customer-status","prospect-status","reject-reasons"];
-  const CFG_TABS = [{value:"settings",label:"ตั้งค่าระบบ"},{value:"master",label:"ข้อมูลหลัก"}];
-  const [ctab,setCtab] = useState(()=> (_q0.get("go")==="master-data" || MD_TYPES.includes(_q0.get("type"))) ? "master" : "settings");
+  // "ข้อมูลหลัก" ไม่ได้เป็นแท็บในหน้านี้แล้ว — ย้ายไปเป็นเมนูย่อยใต้ "ตั้งค่าระบบ" ที่แถบซ้าย (id: master-data)
 
-  // 1) การให้คะแนนศักยภาพ — คะแนนดิบสะสมตาม Appendix B: Prospect Scoring Formula (ใบเสนอราคา MAZ26-020010)
-  //    เป็น "คะแนนดิบ" ต่อเงื่อนไขย่อยของแต่ละปัจจัย บวกสะสมกัน (ไม่ใช่ถ่วงน้ำหนัก % ให้เต็ม 100 แบบเดิมที่คิดผิด)
-  //    ค่าเริ่มต้นตรงตามตารางจริง — รวมค่าสูงสุดของทุกปัจจัย = 100 คะแนนพอดี
-  const DEF_SCORE={ catExact:20, catPartial:10, ratHigh:15, ratMid:8, rev100:15, rev50:10, rev20:5, web:10, phone:10, locHigh:30, locMid:15 };
-  const [sc,setSc]=useState({...DEF_SCORE});
-  const setSk=(k,v)=>setSc(x=>({...x,[k]:Math.max(0,Math.min(100,Number.isFinite(+v)?Math.round(+v):0))}));
-  // คะแนนสูงสุดที่เป็นไปได้ = ผลรวมของค่าสูงสุดในแต่ละปัจจัย (ช่องทางติดต่อบวกได้ทั้งเว็บ+เบอร์ในคนเดียวกัน)
-  const maxScore = Math.max(sc.catExact,sc.catPartial) + Math.max(sc.ratHigh,sc.ratMid)
-    + Math.max(sc.rev100,sc.rev50,sc.rev20) + (sc.web+sc.phone) + Math.max(sc.locHigh,sc.locMid);
+  // หมายเหตุ: การ์ด "แบบจำลอง Lead สูง" และ "การทำเหมืองข้อมูล" ถูกถอดออกจากหน้านี้แล้ว
+  // เพราะเป็นการตั้งค่าที่ไม่มีผลจริงกับระบบ — น้ำหนัก 45/25/30, ค่าอ้างอิง GAP_REF และเกณฑ์ระดับ (สูง ≥67 / ปานกลาง ≥34)
+  // ถูกกำหนดตายตัวใน src/mock/geoData.js (demandGap / gapLevelOf / GAP_REF) และ JSON ถูกสร้างล่วงหน้าโดย gen.mjs
 
-  // 2) Map layers (reorderable, toggle, opacity)
+  // 1) Map layers (reorderable, toggle, opacity)
   const DEF_LAYERS=[
     {id:"existing",name:"ลูกค้าปัจจุบัน",color:"#2563eb",on:true,opacity:90},
     {id:"prospect",name:"Lead",color:"#38bdf8",on:true,opacity:85},
-    {id:"heat",name:"แผนที่ความร้อน",color:"#ff5a3c",on:true,opacity:70},
-    {id:"opportunity",name:"พื้นที่โอกาส",color:"#ffb02e",on:true,opacity:60},
+    {id:"heat",name:"แผนที่ความร้อน (Lead)",color:"#ff5a3c",on:true,opacity:70},
     {id:"boundary",name:"ขอบเขตบริการ",color:"#34e0d0",on:false,opacity:50},
     {id:"route",name:"เส้นทางเดินทาง",color:"#8a7bff",on:false,opacity:80},
   ];
@@ -189,25 +423,20 @@ export function Config(){
   const setLayer=(i,patch)=>setLayers(ls=>ls.map((l,j)=>j===i?{...l,...patch}:l));
   const dropAt=i=>{ setLayers(ls=>{ if(drag==null||drag===i)return ls; const a=[...ls]; const [m]=a.splice(drag,1); a.splice(i,0,m); return a; }); setDrag(null); };
 
-  // 3) Notifications
+  // 2) Notifications
   // ระบบนำเข้าข้อมูลด้วยไฟล์ Excel/CSV ผ่านผู้ดูแลเท่านั้น ไม่ได้เชื่อมต่อระบบภายนอกแบบอัตโนมัติ
   // จึงไม่มีการแจ้งเตือนเรื่องการซิงค์ข้อมูลกับระบบภายนอกอีกต่อไป
   // ช่องทางแจ้งเตือนกำหนดตายตัวเป็น "แจ้งเตือนระบบ" ทุกประเภท (ไม่ให้เลือกแล้ว)
-  const DEF_NOTIF=[
-    {id:2,name:"นำเข้าไฟล์สำเร็จ",on:true,channel:"alert",priority:"low"},
-    {id:3,name:"ส่งออกข้อมูลสำเร็จ",on:true,channel:"alert",priority:"low"},
-    {id:4,name:"พบข้อมูลซ้ำ",on:true,channel:"alert",priority:"medium"},
-    {id:6,name:"พบพื้นที่โอกาสสูง",on:true,channel:"alert",priority:"high"},
-  ];
-  const [notif,setNotif]=useState(DEF_NOTIF.map(n=>({...n})));
-  const setN=(i,patch)=>setNotif(ns=>ns.map((n,j)=>j===i?{...n,...patch}:n));
+  // รายการเหตุการณ์มาจาก notifications.js ที่เดียว — หน้าโปรไฟล์และกระดิ่งใช้ชุดเดียวกันนี้
+  const DEF_NOTIF = NOTIF_EVENTS.map(e=>({...e, ...getSysNotif()[e.key]}));
+  const [notif,setNotif]=useState(DEF_NOTIF);
+  const setN=(i,patch)=>setNotif(ns=>{
+    const next = ns.map((n,j)=>j===i?{...n,...patch}:n);
+    setSysNotif(Object.fromEntries(next.map(x=>[x.key,{on:x.on, priority:x.priority}])));   // มีผลทันทีทั้งระบบ
+    return next; });
 
-  // 4) Data mining
-  const DEF_MINE={gradeA:85,gradeB:70,gradeC:50,minScore:40,maxScore:100};
-  const [mine,setMine]=useState({...DEF_MINE});
-  const setM=(k,v)=>setMine(x=>({...x,[k]:v}));
 
-  // 5) สิทธิ์การส่งออกตามบทบาท (§5.2) — บันทึกทันทีลง localStorage (แยกจากแถบบันทึกรวมของอีก 4 การ์ด)
+  // 3) สิทธิ์การส่งออกตามบทบาท (§5.2) — บันทึกทันทีลง localStorage (แยกจากแถบบันทึกรวมของอีก 4 การ์ด)
   //    TODO(server): นี่เป็นเพียงการกำหนดค่านโยบายที่ฝั่ง client ใช้ "กรอง/ซ่อน" ตัวเลือกบนหน้าจอเท่านั้น
   //    การบังคับสิทธิ์จริงต้องทำที่เซิร์ฟเวอร์ (ตรวจ role จาก session ตอนเรียก API ส่งออกแล้วปฏิเสธถ้าไม่มีสิทธิ์)
   const [xperms,setXperms]=useState(()=>{ const p=getExportPerms(); return EXPORT_ROLES.reduce((a,r)=>{a[r.key]={...p[r.key]};return a;},{}); });
@@ -219,24 +448,16 @@ export function Config(){
 
   const [confirmReset,setConfirmReset]=useState(null);
   // ── ติดตามการแก้ไขรวมทุกการ์ด: เก็บ "ค่าที่บันทึกล่าสุด" ไว้เทียบ เพื่อรู้ว่ามีอะไรค้างยังไม่บันทึก ──
-  //    แถบล่างจะโผล่ก็ต่อเมื่อมีค่าต่างจากที่บันทึกไว้ และกดครั้งเดียวมีผลกับทั้ง 4 การ์ดพร้อมกัน
-  const snapshot=(ww,ll,nn,mm)=>JSON.stringify({คะแนน:ww,เลเยอร์:ll,แจ้งเตือน:nn,เหมืองข้อมูล:mm});
-  const [savedSnap,setSavedSnap]=useState(()=>snapshot(DEF_SCORE,DEF_LAYERS,DEF_NOTIF,DEF_MINE));
-  const currentSnap=snapshot(sc,layers,notif,mine);
+  //    แถบล่างจะโผล่ก็ต่อเมื่อมีค่าต่างจากที่บันทึกไว้ และกดครั้งเดียวมีผลกับทั้งเลเยอร์และการแจ้งเตือนพร้อมกัน
+  const snapshot=(ll,nn)=>JSON.stringify({เลเยอร์:ll,แจ้งเตือน:nn});
+  const [savedSnap,setSavedSnap]=useState(()=>snapshot(DEF_LAYERS,DEF_NOTIF));
+  const currentSnap=snapshot(layers,notif);
   const dirty=currentSnap!==savedSnap;
   const saveAll=()=>{ setSavedSnap(currentSnap); toast("บันทึกการตั้งค่าทั้งหมดแล้ว","good"); };
   const cancelAll=()=>{ const s=JSON.parse(savedSnap);
-    setSc({...s.คะแนน}); setLayers(s.เลเยอร์.map(l=>({...l})));
-    setNotif(s.แจ้งเตือน.map(n=>({...n}))); setMine({...s.เหมืองข้อมูล});
+    setLayers(s.เลเยอร์.map(l=>({...l}))); setNotif(s.แจ้งเตือน.map(n=>({...n})));
     setConfirmReset(null); toast("ยกเลิกการเปลี่ยนแปลงทั้งหมดแล้ว","info"); };
-  // ตัวอย่างการคิดคะแนน (บวกสะสมตาม Appendix B): ตรงหมวดหมู่เป๊ะ + Rating≥4.2 + รีวิว≥50 + มีเว็บไซต์ + พื้นที่โอกาสสูง
-  const previewScore=()=>{ const s=sc.catExact + sc.ratHigh + sc.rev50 + sc.web + sc.locHigh;
-    toast(`ตัวอย่างคะแนน: ${s} คะแนน · ตรงหมวดหมู่ (+${sc.catExact}) · Rating 4.5 (+${sc.ratHigh}) · รีวิว 60 (+${sc.rev50}) · มีเว็บ (+${sc.web}) · พื้นที่โอกาสสูง (+${sc.locHigh})`,"info"); };
-  const previewAnalysis=()=>toast(`ผลวิเคราะห์ตัวอย่าง: เกรด A≥${mine.gradeA} · B≥${mine.gradeB} · C≥${mine.gradeC} · ช่วงคะแนนโอกาส ${mine.minScore}–${mine.maxScore}`,"info");
 
-  // ปุ่มบันทึก/รีเซ็ตประจำการ์ดถูกยกเลิกแล้ว — รวมไว้ที่แถบลอยด้านล่างเพียงจุดเดียว
-  // เหลือไว้เฉพาะปุ่มเสริมของบางการ์ด (เช่น ดูตัวอย่างคะแนน) ที่ไม่ใช่การบันทึก
-  const secExtra=extra=>extra?html`<div class="row" style=${{gap:"9px",marginTop:"16px",flexWrap:"wrap"}}>${extra}</div>`:"";
 
   const Section=(key,icon,title,sub,body,rightBadge)=>html`<div class="card" style=${{padding:0,marginBottom:"16px"}}>
     <div class="row between" style=${{padding:"15px 18px",cursor:"pointer"}} onClick=${()=>toggleSec(key)}>
@@ -248,71 +469,18 @@ export function Config(){
     ${open[key] && html`<div style=${{padding:"16px 18px 18px",borderTop:"1px solid var(--stroke)"}}>${body}</div>`}
   </div>`;
 
-  // แถวคะแนนดิบ: ช่องกรอกตัวเลข (input number) ต่อเงื่อนไขย่อยหนึ่งเงื่อนไข — ไม่ใช่แถบเลื่อน %
-  const scRow=(k,label)=>html`<label class="row between" style=${{padding:"7px 0",gap:"12px",fontSize:"12.5px"}}>
-    <span>${label}</span>
-    <div class="cfg-num"><input type="number" min="0" max="100" step="1" value=${sc[k]}
-      aria-label=${label+" (คะแนน)"} onInput=${e=>setSk(k,e.target.value)}/><span>คะแนน</span></div>
-  </label>`;
-  // กล่องหัวข้อปัจจัย (จัดกลุ่มเงื่อนไขย่อย)
-  const scGroup=(head,rows)=>html`<div style=${{marginBottom:"14px",padding:"11px 13px",borderRadius:"11px",border:"1px solid var(--stroke)",background:"rgba(255,255,255,.02)"}}>
-    <div style=${{fontSize:"12.5px",fontWeight:700,marginBottom:"4px"}}>${head}</div>${rows}</div>`;
-  const mRow=(k,label,min,max,suf="")=>html`<div style=${{marginBottom:"13px"}}>
-    <div class="row between" style=${{fontSize:"12.5px",marginBottom:"7px"}}><span>${label}</span><b style=${{color:"var(--accent2)"}}>${mine[k]}${suf}</b></div>
-    <input type="range" min=${min} max=${max} value=${mine[k]} onInput=${e=>setM(k,+e.target.value)}/></div>`;
 
   return html`<div class="page fade-in">
-    <div class="page-head"><div><div class="eyebrow">การดูแลระบบ · เฉพาะผู้ดูแล</div><h1>ตั้งค่าระบบ</h1>
-      <div class="sub">System Configuration · กำหนดกฎการให้คะแนน เลเยอร์แผนที่ การแจ้งเตือน และเครื่องมือทำเหมืองข้อมูล</div></div></div>
+    <div class="page-head"><div><h1>ตั้งค่าระบบ</h1></div></div>
 
-    <${Tabs} tabs=${CFG_TABS} active=${ctab} onChange=${setCtab}/>
-    <div style=${{marginTop:"16px"}}></div>
 
-    ${ctab==="master" ? html`<${MasterData}/>` : html`
     <!-- SECTION 1 -->
-    ${Section("scoring","target","การให้คะแนนศักยภาพ","Prospect Scoring Formula (Appendix B) — คะแนนดิบสะสมต่อเงื่อนไข",
-      html`<div class="grid g2" style=${{alignItems:"start"}}>
-        <div>
-          ${scGroup("📌 การจับคู่หมวดหมู่ (Category Match)", html`
-            ${scRow("catExact","ตรงเป๊ะ (Exact segment match)")}
-            ${scRow("catPartial","ตรงบางส่วน (Partial segment match)")}`)}
-          ${scGroup("📌 คุณภาพคะแนนรีวิว (Rating Quality)", html`
-            ${scRow("ratHigh","Rating ≥ 4.2")}
-            ${scRow("ratMid","Rating ≥ 3.5")}`)}
-          ${scGroup("📌 จำนวนรีวิว (Review Volume)", html`
-            ${scRow("rev100","≥ 100 รีวิว")}
-            ${scRow("rev50","≥ 50 รีวิว")}
-            ${scRow("rev20","≥ 20 รีวิว")}`)}
-        </div>
-        <div>
-          ${scGroup("📌 ช่องทางติดต่อ (Contact Availability)", html`
-            ${scRow("web","มีเว็บไซต์")}
-            ${scRow("phone","มีเบอร์โทร")}`)}
-          ${scGroup("📌 พื้นที่โอกาส (Location Opportunity)", html`
-            ${scRow("locHigh","พื้นที่โอกาสสูง (High opportunity zone)")}
-            ${scRow("locMid","พื้นที่โอกาสปานกลาง (Medium opportunity zone)")}`)}
-          <div class="row between" style=${{padding:"13px 15px",borderRadius:"12px",
-            border:"1px solid "+(maxScore<=100?"rgba(51,214,159,.4)":"rgba(255,90,90,.4)"),
-            background:maxScore<=100?"rgba(51,214,159,.08)":"rgba(255,90,90,.08)"}}>
-            <span style=${{fontSize:"12.5px"}}>คะแนนสูงสุดที่เป็นไปได้</span>
-            <b style=${{fontSize:"20px",color:maxScore<=100?"#0f7a3d":"#c81e1e"}}>${maxScore} คะแนน</b></div>
-          ${maxScore>100 && html`<div style=${{fontSize:"12px",color:"#ff8a8a",marginTop:"9px",lineHeight:1.6}}>
-            ⚠ คะแนนสูงสุดเกิน 100 (${maxScore} คะแนน) — คะแนนจริงจะถูกจำกัดไว้ที่ 100 ควรปรับให้รวมไม่เกิน 100</div>`}
-          ${maxScore<=100 && html`<div style=${{fontSize:"12px",color:"#0f7a3d",marginTop:"9px"}}>✓ คะแนนสูงสุดไม่เกิน 100</div>`}
-          <div class="hr"></div>
-          <div class="muted" style=${{fontSize:"13px",lineHeight:1.7}}>คะแนนศักยภาพ = ผลรวมคะแนนจากทุกเงื่อนไขที่Leadเข้าเกณฑ์ (สูงสุด 100 คะแนน)</div>
-        </div>
-      </div>
-      ${secExtra(html`<${Btn} variant="solid" size="sm" icon="eye" onClick=${previewScore}>ดูตัวอย่างคะแนน</${Btn}>`)}`,
-      html`<${Badge} tone=${maxScore<=100?"good":"bad"}>สูงสุด ${maxScore}</${Badge}>`)}
-
-    <!-- SECTION 2 -->
     ${Section("layers","layers","การจัดการเลเยอร์","Map Layer Management — เปิด/ปิด, ความทึบ, ลำดับความสำคัญ (ลากเพื่อจัดลำดับ)",
       // แต่ละเลเยอร์ยุบเหลือบรรทัดเดียว: [ลากจัดลำดับ][สี] ชื่อ [แถบเลื่อน][%][ตัวอย่าง][เปิด/ปิด]
       html`${layers.map((l,i)=>html`<div key=${l.id} draggable=${true}
         onDragStart=${()=>setDrag(i)} onDragOver=${e=>e.preventDefault()} onDrop=${()=>dropAt(i)}
         class="row cfg-layer" style=${{border:"1px solid "+(drag===i?"var(--accent)":"var(--stroke)"),
-          background:drag===i?"rgba(230, 0, 35,.1)":"rgba(255,255,255,.02)"}}>
+          background:drag===i?"rgba(230, 0, 35,.1)":"rgba(30,45,80,.05)"}}>
         <${Icon} name="grid" size=${15} color="var(--dim)" style=${{flex:"none",cursor:"grab"}}/>
         <span style=${{width:"14px",height:"14px",borderRadius:"50%",flex:"none",background:l.color,opacity:l.on?1:.35}}></span>
         <span class="cfg-layer-nm">${i+1}. ${l.name}</span>
@@ -324,14 +492,14 @@ export function Config(){
       </div>`)}`,
       html`<${Badge} tone="info">${layers.filter(l=>l.on).length}/${layers.length}</${Badge}>`)}
 
-    <!-- SECTION 3 -->
-    ${Section("notif","bell","การแจ้งเตือน","Notification Settings — เปิด/ปิด, ช่องทาง, ระดับความสำคัญ",
+    <!-- SECTION 2 -->
+    ${Section("notif","bell","การแจ้งเตือน","เหตุการณ์ที่ระบบจะแจ้ง — ผู้ใช้ปิดของตัวเองได้ที่หน้าโปรไฟล์ แต่เปิดเกินที่ตั้งไว้ตรงนี้ไม่ได้",
       html`<div class="row" style=${{padding:"0 0 8px",fontSize:"12px",letterSpacing:".5px",color:"var(--dim)",textTransform:"uppercase"}}>
         <span style=${{flex:1}}>ประเภทการแจ้งเตือน</span><span style=${{width:"130px"}}>ช่องทาง</span><span style=${{width:"110px"}}>ระดับ</span></div>
-      ${notif.map((n,i)=>html`<div key=${n.id} class="row between" style=${{padding:"10px 0",borderTop:"1px solid var(--stroke)",gap:"12px"}}>
+      ${notif.map((n,i)=>html`<div key=${n.key} class="row between" style=${{padding:"10px 0",borderTop:"1px solid var(--stroke)",gap:"12px"}}>
         <div class="row" style=${{gap:"11px",flex:1,minWidth:0}}>
           <${Toggle} on=${n.on} onChange=${v=>setN(i,{on:v})}/>
-          <span style=${{fontSize:"13px",opacity:n.on?1:.45}}>${n.name}</span></div>
+          <span style=${{fontSize:"13px",opacity:n.on?1:.45}}>${n.label}</span></div>
         <!-- ช่องทางกำหนดตายตัวเป็น "แจ้งเตือนระบบ" จึงแสดงเป็นข้อความ ไม่ใช่ตัวเลือกให้กดเปลี่ยน -->
         <span style=${{width:"130px",flex:"none",fontSize:"13px",color:"var(--muted)",opacity:n.on?1:.45}}>แจ้งเตือนระบบ</span>
         <select class="input" style=${{width:"110px",padding:"7px 10px",flex:"none"}} value=${n.priority} onChange=${e=>setN(i,{priority:e.target.value})}>
@@ -340,35 +508,8 @@ export function Config(){
       `,
       html`<${Badge} tone="info">${notif.filter(n=>n.on).length} เปิด</${Badge}>`)}
 
-    <!-- SECTION 4 -->
-    ${Section("mining","config","การทำเหมืองข้อมูล","Data Mining Configuration — ควบคุมเครื่องมือวิเคราะห์",
-      html`<div class="grid g2" style=${{alignItems:"start"}}>
-        <div>
-          <div class="sec-label" style=${{marginTop:0}}>เกณฑ์คะแนนเกรด</div>
-          ${mRow("gradeA","เกรด A ขั้นต่ำ",70,100)}
-          ${mRow("gradeB","เกรด B ขั้นต่ำ",40,mine.gradeA)}
-          ${mRow("gradeC","เกรด C ขั้นต่ำ",0,mine.gradeB)}
-          <div class="row" style=${{gap:"8px",marginTop:"4px"}}>
-            <${Badge} tone="good">A ≥ ${mine.gradeA}</${Badge}><${Badge} tone="warn">B ≥ ${mine.gradeB}</${Badge}><${Badge} tone="neutral">C ≥ ${mine.gradeC}</${Badge}></div>
-        </div>
-        <div>
-          <div class="sec-label" style=${{marginTop:0}}>เกณฑ์โอกาส</div>
-          ${mRow("minScore","คะแนนขั้นต่ำ",0,mine.maxScore)}
-          ${mRow("maxScore","คะแนนสูงสุด",mine.minScore,100)}
-          <!-- ตัดตัวเลือก "วิธีจัดอันดับ" และ "ความถี่การรีเฟรช" ออกแล้ว
-               คะแนนความน่าสนใจของพื้นที่ใช้สูตรตายตัวเดิม (ความหนาแน่น + ความครอบคลุมที่ยังต่ำ) ไม่มีให้สลับเกณฑ์
-               ใส่ป้ายสรุปช่วงคะแนนแทน เพื่อให้สองฝั่งของการ์ดสมดุลกัน ไม่เหลือพื้นที่ว่างเปล่า -->
-          <div class="row" style=${{gap:"8px",marginTop:"4px",flexWrap:"wrap"}}>
-            <${Badge} tone="info">ช่วงคะแนน ${mine.minScore}–${mine.maxScore}</${Badge}>
-            <${Badge} tone="neutral">กว้าง ${mine.maxScore-mine.minScore} คะแนน</${Badge}></div>
-          <div class="muted" style=${{fontSize:"12px",lineHeight:1.7,marginTop:"10px"}}>
-            ใช้คัดเฉพาะพื้นที่ที่คะแนนโอกาสอยู่ในช่วงนี้มาแสดงในรายงานและการจัดอันดับ</div>
-        </div>
-      </div>
-      ${secExtra(html`<${Btn} variant="solid" size="sm" icon="eye" onClick=${previewAnalysis}>ดูตัวอย่างผลวิเคราะห์</${Btn}>`)}`,
-      html`<${Badge} tone="neutral">เกรด A ≥ ${mine.gradeA}</${Badge}>`)}
 
-    <!-- SECTION 5 · สิทธิ์การส่งออกตามบทบาท -->
+    <!-- SECTION 3 · สิทธิ์การส่งออกตามบทบาท -->
     ${Section("perms","download","สิทธิ์การส่งออกตามบทบาท","กำหนดว่าบทบาทใดส่งออกไฟล์ประเภทใดได้ (บันทึกทันที)",
       html`<div>
         <div class="muted" style=${{fontSize:"12px",lineHeight:1.7,marginBottom:"12px"}}>
@@ -399,7 +540,7 @@ export function Config(){
       </div>`,
       html`<${Badge} tone="neutral">CSV เฉพาะผู้ดูแล</${Badge}>`)}
 
-    <!-- แถบบันทึกลอยด้านล่าง — โผล่เฉพาะตอนมีการแก้ไขที่ยังไม่บันทึก และมีผลกับทั้ง 4 การ์ดพร้อมกัน
+    <!-- แถบบันทึกลอยด้านล่าง — โผล่เฉพาะตอนมีการแก้ไขที่ยังไม่บันทึก และมีผลกับการ์ดเลเยอร์/แจ้งเตือนพร้อมกัน
          เว้นที่ว่างด้านล่างหน้าไว้เท่าความสูงแถบ (cfg-bar-space) เพื่อไม่ให้แถบบังเนื้อหาส่วนท้าย -->
     ${dirty && html`<div class="cfg-bar-space"></div>`}
     ${dirty && html`<div class="cfg-bar">
@@ -413,46 +554,70 @@ export function Config(){
         <${Btn} variant="danger" icon="refresh" onClick=${cancelAll}>ยืนยันยกเลิก</${Btn}>`}>
       <div style=${{fontSize:"13px",lineHeight:1.8}}>ต้องการยกเลิกการเปลี่ยนแปลงทั้งหมดของทุกการ์ด และกลับไปใช้ค่าที่บันทึกไว้ล่าสุดหรือไม่? การเปลี่ยนแปลงที่ยังไม่บันทึกจะหายไป</div>
     </${Modal}>`}
-    `}
   </div>`;
 }
 
 /* ================= บันทึกการตรวจสอบ ================= */
 const ACT_TH = {Login:"เข้าสู่ระบบ", Logout:"ออกจากระบบ", Export:"ส่งออก", Sync:"ซิงค์ข้อมูล", "User Activity":"กิจกรรมผู้ใช้"};
 const AUDIT = (()=>{ const acts=[["Login","shield","info"],["Logout","logout","neutral"],["Export","download","warn"],["Sync","refresh","good"],["User Activity","user","info"]];
-  const who=["admin@geointel.io","analyst@geointel.io","nattapong@geointel.io","david@geointel.io"];
+  // อีเมลต้องตรงกับบัญชีจริงใน SEED_USERS ไม่งั้นเทียบบทบาทไม่ได้ · คละให้ครบทั้ง 3 บทบาท
+  const who=["admin@geointel.io","david@geointel.io","management@geointel.io","tc.bkk@geointel.io","tc.cm@geointel.io"];
   const det={Login:"เข้าสู่ระบบจาก 10.4.2.x",Logout:"สิ้นสุดเซสชัน",Export:"ส่งออกรายงานโอกาส (PDF)",Sync:"ซิงค์ชุดข้อมูล ERP","User Activity":"เปิดดูแดชบอร์ดพื้นที่กรุงเทพ"};
   const rows=[]; for(let i=0;i<40;i++){ const a=acts[i%acts.length]; const h=String(9-(i%9)).padStart(2,"0");
     rows.push({time:`2026-07-11 ${h}:${String((i*7)%60).padStart(2,"0")}`,type:a[0],icon:a[1],tone:a[2],user:who[i%who.length],detail:det[a[0]]}); }
   return rows; })();
+/* อีเมล → บทบาท (จากบัญชีผู้ใช้ในระบบ) — ใช้ทั้งตัวกรองบทบาทและป้ายใต้ชื่อผู้ใช้ */
+const ROLE_OF_EMAIL = Object.fromEntries(SEED_USERS.map(u=>[u.email, u.role]));
+
 export function Audit(){
-  const [q,setQ]=useState(""); const [type,setType]=useState("All");
+  const [q,setQ]=useState(""); const [type,setType]=useState("All"); const [roleF,setRoleF]=useState("All");
+  const [page,setPage]=useState(1);
+  const AU_PAGE=15;                           // แถวต่อหน้า — เกินกว่านี้ขึ้นหน้าใหม่ ไม่ต้องเลื่อนยาว
   const [live,setLive]=useState(getAudit());   // รายการที่บันทึกสดจากหน้าจัดการข้อมูล ฯลฯ
   useEffect(()=>subscribeAudit(l=>setLive([...l])),[]);
-  const fmtTs=ts=>{ const d=new Date(ts); return isNaN(d)?ts:`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")} ${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}`; };
   const CAT_TONE={"นำเข้า":"good","ลบ":"bad","แก้ไข":"info","conflict":"warn","ส่งออก":"warn","เพิ่ม":"good"};
-  const liveRows=live.map(e=>({time:fmtTs(e.ts),type:e.category,label:e.action,icon:"edit",tone:CAT_TONE[e.category]||"info",user:e.user,detail:e.detail}));
+  // เก็บเวลาดิบไว้ · ให้คอลัมน์ "เวลา" เป็นคนแปลงที่เดียว (ถ้าแปลงสองรอบจะได้ "—")
+  const liveRows=live.map(e=>({time:e.ts,type:e.category,label:e.action,icon:"edit",tone:CAT_TONE[e.category]||"info",user:e.user,detail:e.detail}));
   const all=[...liveRows, ...AUDIT];
-  const rows=all.filter(r=>(type==="All"||r.type===type)&&(!q||(r.user||"").toLowerCase().includes(q.toLowerCase())||(r.detail||"").toLowerCase().includes(q.toLowerCase())));
+  const rows=all.filter(r=>(type==="All"||r.type===type)
+    && (roleF==="All" || ROLE_OF_EMAIL[r.user]===roleF)
+    && (!q||(r.user||"").toLowerCase().includes(q.toLowerCase())||(r.detail||"").toLowerCase().includes(q.toLowerCase())));
+  const pages=Math.max(1,Math.ceil(rows.length/AU_PAGE));
+  const pg=Math.min(page,pages);
+  const pageRows=rows.slice((pg-1)*AU_PAGE, pg*AU_PAGE);
+  const reset = fn => v => { setPage(1); fn(v); };   // เปลี่ยนตัวกรองแล้วกลับไปหน้าแรกเสมอ
   return html`<div class="page fade-in">
-    <div class="page-head"><div><div class="eyebrow">การดูแลระบบ</div><h1>บันทึกการตรวจสอบ</h1>
-      <div class="sub">ประวัติการเข้าสู่ระบบ การส่งออก การซิงค์ และกิจกรรมของผู้ใช้</div></div></div>
+    <div class="page-head"><div><h1>บันทึกการตรวจสอบ</h1></div></div>
     <div class="row wrap" style=${{gap:"10px",marginBottom:"16px"}}>
-      <div class="searchbox"><${Icon} name="search" size=${15}/><input placeholder="ค้นหาผู้ใช้หรือการกระทำ…" value=${q} onInput=${e=>setQ(e.target.value)}/></div>
-      <select class="input" style=${{width:"200px"}} value=${type} onChange=${e=>setType(e.target.value)}>
-        <option value="All">ทั้งหมด</option>
-        ${["Login","Logout","Export","Sync","User Activity"].map(t=>html`<option key=${t} value=${t}>${ACT_TH[t]}</option>`)}</select>
+      <div class="searchbox"><${Icon} name="search" size=${15}/><input placeholder="ค้นหาผู้ใช้หรือการกระทำ…" value=${q} onInput=${e=>{setPage(1);setQ(e.target.value);}}/></div>
+      <div style=${{width:"190px",flex:"none"}}>
+        <${Dropdown} value=${type} onChange=${reset(setType)}
+          options=${[["All","ทุกการกระทำ"], ...["Login","Logout","Export","Sync","User Activity"].map(t=>[t,ACT_TH[t]])]}/></div>
+      <div style=${{width:"210px",flex:"none"}}>
+        <${Dropdown} value=${roleF} onChange=${reset(setRoleF)}
+          options=${[["All","ทุกบทบาท"],["Administrator","ผู้ดูแลระบบ"],["Management","ผู้บริหาร"],["Trade Coordinator","ผู้ประสานงานการค้า (TC)"]]}/></div>
       <${Badge} tone="neutral">${rows.length} รายการ</${Badge}>
     </div>
     <${Card} pad0=${true}>
       <${Table} cols=${[
-        {h:"เวลา", w:"170px", render:r=>html`<span class="mono" style=${{fontSize:"12px"}}>${r.time}</span>`},
+        {h:"เวลา", w:"190px", render:r=>html`<span style=${{fontSize:"12.5px",color:"var(--muted)"}}>${thDateTime(r.time)}</span>`},
         {h:"การกระทำ", render:r=>html`<span class="row" style=${{gap:"8px"}}><${Icon} name=${r.icon} size=${15} color="var(--muted)"/>
           <${Badge} tone=${r.tone}>${r.label||ACT_TH[r.type]||r.type}</${Badge}></span>`},
-        {h:"ผู้ใช้", render:r=>r.user},
+        {h:"ผู้ใช้", w:"250px", render:r=>html`<div><div>${r.user}</div>
+          <div class="dim" style=${{fontSize:"11.5px",marginTop:"1px"}}>${roleTH(ROLE_OF_EMAIL[r.user])||"ระบบ"}</div></div>`},
         {h:"รายละเอียด", render:r=>html`<span class="muted">${r.detail}</span>`},
-      ]} rows=${rows}/>
+      ]} rows=${pageRows}/>
     </${Card}>
+
+    ${pages>1 ? html`<div class="pager">
+      <span class="dim">แสดง ${(pg-1)*AU_PAGE+1}–${Math.min(pg*AU_PAGE, rows.length)} จาก ${num(rows.length)} รายการ</span>
+      <div class="row" style=${{gap:"6px"}}>
+        <button class="pager-b" disabled=${pg<=1} onClick=${()=>setPage(pg-1)}>‹</button>
+        ${Array.from({length:pages},(_,i)=>i+1).map(k=>html`<button key=${k}
+          class=${"pager-b"+(k===pg?" on":"")} onClick=${()=>setPage(k)}>${k}</button>`)}
+        <button class="pager-b" disabled=${pg>=pages} onClick=${()=>setPage(pg+1)}>›</button>
+      </div>
+    </div>` : ""}
   </div>`;
 }
 
@@ -471,7 +636,6 @@ export function Monitoring({defaultTab}={}){
   const [fFrom,setFFrom] = useState("");
   const [fTo,setFTo]     = useState("");
   // ขยายกล่องรายหน่วยจาก 5 อันดับ → ทั้งหมด (มี scroll ในกล่อง)
-  const [expPerf,setExpPerf] = useState(false);
   const [expConv,setExpConv] = useState(false);
   const [expTbl,setExpTbl]   = useState(false);
   // เรียก hook ให้ครบก่อนเสมอ แล้วค่อยตัดสินใจว่าจะแสดงหน้ารอโหลดไหม
@@ -497,7 +661,7 @@ export function Monitoring({defaultTab}={}){
     rows.push(["ตัวชี้วัด","ค่า"]);
     if(ds!=="prospect") rows.push(["ลูกค้าปัจจุบัน", v.fCusts.length]);
     if(ds!=="existing") rows.push(["Lead", v.fPros.length]);
-    rows.push(["จังหวัดที่มีลูกค้า", v.provincesWithCust], ["Opportunity Score เฉลี่ย", v.avgOpp]);
+    rows.push(["จังหวัดที่มีลูกค้า", v.provincesWithCust], ["ดัชนี Lead เฉลี่ย", v.avgOpp]);
     rows.push([],["จังหวัดที่มีลูกค้าสูงสุด"]);
     (v.topByCust||[]).forEach(t=>rows.push([t.label, t.value]));
     return rows; };
@@ -517,9 +681,7 @@ export function Monitoring({defaultTab}={}){
 
   // ═══════════ แดชบอร์ดผู้บริหาร (ออกแบบใหม่) — เน้นเปรียบเทียบระหว่างจังหวัด + สิ่งที่พบจากข้อมูล ═══════════
   const REF = v.ref, DAY=864e5;
-  const _TH=["ม.ค.","ก.พ.","มี.ค.","เม.ย.","พ.ค.","มิ.ย.","ก.ค.","ส.ค.","ก.ย.","ต.ค.","พ.ย.","ธ.ค."];
-  const beD = t => { const d=new Date(t); return d.getUTCDate()+" "+_TH[d.getUTCMonth()]+" "+(d.getUTCFullYear()+543); };  // วันที่พุทธศักราช
-  const monLabel = m => { const [y,mm]=m.split("-"); return _TH[+mm-1]+" "+String(+y+543).slice(-2); };
+  const beD = thDate, monLabel = thMonth;   // ใช้ตัวแปลงกลาง
 
   // ── ตัวเลือก + ชุดข้อมูลที่ผ่านตัวกรอง (จังหวัด · อำเภอจริงของจังหวัดนั้น · หมวดธุรกิจ · ช่วงวันที่) ──
   const provOpts = [...new Set((areas||[]).map(a=>a.province))];
@@ -553,6 +715,8 @@ export function Monitoring({defaultTab}={}){
   const ranked = [...new Set([...Object.keys(_cCnt),...Object.keys(_pCnt)])]
     .map(u=>({province:u, unit:u, label:unitLabelOf(u), customerCount:_cCnt[u]||0, prospectCount:_pCnt[u]||0}));
   const isEmpty = fCusts.length===0 && fPros.length===0;   // ไม่พบข้อมูลตามเงื่อนไขที่เลือก
+  // ความครอบคลุมพื้นที่ — "มีลูกค้าแล้วกี่พื้นที่ จากพื้นที่ทั้งหมด" (null = ไม่มีพื้นที่ให้นับ)
+  const cov = areaCoverage(fCusts, fPros, fProv);
   const animSig = [range,fProv,fDist,fSeg,fFrom,fTo].join("|");   // เปลี่ยนตัวกรองใด ๆ → กราฟรีเฟรชพร้อมอนิเมชัน
 
   // แถว 1 ซ้าย · สัดส่วนที่เป็นลูกค้าแล้ว รายจังหวัด (เทียบค่าเฉลี่ย) — ไม่ใช้คำว่า Coverage
@@ -560,7 +724,6 @@ export function Monitoring({defaultTab}={}){
       return {province:a.province, unit:a.unit, label:a.label, cust:a.customerCount, lead:a.prospectCount, tot, share: tot?Math.round(a.customerCount/tot*100):0}; })
     .filter(x=>x.tot>0).sort((a,b)=>b.share-a.share);
   const avgShare = provShare.length?Math.round(provShare.reduce((s,p)=>s+p.share,0)/provShare.length):0;
-  const shareMax = Math.max(1, ...provShare.map(p=>p.share), avgShare);
   const lowProv = provShare.length?provShare[provShare.length-1]:null;
   const shareTakeaway = lowProv && lowProv.share<avgShare
     ? `${lowProv.label} สัดส่วนลูกค้า ${lowProv.share}% ต่ำกว่าค่าเฉลี่ย ${avgShare}% — เร่งเปลี่ยน Lead เป็นลูกค้าในพื้นที่นี้`
@@ -587,27 +750,6 @@ export function Monitoring({defaultTab}={}){
     const r=_rankAmong(o=>o.district, fDist, o=>o.province===fProv&&(fSeg==="all"||o.segment===fSeg)&&_inWin(o));
     bc={ unitTH:DISTRICT_TH[fDist]||fDist, parentTH:"จังหวัด"+provinceTH(fProv), ...r, diff:r.share-r.avg };
   }
-
-  // แถว 1 ขวา · มูลค่าต่อโอกาส (ประมาณการ) รายหน่วย
-  // TODO(product): ยังไม่มีนิยามมูลค่าดีลที่ยืนยันจากลูกค้า — "ประมาณการ" จาก จำนวน Lead × มูลค่าขายเฉลี่ยต่อลูกค้า
-  // แก้บั๊ก ฿0: หน่วยที่ยังไม่มีลูกค้าจะไม่มีค่าเฉลี่ยของตัวเอง → ตกทอด: อำเภอ → จังหวัด(ขอบเขต) → ประเทศ · ถ้าไม่มีเลย = "—"
-  const _avgSaleOf = arr => { const cs=arr.filter(c=>c.salesValue>0); return cs.length? cs.reduce((s,c)=>s+c.salesValue,0)/cs.length : 0; };
-  const provAvgSale = {}; ranked.forEach(a=>{ provAvgSale[a.unit]=_avgSaleOf(fCusts.filter(c=>c[unitKey]===a.unit)); });
-  const scopeAvgSale = _avgSaleOf(fCusts);              // ค่าเฉลี่ยของขอบเขตปัจจุบัน (จังหวัดที่เจาะ)
-  const natAvgSale   = _avgSaleOf(db.customers||[]);    // ค่าเฉลี่ยทั้งประเทศ (fallback สุดท้าย)
-  const shareByUnit  = Object.fromEntries(provShare.map(p=>[p.unit,p.share]));
-  const valAll = ranked.map(a=>{ const own=provAvgSale[a.unit];
-    const est = own>0 ? own : scopeAvgSale>0 ? scopeAvgSale : natAvgSale;   // ตกทอดค่าเฉลี่ย
-    const estimated = !(own>0) && est>0;                                    // ประเมินจากค่าเฉลี่ยระดับสูงกว่า
-    return {province:a.province, unit:a.unit, label:a.label, cust:a.customerCount, lead:a.prospectCount,
-      share: (shareByUnit[a.unit]!=null?shareByUnit[a.unit]:0),
-      val: est>0 ? Math.round(a.prospectCount*est) : null, estimated }; });
-  const valLookup = Object.fromEntries(valAll.map(x=>[x.unit,x]));
-  const anyEstimated = valAll.some(x=>x.estimated && x.val);
-  const totalOpp = valAll.reduce((s,x)=>s+(x.val||0),0);   // มูลค่าโอกาสคงเหลือรวม (การ์ด KPI 4)
-  const valMax = Math.max(1, ...valAll.map(x=>x.val||0));
-  const perfFull = valAll.slice().sort((a,b)=>(b.val||0)-(a.val||0));       // Performance & Value: มูลค่าสูง→ต่ำ
-  const estAvgWord = level==="province" ? "จังหวัด" : "ประเทศ";              // ประเมินจากค่าเฉลี่ย…
 
   // แถว 2 ซ้าย · แนวโน้มการเพิ่มลูกค้า/Lead 6 เดือน (จากวันที่ในระเบียนจริง)
   const custMon={}, prosMon={};
@@ -668,24 +810,26 @@ export function Monitoring({defaultTab}={}){
     // เจาะลึกแล้วเรียงสัดส่วนจากน้อย→มาก (หน่วยที่ตามหลังอยู่บน) · ระดับประเทศเรียงตามจำนวนลูกค้า
     .sort((a,b)=> level==="country" ? b.cust-a.cust : a.share-b.share);
 
-  // ระดับอำเภอ · รายชื่อ Lead เกรด A ที่ยังไม่ได้เข้าพบ (เจาะถึงรายบริษัท เพราะขอบเขตแคบพอ)
+  // ระดับอำเภอ · Lead ในหมวดที่พื้นที่นี้ยังขาด และยังไม่ได้เข้าพบ (เจาะถึงรายบริษัท เพราะขอบเขตแคบพอ)
+  const gapSegMap = Object.fromEntries(gapBySegment(fCusts, fPros).map(x=>[x.seg, x.gap]));
   const leadAList = level==="district"
-    ? fPros.filter(p=>(p.grade||gradeOf(p.potentialScore))==="A")
-        .map(p=>({...p, _visited: (p.visit_status && p.visit_status!=="ยังไม่เข้าพบ") || (Array.isArray(p.visitRounds)&&p.visitRounds.length>0)}))
-        .sort((a,b)=>(b.potentialScore||0)-(a.potentialScore||0)).slice(0,15)
+    ? fPros.filter(p=>(gapSegMap[p.segment]||0)>0)
+        .map(p=>({...p, _gap:gapSegMap[p.segment]||0, _visited: (p.visit_status && p.visit_status!=="ยังไม่เข้าพบ") || (Array.isArray(p.visitRounds)&&p.visitRounds.length>0)}))
+        .sort((a,b)=>b._gap-a._gap || a.businessName.localeCompare(b.businessName,"th")).slice(0,15)
     : [];
 
   // แถว 3 ขวา · สิ่งที่พบจากข้อมูล (rule-based · คำนวณจากข้อมูล ณ วันล่าสุด)
   const asOf = "คำนวณจากข้อมูล ณ "+beD(REF);
-  const gradeAnat = fPros.filter(p=>(p.grade||gradeOf(p.potentialScore))==="A").length;
+  const scopeGap = demandGap(fCusts, fPros, level==="district"?GAP_REF.district:level==="province"?GAP_REF.province:GAP_REF.country);
   const topGain = gainers[0], topLose = losers[0];
   // แต่ละประเด็นมีสีประจำ (ต่างชนิดงาน/ความสำคัญ): แดง=ปัญหาเร่งด่วน · อำพัน=โอกาสต้องรีบทำ · เขียว=เชิงบวก · ม่วง=ขาลงต้องตรวจสอบ · น้ำเงิน=โอกาสขยายฐาน
   const actions = [];
   if(lowProv && lowProv.share<avgShare) actions.push({icon:"gap",tone:"bad",color:"#e60023",
     title:`${lowProv.label} · สัดส่วนลูกค้าต่ำกว่าค่าเฉลี่ย`,
     body:`Lead ${num(lowProv.lead)} ราย เป็นลูกค้าแล้ว ${num(lowProv.cust)} ราย (${lowProv.share}%) — ต่ำกว่าค่าเฉลี่ย ${avgShare}%`});
-  if(gradeAnat) actions.push({icon:"target",tone:"warn",color:"#f59e0b", title:"Lead เกรด A ทั่วประเทศ",
-    body:`${num(gradeAnat)} ราย — พื้นที่ศักยภาพสูงที่จัดสรรกำลังเข้าดูแลก่อน`});
+  if(scopeGap.gapCount) actions.push({icon:"target",tone:"warn",color:"#f59e0b",
+    title:`Lead${GAP_TH[scopeGap.gapLevel]} · ดัชนี ${scopeGap.gapScore}`,
+    body:`ยังขาดสมาชิกเครือข่าย ${num(scopeGap.gapCount)} ราย ใน ${scopeGap.gapBreadth} หมวด — หมวดที่ขาดมากสุดคือ${scopeGap.topGapSegment?segTH(scopeGap.topGapSegment):"—"}`});
   if(topGain) actions.push({icon:"trend",tone:"good",color:"#16a34a", title:`หมวด${topGain.label} กำลังเติบโต`,
     body:`ลูกค้าใหม่ ${num(topGain.cur)} ราย ใน 90 วันล่าสุด (+${num(topGain.delta)} จากช่วงก่อน)`});
   if(topLose) actions.push({icon:"trend",tone:"bad",color:"#7c3aed", title:`หมวด${topLose.label} ชะลอตัว`,
@@ -697,33 +841,31 @@ export function Monitoring({defaultTab}={}){
   // ═══════════ แท็บ "สภาพระบบ" — สุขภาพข้อมูล/การใช้งาน (ทุกตัวเลขจากข้อมูลจริงในระบบ) ═══════════
   const RECS = custs.concat(pros); const totRec = RECS.length;
   const okCoord = r => typeof r.latitude==="number" && typeof r.longitude==="number" && r.latitude>=5.5 && r.latitude<=20.6 && r.longitude>=97 && r.longitude<=106;
-  const isComplete = r => okCoord(r) && !!r.segment && !!r.businessName;
+  const isComplete = r => okCoord(r) && !!r.segment && !!r.businessName && !!r.address;
   const pctOf = f => totRec? Math.round(RECS.filter(f).length/totRec*100):0;
-  // ความสมบูรณ์รายฟิลด์ (ต่ำกว่า 70% = แดง)
+  // ความสมบูรณ์รายฟิลด์ — วัดเฉพาะ 4 ฟิลด์จริงที่ลูกค้ามี (ชื่อธุรกิจ · หมวดหมู่ · ที่อยู่ · อีเมล) + พิกัด (ต่ำกว่า 70% = แดง)
   const fieldBars = [
     {label:"พิกัด",        value:pctOf(okCoord),        color: pctOf(okCoord)<70?"#ff5a3c":"#33d69f"},
     {label:"หมวดธุรกิจ",   value:pctOf(r=>!!r.segment), color: pctOf(r=>!!r.segment)<70?"#ff5a3c":"#33d69f"},
     {label:"ชื่อธุรกิจ",   value:pctOf(r=>!!r.businessName), color:"#33d69f"},
-    {label:"เบอร์โทร",     value:pctOf(r=>!!r.hasPhone), color: pctOf(r=>!!r.hasPhone)<70?"#ff5a3c":"#ffb02e"},
-    {label:"เว็บไซต์",     value:pctOf(r=>!!r.hasWebsite), color: pctOf(r=>!!r.hasWebsite)<70?"#ff5a3c":"#ffb02e"},
+    {label:"ที่อยู่",       value:pctOf(r=>!!r.address), color: pctOf(r=>!!r.address)<70?"#ff5a3c":"#33d69f"},
+    {label:"อีเมล",        value:pctOf(r=>!!r.email), color: pctOf(r=>!!r.email)<70?"#ff5a3c":"#ffb02e"},
   ];
   // คุณภาพข้อมูล (donut): ครบถ้วน / ควรตรวจสอบ / ไม่ครบ
-  const cComplete = RECS.filter(r=>isComplete(r) && r.hasPhone).length;
-  const cReview   = RECS.filter(r=>isComplete(r) && !r.hasPhone).length;
+  const cComplete = RECS.filter(r=>isComplete(r) && !!r.email).length;
+  const cReview   = RECS.filter(r=>isComplete(r) && !r.email).length;
   const cIncomp   = totRec - cComplete - cReview;
   const qualityDonut = [
     {label:"ครบถ้วน", value:cComplete, color:"#33d69f"},
     {label:"ควรตรวจสอบ", value:cReview+cIncomp, color:"#ffb02e"},
   ].filter(x=>x.value>0);
   const qualityPct = totRec? Math.round(cComplete/totRec*100):0;
-  // ที่มาของข้อมูล: ผู้ดูแลระบบ vs ผู้ประสานงานการค้า (จาก tc_owner) — โทนน้ำเงินตามเทมเพลต
-  const srcAdmin = RECS.filter(r=> !r.tc_owner || r.tc_owner==="System Administrator").length;
-  const srcTC = totRec - srcAdmin;
-  const srcDonut = [
-    {label:"ผู้ประสานงานการค้า", value:srcTC, color:"#2f7fe0"},
-    {label:"ผู้ดูแลระบบ", value:srcAdmin, color:"#cbd5e1"},
-  ].filter(x=>x.value>0);
-  const tcPct = totRec? Math.round(srcTC/totRec*100):0;
+  // สัดส่วนหมวดธุรกิจของทั้งชุดข้อมูล — โชว์ 5 หมวดใหญ่ ที่เหลือยุบเป็น "อื่น ๆ" ไม่ให้ legend ยาวเกิน
+  const segCount = SEGMENTS.map(sg=>({sg, value:RECS.filter(r=>r.segment===sg).length}))
+    .filter(x=>x.value>0).sort((a,b)=>b.value-a.value);
+  const segTop = segCount.slice(0,5).map(x=>({label:segTH(x.sg), value:x.value}));
+  const segRest = segCount.slice(5).reduce((a,x)=>a+x.value,0);
+  const segDonut = segRest>0 ? [...segTop, {label:"อื่น ๆ", value:segRest}] : segTop;
   // งานที่รอดำเนินการ (ซ่อนแถวที่นับได้ 0)
   const nIncomplete = RECS.filter(r=>!isComplete(r)).length;
   const nBadCoord   = RECS.filter(r=>!okCoord(r)).length;
@@ -736,14 +878,6 @@ export function Monitoring({defaultTab}={}){
     {icon:"edit",  label:"ข้อมูลไม่สมบูรณ์ · รอแก้ไข",       count:nIncomplete, tone:"warn"},
     {icon:"pin",   label:"พิกัดไม่ถูกต้อง · รอตรวจสอบ",       count:nBadCoord,   tone:"bad"},
   ].filter(t=>t.count>0);
-  // ผู้กรอกข้อมูลมากที่สุด (top tc_owner ที่ไม่ใช่ผู้ดูแลระบบ)
-  const byOwner = {};
-  RECS.forEach(r=>{ if(r.tc_owner && r.tc_owner!=="System Administrator") byOwner[r.tc_owner]=(byOwner[r.tc_owner]||0)+1; });
-  const topOwners = Object.entries(byOwner).map(([u,n])=>({u,n})).sort((a,b)=>b.n-a.n).slice(0,6);
-  const ownerMax = Math.max(1, ...topOwners.map(o=>o.n));
-  // อวตารวงกลม (อักษรย่อ) + สีคงที่ต่อคน สำหรับการ์ด "อันดับผู้กรอกข้อมูลมากที่สุด"
-  const _initials = s => (s||"").trim().split(/\s+/).map(w=>w[0]||"").slice(0,2).join("");
-  const AV_COLORS = ["#2f7fe0","#33d69f","#f0a022","#a855f7","#e60023","#0ea5e9"];
   // ปริมาณข้อมูลที่เพิ่มเข้าระบบรายเดือน (6 เดือน)
   const hAll = allMon.slice(-6);
   const hLine = hAll.map(m=>(custMon[m]||0)+(prosMon[m]||0));
@@ -754,8 +888,7 @@ export function Monitoring({defaultTab}={}){
 
   return html`<div class="page fade-in">
     <div class="page-head">
-      <div><div class="eyebrow">การดูแลระบบ</div><h1>แดชบอร์ด</h1>
-        <div class="sub">${dtab==="health"?"ตรวจสุขภาพข้อมูลและการใช้งานระบบ":"เปรียบเทียบการเจาะตลาดระหว่างจังหวัด · สิ่งที่พบจากข้อมูล"} · อัปเดตล่าสุด ${beD(v.ref)}</div></div>
+      <div><h1>แดชบอร์ด</h1></div>
       <div class="ph-right" style=${{gap:"10px"}}>
         ${dtab==="business" ? html`<${Btn} variant="outline" icon="download" onClick=${()=>setExportOpen(true)}>ส่งออกรายงาน</${Btn}>`:""}
       </div>
@@ -785,12 +918,11 @@ export function Monitoring({defaultTab}={}){
           <${Dropdown} value=${customDate?"custom":range} onChange=${v=>{ if(v!=="custom"){ setRange(v); setFFrom(""); setFTo(""); } }}
             options=${[...RANGES.map(r=>[r.id, r.label]), ["custom","กำหนดเอง"]]}/></div>
         <label class="mgf-f"><span>ตั้งแต่วันที่</span>
-          <input type="date" value=${fFrom} max=${fTo||undefined} onChange=${e=>setFFrom(e.target.value)}/></label>
+          <${DateField} value=${fFrom} max=${fTo||undefined} onChange=${setFFrom}/></label>
         <label class="mgf-f"><span>ถึงวันที่</span>
-          <input type="date" value=${fTo} min=${fFrom||undefined} onChange=${e=>setFTo(e.target.value)}/></label>
+          <${DateField} value=${fTo} min=${fFrom||undefined} onChange=${setFTo}/></label>
         ${(fProv!=="all"||fDist!=="all"||fSeg!=="all"||customDate) ? html`<button class="mgf-clear" onClick=${()=>{ setFProv("all"); setFDist("all"); setFSeg("all"); setFFrom(""); setFTo(""); setRange("all"); }}><${Icon} name="close" size=${13}/> ล้างตัวกรอง</button>`:""}
       </div>
-      <div class="tf-note">${rangeText} · ลูกค้า ${num(fCusts.length)} · Lead ${num(fPros.length)}${fProv!=="all"?" · "+provinceTH(fProv):""}${fDist!=="all"?" · "+(DISTRICT_TH[fDist]||fDist):""}${fSeg!=="all"?" · "+segTH(fSeg):""}</div>
     </div>
 
     <!-- (นำแถบ breadcrumb/แจ้งเตือนระดับพื้นที่ออกตามคำขอ — กลับไปทั้งประเทศได้ด้วยปุ่ม "ล้างตัวกรอง" ในแถบกรอง) -->
@@ -813,9 +945,11 @@ export function Monitoring({defaultTab}={}){
           ? html`<div class="mg-kpi-d flat">— เทียบค่าเฉลี่ยประเทศ ${natShare}%</div>`
           : html`<div class=${"mg-kpi-d "+(shareDiff>0?"up":"down")}>${shareDiff>0?"▲ สูงกว่า":"▼ ต่ำกว่า"}ค่าเฉลี่ยประเทศ ${natShare}%</div>`}</div>
       <div class="mg-kpi">
-        <div class="mg-kpi-hd"><div class="mg-kpi-l">มูลค่าโอกาสคงเหลือ</div><span class="mg-kpi-ic"><${Icon} name="money" size=${18}/></span></div>
-        <div class="mg-kpi-v mg-kpi-blue">${totalOpp>0?moneyC(totalOpp):"—"}</div>
-        <div class="mg-kpi-d flat">${fPros.length?`จาก Lead ${num(fPros.length)} ราย`:"—"}</div></div>
+        <div class="mg-kpi-hd"><div class="mg-kpi-l">ความครอบคลุมพื้นที่</div><span class="mg-kpi-ic"><${Icon} name="map" size=${18}/></span></div>
+        <div class="mg-kpi-v">${cov ? cov.pct+"%" : "—"}</div>
+        <div class="mg-kpi-d flat">${cov
+          ? `ครอบคลุม ${num(cov.covered)} จาก ${num(cov.total)} ${cov.unitTH}`
+          : "ไม่มีข้อมูลพื้นที่"}</div></div>
     </div>
     <div class="mg-rows">
       <!-- ═══ แถวบน · แนวโน้ม (5) | Performance & Value (7) ═══ -->
@@ -830,25 +964,10 @@ export function Monitoring({defaultTab}={}){
               ]} height=${130} format=${num}/>
             </div>` : html`<div class="emptybox">ยังไม่มีข้อมูลเพียงพอสำหรับแสดงกราฟนี้</div>`}
           </${Card}>
-        <!-- Performance & Value (แท่งซ้อน สัดส่วน% + มูลค่า) -->
-        <${Card} title="Performance & Value" sub="อัตราการเปลี่ยนเป็นลูกค้า = สัดส่วนลูกค้าต่อธุรกิจที่รู้จักในพื้นที่ ณ ปัจจุบัน · มูลค่าต่อโอกาส = ประมาณการจาก Lead × มูลค่าเฉลี่ยต่อลูกค้าในจังหวัด">
-          <div class="mg-legend">
-            <span><i style=${{background:"#ff8a9c"}}></i>อัตราการเปลี่ยนเป็นลูกค้า</span>
-            <span><i style=${{background:"#b8c0cc"}}></i>มูลค่าต่อโอกาส (ล้านบาท)</span>
-          </div>
-          ${perfFull.length ? html`<div>
-            <div class=${"mg-perf"+(expPerf?" mg-scroll":"")}>
-            ${(expPerf?perfFull:perfFull.slice(0,5)).map(p=>html`<div key=${p.unit} class="mg-perf-row">
-              <div class="mg-perf-l">${p.label}${p.estimated?html`<span class="mg-est">*</span>`:""}</div>
-              <div class="mg-perf-track">
-                <div class="mg-perf-share" style=${{width:(shareMax?p.share/shareMax*38:0)+"%",background:p.share>=avgShare?"#ff8a9c":"#b8c0cc"}}><span>${p.share}%</span></div>
-                <div class="mg-perf-val" style=${{width:(valMax&&p.val?p.val/valMax*52:0)+"%"}}><span>${p.val?moneyC(p.val):"—"}</span></div>
-              </div>
-            </div>`)}
-            </div>
-            ${anyEstimated?html`<div class="mg-note">* ${unitNoun}ที่ยังไม่มีลูกค้า ประเมินจากค่าเฉลี่ย${estAvgWord}</div>`:""}
-            ${perfFull.length>5?html`<div class="mg-more"><button class="mg-more-btn" onClick=${()=>setExpPerf(e=>!e)}>${expPerf?"ย่อกลับ (5 อันดับ)":`ดูทั้งหมด (${perfFull.length} ${unitNoun})`}</button></div>`:""}
-          </div>` : html`<div class="emptybox">ยังไม่มีข้อมูลเพียงพอสำหรับแสดงกราฟนี้</div>`}
+        <!-- Lead มาก แต่สัดส่วนต่ำ (โดนัท + legend) — ย้ายขึ้นมาข้างกราฟเส้นแทนการ์ดอัตราการเปลี่ยนเป็นลูกค้าเดิม -->
+        <${Card} title="Lead มาก แต่สัดส่วนต่ำ" sub="หมวดที่ยังไม่ถูกเจาะ · Lead สูง แต่สัดส่วนลูกค้าต่ำ">
+          ${unpen.length ? html`<${Donut} key=${"mgdn-"+animSig} data=${unpen} center=${{value:num(unpen.reduce((a,x)=>a+x.value,0)), label:"Lead"}}/>`
+            : html`<div class="emptybox">ยังไม่มีข้อมูลเพียงพอ</div>`}
         </${Card}>
       </div>
 
@@ -878,25 +997,19 @@ export function Monitoring({defaultTab}={}){
         </${Card}>
       </div>
 
-      <!-- ═══ แถวล่าง · โดนัท (5) | [ตาราง | เติบโต] (7) ═══ -->
+      <!-- ═══ แถวล่าง · [ตาราง | เติบโต] เต็มความกว้าง (โดนัทย้ายขึ้นแถวบนแล้ว) ═══ -->
       <div class="mg-row r-bot">
-        <!-- Lead มาก แต่สัดส่วนต่ำ (โดนัท + legend) -->
-        <${Card} title="Lead มาก แต่สัดส่วนต่ำ" sub="หมวดที่ยังไม่ถูกเจาะ · Lead สูง แต่สัดส่วนลูกค้าต่ำ">
-          ${unpen.length ? html`<${Donut} key=${"mgdn-"+animSig} data=${unpen} center=${{value:num(unpen.reduce((a,x)=>a+x.value,0)), label:"Lead"}}/>`
-            : html`<div class="emptybox">ยังไม่มีข้อมูลเพียงพอ</div>`}
-        </${Card}>
-        <!-- 2 คอลัมน์ · สรุปรายจังหวัด | หมวดธุรกิจที่เติบโตและลดลง -->
+        <!-- 2 คอลัมน์ · สรุปรายจังหวัด (กินพื้นที่ที่โดนัทเคยอยู่) | หมวดธุรกิจที่เติบโตและลดลง -->
         <div class="mg-2col mg-bot2">
         <!-- สรุปรายหน่วยของระดับที่เจาะ -->
         <${Card} title=${"สรุปราย"+unitNoun} sub=${(level==="country"?"เรียงตามจำนวนลูกค้า":"เรียงสัดส่วนจากน้อย→มาก (ที่ตามหลังอยู่บน)")+" · คลิกแถวเพื่อเจาะลึก"} pad0=${true}>
           ${provRows.length ? html`<div class=${"mg-tblwrap"+(expTbl?" mg-scroll":"")}><table class="tc-table mg-tbl">
-            <thead><tr><th>${unitNoun}</th><th class="rt">ลูกค้า</th><th class="rt">Lead</th><th class="rt">สัดส่วน</th><th class="rt">ลูกค้าใหม่</th><th class="rt">มูลค่าต่อโอกาส</th></tr></thead>
-            <tbody>${(expTbl?provRows:provRows.slice(0,5)).map(r=>{ const vv=(valLookup[r.unit]||{}).val;
+            <thead><tr><th>${unitNoun}</th><th class="rt">ลูกค้า</th><th class="rt">Lead</th><th class="rt">สัดส่วน</th><th class="rt">ลูกค้าใหม่</th></tr></thead>
+            <tbody>${(expTbl?provRows:provRows.slice(0,5)).map(r=>{
               return html`<tr key=${r.unit} style=${{cursor:"pointer"}} onClick=${()=>{ if(level==="country"){setFProv(r.unit);setFDist("all");} else if(level==="province") setFDist(r.unit); else setFSeg(r.unit); }}>
               <td><b>${r.label}</b></td><td class="rt">${num(r.cust)}</td><td class="rt">${num(r.lead)}</td>
               <td class="rt"><b style=${{color:r.share>=avgShare?"var(--accent-deep)":"var(--muted)"}}>${r.share}%</b></td>
               <td class="rt">${r.new90>0?html`<span style=${{color:"#0f7a3d"}}>▲ +${num(r.new90)}</span>`:html`<span style=${{color:"var(--dim)"}}>0</span>`}</td>
-              <td class="rt">${vv?moneyC(vv):"—"}</td>
             </tr>`;})}</tbody>
           </table>
           ${provRows.length>5?html`<div class="mg-more" style=${{padding:"0 14px 12px"}}><button class="mg-more-btn" onClick=${()=>setExpTbl(e=>!e)}>${expTbl?"ย่อกลับ (5 อันดับ)":`ดูทั้งหมด (${provRows.length} ${unitNoun})`}</button></div>`:""}</div>` : html`<div class="emptybox" style=${{margin:"18px"}}>ยังไม่มีข้อมูลรายจังหวัด</div>`}
@@ -921,17 +1034,17 @@ export function Monitoring({defaultTab}={}){
       </div>
 
       ${level==="district" ? html`
-      <!-- ═══ ระดับอำเภอ · Lead เกรด A ที่ยังไม่ได้เข้าพบ (เต็มความกว้าง) ═══ -->
+      <!-- ═══ ระดับอำเภอ · Lead ในหมวดที่ยังขาด (เต็มความกว้าง) ═══ -->
       <div class="mg-row r-full">
-        <${Card} title=${"Lead เกรด A ใน"+scopeTH+" ที่ยังไม่ได้เข้าพบ"} sub="เรียงตามคะแนนศักยภาพจากมากไปน้อย · แสดงสูงสุด 15 ราย · ข้อมูลสำหรับผู้ดูแลพื้นที่ (ผู้บริหารดูอย่างเดียว ไม่มีปุ่มเข้าพบ)" pad0=${true}>
+        <${Card} title=${"Lead ในหมวดที่"+scopeTH+"ยังขาด"} sub="เรียงตามขนาดช่องว่างของหมวดธุรกิจจากมากไปน้อย · แสดงสูงสุด 15 ราย · ข้อมูลสำหรับผู้ดูแลพื้นที่ (ผู้บริหารดูอย่างเดียว ไม่มีปุ่มเข้าพบ)" pad0=${true}>
           ${leadAList.length ? html`<div class="mg-tblwrap mg-leadA"><table class="tc-table mg-tbl">
-            <thead><tr><th>ชื่อธุรกิจ</th><th>หมวดธุรกิจ</th><th class="rt">คะแนน</th><th>สถานะ</th></tr></thead>
+            <thead><tr><th>ชื่อธุรกิจ</th><th>หมวดธุรกิจ</th><th class="rt">หมวดนี้ยังขาด</th><th>สถานะ</th></tr></thead>
             <tbody>${leadAList.map(p=>html`<tr key=${p.id}>
               <td><b>${p.businessName}</b></td><td>${segTH(p.segment)}</td>
-              <td class="rt"><b>${num(p.potentialScore||0)}</b></td>
+              <td class="rt"><b>${num(p._gap||0)}</b> ราย</td>
               <td>${p._visited?html`<span style=${{color:"#0f7a3d"}}>เข้าพบแล้ว</span>`:html`<span style=${{color:"#c2410c"}}>ยังไม่เข้าพบ</span>`}</td>
             </tr>`)}</tbody>
-          </table></div>` : html`<div class="emptybox" style=${{margin:"18px"}}>ไม่มี Lead เกรด A ที่ยังไม่ได้เข้าพบใน${scopeTH}</div>`}
+          </table></div>` : html`<div class="emptybox" style=${{margin:"18px"}}>ไม่มีหมวดธุรกิจที่ยังขาดใน${scopeTH}</div>`}
         </${Card}>
       </div>`:""}
     </div>
@@ -964,35 +1077,25 @@ export function Monitoring({defaultTab}={}){
         </div>
       </${Card}></div>
 
-      <!-- แถว 2 · คุณภาพข้อมูล | ที่มาของข้อมูล | ความสมบูรณ์ | อันดับผู้กรอกข้อมูล -->
+      <!-- แถว 2 · คุณภาพข้อมูล (3) | สัดส่วนหมวดธุรกิจ (3) | ความสมบูรณ์ของข้อมูล (6) -->
       <div class="hzc hzc-2" style=${{gridColumn:"span 3"}}><${Card} title="คุณภาพข้อมูล" sub="สัดส่วนความครบถ้วนของทั้งชุด">
         ${qualityDonut.length ? html`<${Donut} data=${qualityDonut} size=${120} center=${{value:qualityPct, label:"ครบถ้วน", format:x=>x+"%"}}/>`
           : html`<div class="emptybox">ยังไม่มีข้อมูลเพียงพอ</div>`}
       </${Card}></div>
 
-      <div class="hzc hzc-2" style=${{gridColumn:"span 3"}}><${Card} title="ที่มาของข้อมูล" sub=${`ผู้ประสานงานการค้า ${tcPct}%`}>
-        ${srcDonut.length ? html`<${Donut} data=${srcDonut} size=${120} center=${{value:totRec, label:"รายการ", format:num}}/>`
+      <div class="hzc hzc-2" style=${{gridColumn:"span 3"}}><${Card} title="สัดส่วนหมวดธุรกิจ" sub=${`${segCount.length} หมวดที่มีข้อมูล · 5 อันดับแรก`}>
+        ${segDonut.length ? html`<${Donut} data=${segDonut} size=${120}
+            center=${{value:segCount.length, label:"หมวด"}}/>`
           : html`<div class="emptybox">ยังไม่มีข้อมูลเพียงพอ</div>`}
       </${Card}></div>
 
-      <div class="hzc hzc-2" style=${{gridColumn:"span 3"}}><${Card} title="ความสมบูรณ์ของข้อมูล" sub="สัดส่วนที่มีค่าในแต่ละฟิลด์ · ต่ำกว่า 70% = ควรตรวจสอบ">
+      <div class="hzc hzc-2" style=${{gridColumn:"span 6"}}><${Card} title="ความสมบูรณ์ของข้อมูล" sub="สัดส่วนที่มีค่าในแต่ละฟิลด์ · ต่ำกว่า 70% = ควรตรวจสอบ">
         <div class="exd-bars">
           ${fieldBars.map(b=>html`<div key=${b.label} class="exd-vrow">
             <div class="exd-vrow-h"><span>${b.label}</span><b style=${{color:b.value<70?"#c2410c":"var(--txt)"}}>${b.value}%</b></div>
             <div class="exd-strack"><div class="exd-sfill" style=${{width:b.value+"%",background:b.color}}></div></div>
           </div>`)}
         </div>
-      </${Card}></div>
-
-      <div class="hzc hzc-2" style=${{gridColumn:"span 3"}}><${Card} title="อันดับผู้กรอกข้อมูลมากที่สุด" sub="จำนวนระเบียนที่แต่ละคนดูแล">
-        ${topOwners.length ? html`<div class="hz-rank">
-          ${topOwners.slice(0,5).map((o,i)=>html`<div key=${o.u} class="hz-rankrow">
-            <span class="hz-rk">${i+1}</span>
-            <span class="hz-av" style=${{background:AV_COLORS[i%AV_COLORS.length]}}>${_initials(o.u)}</span>
-            <span class="hz-nm">${o.u}</span>
-            <b class="hz-ct">${num(o.n)}</b>
-          </div>`)}
-        </div>` : html`<div class="emptybox">ยังไม่มีข้อมูล</div>`}
       </${Card}></div>
 
       <!-- แถว 3 · ปริมาณข้อมูลที่เพิ่มเข้าระบบ | กิจกรรมการเปลี่ยนแปลงล่าสุด -->
@@ -1072,12 +1175,6 @@ const EXD_CSS = `
 .hz-legend span{display:flex;align-items:center;gap:7px}
 .hz-legend i{width:11px;height:11px;border-radius:3px;display:inline-block}
 .hz-legend b{font-weight:800;margin-left:2px}
-.hz-rank{display:flex;flex-direction:column;gap:12px}
-.hz-rankrow{display:flex;align-items:center;gap:10px}
-.hz-rk{flex:none;width:15px;text-align:center;font-size:13px;font-weight:700;color:var(--muted)}
-.hz-av{flex:none;width:30px;height:30px;border-radius:50%;color:#fff;font-size:11px;font-weight:800;display:grid;place-items:center}
-.hz-nm{flex:1;font-size:13px;color:var(--txt);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.hz-ct{flex:none;font-size:14px;font-weight:800;color:var(--txt)}
 .hz-acts{display:flex;flex-direction:column}
 .hz-act{display:flex;gap:10px;padding:11px 16px;border-bottom:1px solid var(--stroke)}
 .hz-act:last-child{border-bottom:none}
@@ -1119,7 +1216,11 @@ const EXD_CSS = `
 .mg-row{display:grid;grid-template-columns:5fr 7fr;gap:20px;align-items:start}
 /* แถวกลาง: ลดความกว้างกล่องสัดส่วนลง 15% (5→4.25) แล้วยกพื้นที่ไปให้กล่องสิ่งที่พบ (7→7.75) */
 .mg-row.r-mid{grid-template-columns:4.25fr 7.75fr}
-@media(max-width:1023px){.mg-row,.mg-row.r-mid{grid-template-columns:1fr}}
+/* แถวบน: สลับเป็น กราฟเส้น 7 / โดนัท 5 — โดนัทได้ความกว้างเท่าที่เคยมีตอนอยู่แถวล่าง ไม่ถูกยืดจนวงเล็กลอยกลางกล่อง */
+.mg-row.r-top{grid-template-columns:7fr 5fr}
+/* แถวล่าง: โดนัทย้ายออกแล้ว เหลือกล่องเดียว (mg-bot2 แบ่งคอลัมน์ต่อเอง) */
+.mg-row.r-bot{grid-template-columns:1fr}
+@media(max-width:1023px){.mg-row,.mg-row.r-mid,.mg-row.r-top{grid-template-columns:1fr}}
 /* ตัวกรองผู้บริหาร: จังหวัด · อำเภอ · หมวด · ปฏิทิน */
 .mgf-row{display:flex;flex-wrap:wrap;gap:12px;margin-top:12px;align-items:flex-end}
 .mgf-f{display:flex;flex-direction:column;gap:4px;font-size:11.5px;font-weight:700;color:var(--muted)}
@@ -1157,7 +1258,7 @@ const EXD_CSS = `
 .mg-row.r-full{grid-template-columns:1fr}
 .mg-leadA{max-height:320px;overflow-y:auto}
 /* KPI 4 ใบ · แถวบนเต็มความกว้าง */
-.mg-kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:20px}
+.mg-kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:14px;margin-bottom:20px}
 .mg-kpi{background:var(--panel);border:1px solid var(--stroke);border-radius:var(--radius-lg);padding:16px 17px;min-height:112px;
   display:flex;flex-direction:column;justify-content:flex-start;box-shadow:var(--shadow)}
 .mg-kpi-hd{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;margin-bottom:10px}
@@ -1186,7 +1287,7 @@ const EXD_CSS = `
 .mg-note{font-size:11px;color:var(--muted);margin-top:9px;font-style:italic}
 .mg-2col{display:grid;grid-template-columns:1fr 1fr;gap:20px}
 /* แถวล่างฝั่งขวา: ตารางกว้างกว่านิด · ยุบเป็นคอลัมน์เดียวเมื่อพื้นที่แคบ */
-.mg-bot2{grid-template-columns:1.15fr .85fr}
+.mg-bot2{grid-template-columns:minmax(0,1.6fr) minmax(0,1fr)}
 @media(max-width:1279px){.mg-bot2{grid-template-columns:1fr}}
 @media(max-width:600px){.mg-kpis{grid-template-columns:repeat(2,1fr)}.mg-2col{grid-template-columns:1fr}}
 /* แท่งแนวนอน · เปอร์เซ็นต์ชิดขวาตรงคอลัมน์เดียวกัน */
@@ -1203,24 +1304,15 @@ const EXD_CSS = `
 .mg-tbl td{padding:9px 12px;border-bottom:1px solid var(--stroke);white-space:nowrap}
 .mg-tbl tbody tr:last-child td{border-bottom:none}
 .mg-tbl .rt{text-align:right}
-/* Performance & Value · แท่งซ้อน */
+/* คำอธิบายสีของกราฟเส้น */
 .mg-legend{display:flex;gap:16px;flex-wrap:wrap;margin-bottom:12px;font-size:12px;color:var(--muted)}
 .mg-legend i{display:inline-block;width:11px;height:11px;border-radius:3px;margin-right:6px;vertical-align:-1px}
-.mg-perf{display:flex;flex-direction:column;gap:14px}
-/* ตัวเลขวางบนบาร์ที่ปลายสีของตัวเอง: % ที่ปลายแท่งชมพู · ฿ ที่ปลายแท่งเทา */
-.mg-perf-row{display:grid;grid-template-columns:110px 1fr;align-items:center;gap:12px}
-.mg-perf-l{font-size:12.5px;color:var(--txt);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.mg-perf-track{display:flex;align-items:center;height:16px}
-.mg-perf-share{height:100%;border-radius:6px 0 0 6px;display:flex;align-items:center;justify-content:flex-end;padding-right:6px;min-width:34px;transition:width .55s cubic-bezier(.22,.61,.36,1)}
-.mg-perf-share span{font-size:11px;color:var(--txt);white-space:nowrap}
-.mg-perf-val{height:100%;background:#b8c0cc;border-radius:0 6px 6px 0;display:flex;align-items:center;justify-content:flex-end;padding-right:6px;min-width:56px;transition:width .55s cubic-bezier(.22,.61,.36,1)}
-.mg-perf-val span{font-size:11px;color:var(--txt);white-space:nowrap}
 /* สิ่งที่พบจากข้อมูล · 5 ใบ พื้นหลังอ่อนตามประเภท */
 .mg-insights{display:grid;grid-template-columns:repeat(5,1fr);gap:12px}
 .mg-insight{border-radius:12px;padding:13px 12px;border:1px solid var(--stroke2);display:flex;flex-direction:column;gap:7px}
 .mg-insight.bad,.mg-insight.warn{background:rgba(230, 0, 35,.07)}
 .mg-insight.good,.mg-insight.info{background:rgba(100,116,139,.09)}
-.mg-insight-ic{width:30px;height:30px;border-radius:9px;display:grid;place-items:center;flex:none}
+.mg-insight-ic{width:30px;height:30px;border-radius:9px;display:grid;place-items:center;flex:none;align-self:center}
 .mg-insight-t{font-size:12.5px;font-weight:700;color:var(--txt);line-height:1.35}
 .mg-insight-b{font-size:11.5px;color:var(--muted);line-height:1.45}
 @media(max-width:1200px){.mg-insights{grid-template-columns:repeat(3,1fr)}}

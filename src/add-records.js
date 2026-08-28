@@ -1,61 +1,58 @@
-// ── ฟอร์มเพิ่มลูกค้า/Lead — รองรับการคิดคะแนนศักยภาพ (Appendix B) แบบเรียลไทม์ ──
-// ผู้ใช้กรอกพิกัดเอง · ทุกรายการติดแท็ก แหล่งที่มา = "ผู้ใช้เพิ่มเอง" · คะแนน/เกรดคำนวณจากพิกัด+ข้อมูลที่กรอก
-import {html, useState, useEffect, useRef, Icon, SegmentIcon, SEGMENTS, segTH, tradingTH, provinceTH} from "./lib.js";
+// ── ฟอร์มเพิ่มลูกค้า/Lead ──
+// ลูกค้า: ฟิลด์ตรงกับไฟล์ข้อมูลจริงจาก Barter — รหัสลูกค้า · ชื่อธุรกิจ · หมวดธุรกิจ · ที่อยู่ · จังหวัด/อำเภอ (จากพิกัด)
+//        · พิกัด · โทรศัพท์ · เว็บไซต์ · เฟซบุ๊ก · วันที่เริ่มเป็นลูกค้า  (ไม่มีคอลัมน์ "สถานะ" และไม่มียอดขาย)
+// Lead : ยังเป็นข้อมูลจำลอง จึงเก็บอีเมลไว้เหมือนเดิม
+// ผู้ใช้กรอกพิกัดเอง (ใช้วางหมุด/หาอำเภอ) · ทุกรายการติดแท็ก แหล่งที่มา = "ผู้ใช้เพิ่มเอง"
+// ไม่มีการให้คะแนนศักยภาพ/เกรด A-B-C และไม่เก็บข้อมูลรีวิวอีกต่อไป — ระบบใช้ "Lead สูง" ระดับพื้นที่แทน
+import {html, useState, useEffect, useRef, Icon, SegmentIcon, SEGMENTS, segTH, provinceTH} from "./lib.js";
 import {basemap} from "./basemap.js";
 import {createPortal} from "react-dom";
 import {Dropdown} from "./select.js";
-import {scoreProspect, catMatchOf, assignTC, provinceOf, zoneOf, TC_TEAM, gradeOf} from "./mock/geoData.js";
+import {assignTC, provinceOf, zoneOf, TC_TEAM, GAP_TH as GAP_LV_TH} from "./mock/geoData.js";
+import {DateField} from "./ui.js";   // ช่องเลือกวันที่แบบไทย
 
 export const USER_SOURCE = "ผู้ใช้เพิ่มเอง";
 const MAX_ROWS = 10;
-const TRADING = ["Active","Dormant","At Risk"];
-const CATMATCH_OPTS = [["auto","อัตโนมัติ (ตามหมวด)"],["exact","ตรงตัว (+20)"],["partial","ตรงบางส่วน (+10)"],["none","ไม่ตรง (0)"]];
-const GAP_TH = {High:"สูง", Medium:"ปานกลาง", Low:"ต่ำ"};
-const GAP_PTS = {High:"+30", Medium:"+15", Low:"0"};
+const GAP_TH = GAP_LV_TH;
 
 const num = v => Number(v||0).toLocaleString("th-TH");
-const isUrl = v => /^(https?:\/\/)?([\w-]+\.)+[a-z]{2,}(\/\S*)?$/i.test(v.trim());
-const digits = v => (v.match(/\d/g)||[]).length;
-const isThaiPhone = v => { const d=digits(v); return d>=9 && d<=10; };
+const isEmail = v => /^[^\s@]+@[^\s@]+\.[a-z]{2,}$/i.test(v.trim());
 
-const emptyRow = () => ({type:"Prospect", name:"", address:"", lat:"", lng:"", segment:"Hotel", trading:"Active",
-  rating:"", reviews:"", website:"", phone:"", catMatch:"auto", tc:"auto",
-  clientId:"", btv:"", active:true});
+const todayISO = () => new Date().toISOString().slice(0,10);
+const emptyRow = () => ({type:"Prospect", name:"", address:"", email:"", lat:"", lng:"", segment:SEGMENTS[0],
+  tc:"auto", clientId:"", phone:"", website:"", facebook:"", dateJoin:todayISO()});
 const rowFromRecord = r => ({type:r.status==="Existing"?"Existing":"Prospect", name:r.businessName||"", address:r.address||"",
+  email:r.email||"",
   lat:r.latitude==null?"":String(r.latitude), lng:r.longitude==null?"":String(r.longitude),
-  segment:r.segment||"Hotel", trading:r.tradingStatus||"Active",
-  rating:r.rating?String(r.rating):"", reviews:r.reviewCount?String(r.reviewCount):"", website:r.website||"", phone:r.phone||"",
-  catMatch:"auto", tc: r.tc_owner&&r.tc_owner!=="ยังไม่มอบหมาย"?r.tc_owner:"auto",
-  clientId:r.clientId||"", btv:r.salesValue?String(r.salesValue):"", active:r.tradingStatus!=="Dormant"});
+  segment:r.segment||SEGMENTS[0],
+  tc: r.tc_owner&&r.tc_owner!=="ยังไม่มอบหมาย"?r.tc_owner:"auto",
+  clientId:r.accountNo||r.clientId||"", phone:r.phone||"", website:r.website||"", facebook:r.facebook||"",
+  dateJoin:r.dateJoin||todayISO()});
 
-// ── คำนวณบริบทจากพิกัด (จังหวัด/โซน/TC/เป้าหมวด) + คะแนน (สำหรับLead) ──
+// ── คำนวณบริบทจากพิกัด (จังหวัด/อำเภอ/ระดับ Lead ของโซน/ผู้ดูแล TC) ──
+// ไม่มีการให้คะแนนรายบริษัทแล้ว — แสดงแค่ว่าพิกัดนี้ตกอยู่ในย่านที่มี Lead ระดับใด
 function deriveRow(r, db){
   const la=+r.lat, ln=+r.lng, hasCoord = r.lat!=="" && r.lng!=="" && !isNaN(la) && !isNaN(ln);
   const province = hasCoord ? provinceOf(la,ln) : null;
   const zone = hasCoord ? zoneOf(la,ln, db.districts) : null;
   const outOfService = hasCoord && !province;
-  const target = province ? (db.areaByProvince && db.areaByProvince[province] && db.areaByProvince[province].topSegment) : null;
   const tc = r.tc==="auto" ? (hasCoord ? assignTC(la,ln) : "ยังไม่มอบหมาย") : r.tc;
-  const zoneOpp = zone && !zone.out ? zone.gap : "Low";
-  const scored = scoreProspect({ segment:r.segment, targetSegment:target,
-    rating:+r.rating||0, reviewCount:+r.reviews||0, hasWebsite:!!r.website.trim(), hasPhone:!!r.phone.trim(),
-    zoneOpp, catMatch: r.catMatch==="auto" ? undefined : r.catMatch });
-  return { hasCoord, province, zone, outOfService, target, tc, zoneOpp, ...scored };
+  const zoneGap = zone && !zone.out ? zone.gap : null;
+  return { hasCoord, province, zone, outOfService, tc, zoneGap };
 }
 
 function buildRecord(r, i, db, keepId){
   const isCust = r.type==="Existing";
   const d = deriveRow(r, db);
   const id = keepId || (isCust?"CUS":"PRO")+"U"+Date.now().toString(36)+"-"+i;
-  const rec = { id, businessName:r.name.trim(), segment:r.segment, category:r.segment, businessType:segTH(r.segment),
+  const rec = { id, businessName:r.name.trim(), segment:r.segment, category:r.segment,
     status:isCust?"Existing":"Prospect", country:"Thailand", province:d.province||"", district:(d.zone&&d.zone.district)||"",
-    address:r.address.trim(), latitude:+(+r.lat).toFixed(4), longitude:+(+r.lng).toFixed(4), source:USER_SOURCE,
+    address:r.address.trim(), email:r.email.trim(), latitude:+(+r.lat).toFixed(4), longitude:+(+r.lng).toFixed(4), source:USER_SOURCE,
     created_at: new Date().toISOString().slice(0,10), tc_owner: d.tc };
-  if(isCust){ rec.clientId=r.clientId.trim(); rec.tradingStatus= r.active?"Active":"Dormant"; rec.salesValue=+r.btv||0;
-    rec.lastPurchaseDate="—"; rec.potentialScore=0; rec.opportunityScore=0; }
-  else { rec.rating=+r.rating||0; rec.reviewCount=+r.reviews||0; rec.website=r.website.trim(); rec.phone=r.phone.trim();
-    rec.hasWebsite=!!r.website.trim(); rec.hasPhone=!!r.phone.trim();
-    rec.potentialScore=d.score; rec.grade=d.grade; rec.opportunityScore=0; rec.visit_status="ยังไม่เข้าพบ"; }
+  if(isCust){ rec.accountNo=r.clientId.trim(); rec.clientId=r.clientId.trim();
+    rec.phone=r.phone.trim()||null; rec.website=r.website.trim()||null; rec.facebook=r.facebook.trim()||null;
+    rec.dateJoin=r.dateJoin||todayISO(); rec.created_at=rec.dateJoin; delete rec.email; }
+  else { rec.visit_status="ยังไม่เข้าพบ"; }
   return rec;
 }
 
@@ -68,12 +65,12 @@ const IMPORT_HEADERS = {
   "ที่อยู่":"address","address":"address",
   "ละติจูด":"lat","lat":"lat","latitude":"lat",
   "ลองจิจูด":"lng","lng":"lng","lon":"lng","longitude":"lng",
-  "คะแนนรีวิว":"rating","rating":"rating",
-  "จำนวนรีวิว":"reviews","reviews":"reviews","reviewcount":"reviews",
-  "เว็บไซต์":"website","website":"website",
-  "เบอร์โทร":"phone","เบอร์โทรศัพท์":"phone","phone":"phone",
+  "อีเมล":"email","email":"email","e-mail":"email",
   "รหัสลูกค้า":"clientId","clientid":"clientId",
-  "มูลค่า":"btv","ยอดขาย":"btv","btv":"btv","salesvalue":"btv" };
+  "เบอร์โทรศัพท์":"phone","โทรศัพท์":"phone","phone":"phone",
+  "เว็บไซต์":"website","website":"website",
+  "เฟซบุ๊ค":"facebook","เฟซบุ๊ก":"facebook","facebook":"facebook",
+  "วันที่เริ่มเป็นลูกค้า":"dateJoin","datejoin":"dateJoin" };
 // parser CSV ที่รองรับเครื่องหมายคำพูด/คอมมาในค่า/ขึ้นบรรทัดใหม่ในค่า
 function parseCSV(text){
   const rows=[]; let row=[], f="", q=false; text=text.replace(/\r\n?/g,"\n");
@@ -103,15 +100,16 @@ function tableToRows(matrix, prospectOnly){
   for(let i=1;i<matrix.length;i++){ const r=matrix[i]; const name=get(r,"name"); if(!name) continue;
     const typeRaw=get(r,"type").toLowerCase();
     const isCust = !prospectOnly && /existing|ลูกค้า|customer/.test(typeRaw);
-    const segRaw=get(r,"segment"); const seg = SEGMENTS.includes(segRaw) ? segRaw : (segByTH[segRaw.toLowerCase()]||"Hotel");
+    const segRaw=get(r,"segment"); const seg = SEGMENTS.includes(segRaw) ? segRaw : (segByTH[segRaw.toLowerCase()]||SEGMENTS[0]);
     out.push({...emptyRow(), type:isCust?"Existing":"Prospect", name, address:get(r,"address"),
       lat:get(r,"lat"), lng:get(r,"lng"), segment:seg,
-      rating:get(r,"rating"), reviews:get(r,"reviews"), website:get(r,"website"), phone:get(r,"phone"),
-      clientId:get(r,"clientId"), btv:get(r,"btv")}); }
+      email:get(r,"email"),
+      clientId:get(r,"clientId"), phone:get(r,"phone"), website:get(r,"website"),
+      facebook:get(r,"facebook"), dateJoin:get(r,"dateJoin")||todayISO()}); }
   return {rows:out, total:out.length};
 }
-const TEMPLATE_CSV = "ประเภท,ชื่อธุรกิจ,หมวดหมู่,ที่อยู่,ละติจูด,ลองจิจูด,คะแนนรีวิว,จำนวนรีวิว,เว็บไซต์,เบอร์โทร\n"
-  + "Lead,ตัวอย่าง โรงแรมสวนสน,โรงแรมและที่พัก,123 ถ.สุขุมวิท กรุงเทพฯ,13.7563,100.5018,4.5,120,https://example.com,0812345678\n";
+const TEMPLATE_CSV = "ประเภท,ชื่อธุรกิจ,หมวดหมู่,ที่อยู่,อีเมล,ละติจูด,ลองจิจูด\n"
+  + "Lead,ตัวอย่าง โรงแรมสวนสน,โรงแรมและที่พัก,123 ถ.สุขุมวิท กรุงเทพฯ,contact@suansonhotel.co.th,13.7563,100.5018\n";
 function downloadTemplate(){
   const blob=new Blob(["﻿"+TEMPLATE_CSV],{type:"text/csv;charset=utf-8"});   // BOM ให้ Excel อ่านภาษาไทยถูก
   const url=URL.createObjectURL(blob); const a=document.createElement("a");
@@ -132,12 +130,13 @@ function MiniMap({lat,lng}){
   return html`<div class="ar-map" ref=${ref}></div>`;
 }
 
-export function AddRecordsForm({onClose, onSave, editRecord, db={}, prospectOnly=false}){
+export function AddRecordsForm({onClose, onSave, editRecord, db={}, prospectOnly=false, allowImport=false}){
   // prospectOnly = true (บทบาท TC) → เพิ่มได้เฉพาะ "Lead" เท่านั้น เพิ่มลูกค้าไม่ได้ · ผู้บริหาร/แอดมินเพิ่มได้ทั้งสองแบบ
+  // allowImport = แถบอัปโหลด Excel/CSV — ค่าตั้งต้นปิด เพราะการนำเข้าไฟล์ทำผ่านแอดมินคนเดียว
+  //   (แอดมินใช้เมนู จัดการข้อมูล › นำเข้าข้อมูล) · TC/ผู้บริหารกรอกทีละรายการได้ตามเดิม
   const isEdit = !!editRecord;
   const [rows,setRows] = useState(isEdit ? [rowFromRecord(editRecord)] : [emptyRow()]);
   const [showErr,setShowErr] = useState(false);
-  const [openBd,setOpenBd] = useState({});   // แถวที่กาง breakdown คะแนน
   const [importMsg,setImportMsg] = useState(null);   // ผลการนำเข้าจากไฟล์ {ok?:n, bad?:true, text}
 
   // นำเข้าจากไฟล์ Excel/CSV → เติมลงในแถวฟอร์ม (ใช้ validation/คะแนน/บันทึกเดิม) ครั้งเดียวได้หลายรายการ
@@ -151,10 +150,10 @@ export function AddRecordsForm({onClose, onSave, editRecord, db={}, prospectOnly
       const {rows:parsed, total} = tableToRows(matrix, prospectOnly);
       if(!total){ setImportMsg({bad:true, text:"ไม่พบข้อมูลในไฟล์ — ต้องมีหัวคอลัมน์ (เช่น ชื่อธุรกิจ, ละติจูด, ลองจิจูด) · กดดาวน์โหลดเทมเพลตเพื่อดูรูปแบบ"}); return; }
       const take = parsed.slice(0, MAX_ROWS);
-      setRows(take); setShowErr(false); setOpenBd({});
+      setRows(take); setShowErr(false);
       setImportMsg({ ok:take.length, text: total>MAX_ROWS
         ? `นำเข้า ${take.length} แถวแรกจากไฟล์ (มีทั้งหมด ${total} แถว) — ตรวจสอบแล้วกดบันทึก · ส่วนที่เหลืออัปโหลดเป็นรอบถัดไป`
-        : `นำเข้า ${take.length} รายการจากไฟล์แล้ว — ตรวจสอบข้อมูล/คะแนนที่คำนวณให้ แล้วกดบันทึกทั้งหมด` });
+        : `นำเข้า ${take.length} รายการจากไฟล์แล้ว — ตรวจสอบข้อมูลแล้วกดบันทึกทั้งหมด` });
     };
     reader.readAsText(file, "utf-8");
   };
@@ -162,7 +161,6 @@ export function AddRecordsForm({onClose, onSave, editRecord, db={}, prospectOnly
   const setField=(i,k,v)=>setRows(rs=>rs.map((r,j)=>j===i?{...r,[k]:v}:r));
   const addRow=()=>setRows(rs=>rs.length<MAX_ROWS?[...rs,emptyRow()]:rs);
   const removeRow=i=>setRows(rs=>rs.length>1?rs.filter((_,j)=>j!==i):rs);
-  const toggleBd=i=>setOpenBd(o=>({...o,[i]:!o[i]}));
 
   // รายชื่อธุรกิจที่มีอยู่แล้ว (ไว้เตือนชื่อซ้ำในจังหวัดเดียวกัน)
   const existing = (db.customers||[]).concat(db.prospects||[]);
@@ -177,12 +175,7 @@ export function AddRecordsForm({onClose, onSave, editRecord, db={}, prospectOnly
     if(r.lng===""||isNaN(ln)) e.push("ลองจิจูด");
     if(numOk && !provinceOf(la,ln)) e.push("พิกัดอยู่นอกพื้นที่ให้บริการ");
     if(r.type==="Existing" && !r.clientId.trim()) e.push("รหัสลูกค้า");
-    if(r.type==="Prospect"){
-      if(r.rating!=="" && (isNaN(+r.rating)||+r.rating<0||+r.rating>5)) e.push("คะแนนรีวิวต้องอยู่ 0–5");
-      if(r.reviews!=="" && (!/^\d+$/.test(r.reviews))) e.push("จำนวนรีวิวต้องเป็นจำนวนเต็ม ≥ 0");
-      if(r.website.trim() && !isUrl(r.website)) e.push("รูปแบบเว็บไซต์ไม่ถูกต้อง");
-      if(r.phone.trim() && !isThaiPhone(r.phone)) e.push("เบอร์โทรต้อง 9–10 หลัก");
-    }
+    if(r.email.trim() && !isEmail(r.email)) e.push("รูปแบบอีเมลไม่ถูกต้อง");
     return e;
   };
   const errsByRow = rows.map(rowErrors);
@@ -205,14 +198,14 @@ export function AddRecordsForm({onClose, onSave, editRecord, db={}, prospectOnly
       <div class="ar-head">
         <div style=${{minWidth:0}}>
           <h2 class="ar-title">${isEdit?"แก้ไขรายการ":(prospectOnly?"เพิ่มLead":"เพิ่มลูกค้า/Lead")}</h2>
-          <div class="ar-desc">${isEdit?"แก้ไขข้อมูลรายการที่คุณเพิ่มไว้":"กรอกได้สูงสุด 10 รายการต่อครั้ง · คะแนนศักยภาพคำนวณอัตโนมัติจากข้อมูลที่กรอก"}</div>
+          <div class="ar-desc">${isEdit?"แก้ไขข้อมูลรายการที่คุณเพิ่มไว้":"กรอกได้สูงสุด 10 รายการต่อครั้ง · ข้อมูลที่เก็บมี 4 ฟิลด์: ชื่อธุรกิจ · หมวดหมู่ · ที่อยู่ · อีเมล"}</div>
         </div>
         <button class="ar-x" onClick=${onClose} aria-label="ปิด"><${Icon} name="close" size=${16}/></button>
       </div>
 
       <div class="ar-hint"><${Icon} name="pin" size=${14} color="#ff3b5c"/> กรอกพิกัดจากแหล่งข้อมูลของท่าน (ละติจูด, ลองจิจูด) — ต้องอยู่ในพื้นที่ให้บริการ 4 จังหวัด</div>
 
-      ${!isEdit ? html`<div class="ar-import">
+      ${!isEdit && allowImport ? html`<div class="ar-import">
         <label class="ar-imp-btn"><input type="file" accept=".csv,.xls,.xlsx,text/csv" style=${{display:"none"}} onChange=${onImportFile}/>
           <${Icon} name="upload" size=${15}/> อัปโหลด Excel/CSV</label>
         <button class="ar-imp-tpl" onClick=${downloadTemplate}><${Icon} name="download" size=${14}/> ดาวน์โหลดเทมเพลต</button>
@@ -241,6 +234,8 @@ export function AddRecordsForm({onClose, onSave, editRecord, db={}, prospectOnly
                 options=${SEGMENTS.map(s=>[s, html`<span style=${{display:"inline-flex",alignItems:"center",gap:"8px"}}><${SegmentIcon} seg=${s} size=${18} color="var(--muted)"/>${segTH(s)}</span>`])}/></label>
             <label class="ar-f ar-wide">ที่อยู่ *
               <input class=${showRowErr&&!r.address.trim()?"ar-bad":""} value=${r.address} onInput=${e=>setField(i,"address",e.target.value)} placeholder="บ้านเลขที่ ถนน แขวง/ตำบล เขต/อำเภอ"/></label>
+            <label class="ar-f ar-wide">อีเมล
+              <input class=${showRowErr&&r.email.trim()&&!isEmail(r.email)?"ar-bad":""} value=${r.email} onInput=${e=>setField(i,"email",e.target.value)} inputmode="email" placeholder="contact@example.co.th"/></label>
             <label class="ar-f">ละติจูด *
               <input class=${showRowErr&&(r.lat===""||isNaN(+r.lat))?"ar-bad":""} value=${r.lat} onInput=${e=>setField(i,"lat",e.target.value)} inputmode="decimal" placeholder="13.7563"/></label>
             <label class="ar-f">ลองจิจูด *
@@ -248,35 +243,28 @@ export function AddRecordsForm({onClose, onSave, editRecord, db={}, prospectOnly
           </div>
 
           ${d.outOfService ? html`<div class="ar-zone out"><${Icon} name="pin" size=${13}/> พิกัดอยู่นอกพื้นที่ให้บริการ (รองรับเฉพาะ กรุงเทพฯ · พัทยา · ภูเก็ต · เชียงใหม่)</div>`
-            : d.hasCoord ? html`<div class="ar-zone"><span>📍 ${provinceTH(d.province)}${d.zone&&d.zone.district?" · "+d.zone.district:""}</span></div>`:""}
+            : d.hasCoord ? html`<div class="ar-zone"><span>${provinceTH(d.province)}${d.zone&&d.zone.district?" · "+d.zone.district:""}</span>
+              ${d.zoneGap ? html`<span class=${"gaplv g-"+d.zoneGap}>Lead${GAP_TH[d.zoneGap]}</span>`:""}</div>`:""}
 
           ${d.hasCoord && !d.outOfService ? html`<${MiniMap} lat=${+r.lat} lng=${+r.lng}/>`:""}
 
-          ${isP ? html`
-            <div class="ar-sub">ข้อมูลเพิ่มเติม (ไม่บังคับ)</div>
-            <div class="ar-grid">
-              <label class="ar-f">คะแนนรีวิว (0–5)
-                <input class=${showRowErr&&r.rating!==""&&(isNaN(+r.rating)||+r.rating<0||+r.rating>5)?"ar-bad":""} value=${r.rating} onInput=${e=>setField(i,"rating",e.target.value)} inputmode="decimal" placeholder="4.3"/></label>
-              <label class="ar-f">จำนวนรีวิว
-                <input class=${showRowErr&&r.reviews!==""&&!/^\d+$/.test(r.reviews)?"ar-bad":""} value=${r.reviews} onInput=${e=>setField(i,"reviews",e.target.value)} inputmode="numeric" placeholder="87"/></label>
-              <label class="ar-f ar-wide">เว็บไซต์
-                <input class=${showRowErr&&r.website.trim()&&!isUrl(r.website)?"ar-bad":""} value=${r.website} onInput=${e=>setField(i,"website",e.target.value)} placeholder="https://example.com"/></label>
-              <label class="ar-f">เบอร์โทรศัพท์
-                <input class=${showRowErr&&r.phone.trim()&&!isThaiPhone(r.phone)?"ar-bad":""} value=${r.phone} onInput=${e=>setField(i,"phone",e.target.value)} inputmode="tel" placeholder="0812345678"/></label>
-            </div>`
+          ${isP ? ""
           : html`
-            <div class="ar-sub">ข้อมูลลูกค้าปัจจุบัน</div>
+            <div class="ar-sub">ข้อมูลลูกค้าปัจจุบัน (ตามไฟล์ข้อมูลลูกค้าจริง)</div>
             <div class="ar-grid">
-              <label class="ar-f">รหัสลูกค้า (Client ID) *
-                <input class=${showRowErr&&!r.clientId.trim()?"ar-bad":""} value=${r.clientId} onInput=${e=>setField(i,"clientId",e.target.value)} placeholder="เช่น CUS-2024-001"/></label>
-              <label class="ar-f">มูลค่าเทรดสะสม (บาท)
-                <input value=${r.btv} onInput=${e=>setField(i,"btv",e.target.value)} inputmode="numeric" placeholder="1500000"/></label>
-              <label class="ar-f">สถานะใช้งาน
-                <button type="button" class=${"ar-toggle"+(r.active?" on":"")} onClick=${()=>setField(i,"active",!r.active)}>
-                  <span class="ar-toggle-dot"></span>${r.active?"เปิดใช้งาน":"ปิดใช้งาน"}</button></label>
+              <label class="ar-f">รหัสลูกค้า (AccountNo) *
+                <input class=${showRowErr&&!r.clientId.trim()?"ar-bad":""} value=${r.clientId} onInput=${e=>setField(i,"clientId",e.target.value)} placeholder="เช่น 01180420"/></label>
+              <label class="ar-f">เบอร์โทรศัพท์
+                <input value=${r.phone} onInput=${e=>setField(i,"phone",e.target.value)} placeholder="081 234 5678"/></label>
+              <label class="ar-f">วันที่เริ่มเป็นลูกค้า
+                <${DateField} value=${r.dateJoin} onChange=${v=>setField(i,"dateJoin",v)}/></label>
+              <label class="ar-f">เว็บไซต์
+                <input value=${r.website} onInput=${e=>setField(i,"website",e.target.value)} placeholder="www.example.com"/></label>
+              <label class="ar-f">เฟซบุ๊ก
+                <input value=${r.facebook} onInput=${e=>setField(i,"facebook",e.target.value)} placeholder="https://facebook.com/…"/></label>
             </div>`}
 
-          ${dupWarn[i] ? html`<div class="ar-dup">⚠ อาจซ้ำกับรายการที่มีอยู่: <b>${dupWarn[i]}</b></div>`:""}
+          ${dupWarn[i] ? html`<div class="ar-dup">อาจซ้ำกับรายการที่มีอยู่: <b>${dupWarn[i]}</b></div>`:""}
         </div>`;})}
 
         ${!isEdit ? (rows.length<MAX_ROWS
@@ -292,7 +280,7 @@ export function AddRecordsForm({onClose, onSave, editRecord, db={}, prospectOnly
         <button class="ar-btn ghost" onClick=${onClose}>ยกเลิก</button>
         <!-- ปุ่มบันทึกกดได้เสมอ · ถ้ากรอกไม่ครบ กดแล้วจะไฮไลต์ช่องที่ยังขาด (ไม่ปิดปุ่มจนกดไม่ได้) -->
         <button class="ar-btn primary" onClick=${save}>
-          <${Icon} name="check" size=${15} color="#04121a"/>${isEdit?"บันทึกการแก้ไข":`บันทึกทั้งหมด (${rows.length} รายการ)`}</button>
+          <${Icon} name="check" size=${15} color="#fff"/>${isEdit?"บันทึกการแก้ไข":`บันทึกทั้งหมด (${rows.length} รายการ)`}</button>
       </div>
       <style>${AR_CSS}</style>
     </div>
@@ -351,16 +339,6 @@ const AR_CSS = `
 .ar-badge.zone-High{background:rgba(51,214,159,.16);color:#0f7a3d}
 .ar-badge.zone-Medium{background:rgba(255,176,46,.16);color:#b45309}
 .ar-badge.zone-Low{background:rgba(138,160,190,.16);color:#475569}
-.ar-score{margin-top:11px;padding:11px 13px;border-radius:11px;background:rgba(120,160,220,.06);border:1px solid var(--stroke2);cursor:pointer}
-.ar-score-main{display:flex;align-items:center;gap:12px;flex-wrap:wrap;font-size:13.5px;color:var(--txt)}
-.ar-score-main b{font-size:17px}
-.ar-grade{padding:2px 10px;border-radius:999px;font-size:12px;font-weight:800}
-.ar-grade.gA{background:rgba(51,214,159,.18);color:#0f7a3d}
-.ar-grade.gB{background:rgba(255,176,46,.18);color:#b45309}
-.ar-grade.gC{background:rgba(138,160,190,.18);color:#475569}
-.ar-score-toggle{margin-left:auto;font-size:11.5px;font-weight:600;color:var(--accent2)}
-.ar-score-bar{height:8px;border-radius:5px;background:rgba(255,255,255,.08);overflow:hidden;margin-top:8px}
-.ar-score-fill{height:100%;border-radius:5px;background:linear-gradient(90deg,#ff3b5c,#e60023);transition:width .4s cubic-bezier(.22,1,.36,1)}
 .ar-bd{margin-top:10px;padding-top:9px;border-top:1px solid var(--stroke);cursor:default}
 .ar-bd-row{display:flex;justify-content:space-between;gap:12px;padding:3px 0;font-size:12px;color:var(--txt)}
 .ar-bd-row.miss{color:var(--muted)}
@@ -388,7 +366,7 @@ const AR_CSS = `
   cursor:pointer;border-radius:11px;padding:11px 20px}
 .ar-btn.ghost{background:transparent;border:1px solid var(--stroke2);color:var(--muted)}
 .ar-btn.ghost:hover{color:var(--txt);border-color:rgba(120,160,220,.45)}
-.ar-btn.primary{border:none;color:#04121a;background:linear-gradient(135deg,#ff3b5c,#e60023)}
+.ar-btn.primary{border:none;color:#fff;background:linear-gradient(135deg,#ff3b5c,#e60023)}
 .ar-btn.primary:hover{filter:brightness(1.05)}
 .ar-btn.primary.disabled{opacity:.5;cursor:not-allowed;filter:grayscale(.3)}
 @media (max-width:640px){.ar-grid{grid-template-columns:repeat(2,1fr)}.ar-f.ar-wide{grid-column:span 2}}

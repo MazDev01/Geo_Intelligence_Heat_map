@@ -5,6 +5,46 @@ import {SEGMENTS, SEG_COLOR, SEG_ICON, SEG_SVG, SEG_TH, DISTRICT_TH as GEO_DISTR
 export {React, useState, useEffect, useRef, useMemo, useCallback, createContext, useContext, createRoot};
 export const html = htm.bind(React.createElement);
 
+/* ---------------- วันที่/เวลา — ที่เดียวของทั้งระบบ ----------------
+   ก่อนหน้านี้มีตัวแปลงวันที่ 9 ตัวกระจายใน 7 ไฟล์ ครึ่งหนึ่งอ่านค่าแบบ UTC อีกครึ่งใช้เวลาเครื่อง
+   ทำให้ข้อมูลชุดเดียวกันแสดงคนละวันได้ (ไทยเป็น UTC+7 · timestamp หลัง 17:00 UTC = ข้ามวันแล้ว)
+   ที่นี่ล็อกฐานเวลาเป็น Asia/Bangkok เสมอ ไม่ว่าเครื่องผู้ใช้จะตั้งโซนอะไร และใช้ปี พ.ศ. ทุกที่
+
+   รับได้ทั้ง 2 แบบ:
+     • สตริงไม่มีโซนเวลา  "2026-07-11" / "2026-07-11 09:12"  → ถือว่าเป็นเวลาไทยอยู่แล้ว อ่านตรง ๆ
+     • ISO ที่มีโซนเวลา   "2026-07-11T18:00:00.000Z"          → แปลงเป็นเวลาไทยก่อนค่อยอ่าน       */
+export const TH_MONTHS = ["ม.ค.","ก.พ.","มี.ค.","เม.ย.","พ.ค.","มิ.ย.","ก.ค.","ส.ค.","ก.ย.","ต.ค.","พ.ย.","ธ.ค."];
+const _NAIVE = /^(d{4})-(d{2})-(d{2})(?:[ T](d{2}):(d{2}))?$/;   // ไม่มี Z / ไม่มี offset
+const BKK_OFFSET = 7*3600e3;
+/* คืน Date ที่ "อ่านด้วย getUTC* แล้วได้เวลาไทย" — null ถ้าค่าใช้ไม่ได้ */
+function bkk(v){
+  if(v==null || v==="") return null;
+  if(typeof v==="string"){
+    const m = _NAIVE.exec(v.trim());
+    if(m) return new Date(Date.UTC(+m[1], +m[2]-1, +m[3], +(m[4]||0), +(m[5]||0)));
+  }
+  const t = (v instanceof Date) ? v.getTime() : Date.parse(v);
+  return Number.isNaN(t) ? null : new Date(t + BKK_OFFSET);
+}
+const pad2 = n => String(n).padStart(2,"0");
+/* "11 ก.ค. 2569" */
+export const thDate = v => { const d=bkk(v); return d ? d.getUTCDate()+" "+TH_MONTHS[d.getUTCMonth()]+" "+(d.getUTCFullYear()+543) : "—"; };
+/* "09:12" (24 ชม.) */
+export const thTime = v => { const d=bkk(v); return d ? pad2(d.getUTCHours())+":"+pad2(d.getUTCMinutes()) : "—"; };
+/* "11 ก.ค. 2569 09:12" */
+export const thDateTime = v => { const d=bkk(v); return d ? thDate(v)+" "+thTime(v) : "—"; };
+/* "ส.ค. 69" (short) หรือ "ส.ค. 2569" — รับ "2026-08" หรือค่าที่แปลงเป็นวันที่ได้ */
+export const thMonth = (v, short=true) => {
+  let y,mo;
+  if(typeof v==="string" && /^d{4}-d{2}$/.test(v.trim())){ const [a,b]=v.trim().split("-"); y=+a; mo=+b-1; }
+  else { const d=bkk(v); if(!d) return "—"; y=d.getUTCFullYear(); mo=d.getUTCMonth(); }
+  const be = y+543;
+  return TH_MONTHS[mo]+" "+(short ? String(be).slice(-2) : be);
+};
+/* วันนี้ตามเวลาไทย ในรูป "YYYY-MM-DD" — ใช้กับ <input type="date"> และค่าที่เก็บลงข้อมูล */
+export const todayBKK = () => { const d=new Date(Date.now()+BKK_OFFSET);
+  return d.getUTCFullYear()+"-"+pad2(d.getUTCMonth()+1)+"-"+pad2(d.getUTCDate()); };
+
 /* ---------------- formatting ---------------- */
 export const num = n => (n==null?"—":Number(n).toLocaleString("en-US"));
 export const compact = n => {
@@ -14,8 +54,8 @@ export const compact = n => {
   if(Math.abs(n)>=1e3) return (n/1e3).toFixed(1).replace(/\.0$/,"")+"k";
   return ""+n;
 };
-export const money = n => "฿"+num(n);
-export const moneyC = n => "฿"+compact(n);
+// (เดิมมี money() / moneyC() จัดรูปแบบเงินบาท — ถอดออกแล้ว: ไม่มีตัวชี้วัดเชิงเงินในระบบอีก
+//  ข้อมูลลูกค้าจริงจาก Barter ไม่มียอดขาย ทุกตัวชี้วัดจึงเป็น "จำนวนราย" ทั้งหมด)
 export const pct = n => (n==null?"—":Math.round(n)+"%");
 export const cx = (...a)=>a.filter(Boolean).join(" ");
 
@@ -23,11 +63,10 @@ export const cx = (...a)=>a.filter(Boolean).join(" ");
 export {SEGMENTS, SEG_COLOR, SEG_ICON, SEG_SVG, SEG_TH};
 // customer status colours (the ONLY thing colour encodes)
 export const STATUS_COLOR = {Existing:"#1565C0", Prospect:"#64B5F6"};
-export const gradeColor = g => g==="A"?"var(--a)":g==="B"?"var(--b)":"var(--c)";
 
 /* ---------------- Thai localization for data values ---------------- */
-export const TYPE_TH = {Hospitality:"ธุรกิจบริการ", "Food & Beverage":"อาหารและเครื่องดื่ม", "Retail Trade":"ค้าปลีก", Services:"บริการ"};
-export const TRADING_TH = {Active:"ใช้งานอยู่", Dormant:"ไม่เคลื่อนไหว", "At Risk":"เสี่ยง"};
+// (เดิมมี TYPE_TH / TRADING_TH — ถอดออกแล้ว: ข้อมูลลูกค้าจริงจาก Barter ไม่มีคอลัมน์
+//  "ประเภทธุรกิจ" และ "สถานะการค้า" จึงไม่มีอะไรให้แปลอีก · หมวดธุรกิจใช้ SEG_TH แทน)
 export const GAP_TH = {High:"สูง", Medium:"ปานกลาง", Low:"ต่ำ"};
 // ── บทบาทในระบบ (canonical) — มี 3 บทบาทเท่านั้น: ผู้ดูแลระบบ / ผู้บริหาร / ผู้ประสานงานการค้า (TC) ──
 // เดิมมีบทบาท "ผู้ใช้ธุรกิจ (Business User)" ถูกยกเลิก — ความสามารถภาคสนามย้ายไปเป็น TC (ผูกจังหวัดที่รับผิดชอบ)
@@ -60,8 +99,6 @@ export const provinceTH = p => PROVINCE_TH[p]||p;
 export const DISTRICT_TH = GEO_DISTRICT_TH;
 export const districtTH = d => DISTRICT_TH[d]||d;
 export const segTH = s => SEG_TH[s]||s;
-export const typeTH = t => TYPE_TH[t]||t;
-export const tradingTH = t => TRADING_TH[t]||t;
 export const gapTH = g => GAP_TH[g]||g;
 export const roleTH = r => ROLE_TH[r]||r;
 export const countryTH = c => COUNTRY_TH[c]||c;

@@ -54,7 +54,7 @@ export function Login({db, onLogin}){
 
         <div class="lg-remember">
           <label onClick=${()=>setRemember(!remember)}>
-            <span class=${"checkbox"+(remember?" on":"")}>${remember&&html`<${Icon} name="check" size=${12} color="#04121a"/>`}</span>
+            <span class=${"checkbox"+(remember?" on":"")}>${remember&&html`<${Icon} name="check" size=${12} color="#fff"/>`}</span>
             จดจำฉัน</label>
           <span class="link">ลืมรหัสผ่าน?</span>
         </div>

@@ -8,21 +8,19 @@
 //   · ไม่มีตัวกรองผู้รับผิดชอบ (มีแค่ตัวเอง) · ไม่มีตัวกรองจังหวัด (ล็อกที่จังหวัดตน → แสดงเป็นข้อความในหัวเรื่อง)
 //
 // หน้านี้ "อ่านอย่างเดียว" — ไม่มีปุ่มแก้ไข/เพิ่มจุด (วางแผนทำที่หน้าแผนที่เท่านั้น)
-// แสดงข้อมูล ณ สภาพที่บันทึกไว้จริงในวันนั้น: เกรด/คะแนนเป็น snapshot ณ วันวางแผน (ไม่คำนวณใหม่)
+// แสดงข้อมูล ณ สภาพที่บันทึกไว้จริงในวันนั้น: ระดับ Lead ของหมวด/ย่านเป็น snapshot ณ วันวางแผน (ไม่คำนวณใหม่)
 // ห้ามเทียบ TC คนอื่น/ค่าเฉลี่ยทีม/จัดอันดับ · ห้ามแสดงจังหวัดอื่น · วันที่ทุกจุดเป็นพุทธศักราช
 // ═══════════════════════════════════════════════════════════════════════════
-import {html, useState, useMemo, useEffect, useRef, useApp, Icon, num, provinceTH, districtTH, segTH} from "../lib.js";
-import {toast} from "../ui.js";
+import {html, useState, useMemo, useEffect, useRef, useApp, Icon, num, provinceTH, districtTH, segTH, thDate} from "../lib.js";
+import {toast, DateField, TCReportNav} from "../ui.js";
 import {Dropdown} from "../select.js";
-import {gradeOf} from "../mock/geoData.js";
+import {gapBySegment, gapLevelOf, GAP_TH} from "../mock/geoData.js";
 import {officeFor, haversine, fmtKm} from "../visit.js";
 import {pushAudit} from "../audit.js";
 import {ExportDialog, downloadXLS, defaultReportName} from "./reports.js";
 
 /* ---------- วันที่ พ.ศ. ---------- */
-const VP_MON=["ม.ค.","ก.พ.","มี.ค.","เม.ย.","พ.ค.","มิ.ย.","ก.ค.","ส.ค.","ก.ย.","ต.ค.","พ.ย.","ธ.ค."];
-export function beDateVP(iso){ if(!iso) return "—"; const d=new Date(iso); if(isNaN(d)) return "—";
-  return d.getDate()+" "+VP_MON[d.getMonth()]+" "+(d.getFullYear()+543); }
+export const beDateVP = thDate;   // ใช้ตัวแปลงกลาง
 const isoDay = ms => new Date(ms).toISOString().slice(0,10);
 
 /* ---------- RNG คงที่ (mock เดิมทุกครั้ง ต่อ จังหวัด+เจ้าของ) ---------- */
@@ -41,14 +39,18 @@ const VP_TARGET_TH = {visited:"เข้าพบแล้ว", missed:"ไม�
 
 // ─────────────────────────────────────────────────────────────────────────────
 // สร้างประวัติแผนการเข้าพบจาก "ข้อมูลจริง" ในจังหวัดของ TC (Lead ในจังหวัดนั้น)
-// deterministic ตาม จังหวัด+อีเมลเจ้าของ · เกรด/คะแนนถูก "แช่แข็ง" ไว้บนแต่ละจุด ณ วันวางแผน
+// deterministic ตาม จังหวัด+อีเมลเจ้าของ · Lead ของหมวดในย่านถูก "แช่แข็ง" ไว้บนแต่ละจุด ณ วันวางแผน
 // ─────────────────────────────────────────────────────────────────────────────
-export function genVisitPlans(prospects, province, ownerEmail){
+export function genVisitPlans(prospects, province, ownerEmail, customers){
   const pool = (prospects||[]).filter(p=>p.province===province && p.latitude!=null && p.longitude!=null);
   if(!pool.length) return [];
+  // ช่องว่างรายหมวดของจังหวัดนี้ ณ ตอนสร้างรายงาน — ใช้เป็นฐานของ snapshot ต่อจุด
+  const gapBySeg = Object.fromEntries(gapBySegment((customers||[]).filter(c=>c.province===province), pool)
+    .map(x=>[x.seg, x.gap]));
+  const maxGap = Math.max(1, ...Object.values(gapBySeg));
   const rnd = mulberry32(hashStr(province+"|"+(ownerEmail||"tc")));
   const office = officeFor(province);
-  // สลับลำดับ pool แบบคงที่ (Fisher-Yates) แล้วเลือกจุดจากทั่วทั้ง pool → เกรดหลากหลายตามจริง (A/B/C) ไม่กระจุกที่ A
+  // สลับลำดับ pool แบบคงที่ (Fisher-Yates) แล้วเลือกจุดจากทั่วทั้ง pool → หมวดธุรกิจคละกันตามจริง
   const shuffled = pool.slice();
   for(let i=shuffled.length-1;i>0;i--){ const j=Math.floor(rnd()*(i+1)); const t=shuffled[i]; shuffled[i]=shuffled[j]; shuffled[j]=t; }
   const N = Math.min(18, Math.max(6, Math.round(shuffled.length/6)));   // จำนวนแผนย้อนหลัง
@@ -58,7 +60,7 @@ export function genVisitPlans(prospects, province, ownerEmail){
     const dateMs = REF - dayCursor*DAY;
     dayCursor += 3 + Math.floor(rnd()*7);     // ถอยหลัง 3-9 วันต่อแผน
     const nT = 4 + Math.floor(rnd()*5);       // 4-8 จุดต่อแผน
-    // เลือก nT จุดต่อเนื่องจากตำแหน่งสุ่มใน shuffled (ไม่ซ้ำในแผนเดียว · เกรดคละกันตามธรรมชาติ)
+    // เลือก nT จุดต่อเนื่องจากตำแหน่งสุ่มใน shuffled (ไม่ซ้ำในแผนเดียว · หมวดคละกันตามธรรมชาติ)
     const start = Math.floor(rnd()*shuffled.length);
     const picks = []; for(let k=0;k<nT;k++) picks.push(shuffled[(start+k)%shuffled.length]);
     // ระดับความสำเร็จของแผน → จำนวนจุดที่เข้าพบจริง (จุดแรก ๆ ถูกเข้าพบก่อนตามลำดับวันจริง)
@@ -66,9 +68,10 @@ export function genVisitPlans(prospects, province, ownerEmail){
     const visitedCount = Math.max(0, Math.min(nT, Math.round(eff*nT)));
     let prev = office; let clockMin = 9*60 + Math.floor(rnd()*30);
     const targets = picks.map((p,k)=>{
-      const dScore = Math.round((rnd()-0.5)*8);                 // คะแนน ณ วันนั้นต่างจากปัจจุบันเล็กน้อย
-      const score_at = Math.max(0, Math.min(100, (p.potentialScore||0)+dScore));
-      const grade_at = gradeOf(score_at);
+      // ช่องว่างของหมวดนี้ ณ วันวางแผน — ต่างจากวันนี้เล็กน้อย (สมาชิกเข้า/ออกระหว่างทาง)
+      const dGap = Math.round((rnd()-0.5)*3);
+      const gap_at = Math.max(0, (gapBySeg[p.segment]||0)+dGap);
+      const gapLevel_at = gapLevelOf(Math.round(gap_at/maxGap*100));
       let status;
       if(k<visitedCount) status="visited";
       else status = (rnd()<0.18) ? "cancelled" : "missed";      // ที่เหลือ: ส่วนใหญ่ไม่ได้เข้าพบ · บางส่วนถูกยกเลิก
@@ -82,7 +85,7 @@ export function genVisitPlans(prospects, province, ownerEmail){
         note = V_NOTES[Math.floor(rnd()*V_NOTES.length)];
       }
       return {id:p.id, businessName:p.businessName, segment:p.segment, district:p.district,
-        latitude:p.latitude, longitude:p.longitude, score_at, grade_at, status, time, outcome, note, distFromPrev};
+        latitude:p.latitude, longitude:p.longitude, gap_at, gapLevel_at, status, time, outcome, note, distFromPrev};
     });
     const planned = targets.length;
     const visited = targets.filter(t=>t.status==="visited").length;
@@ -95,15 +98,6 @@ export function genVisitPlans(prospects, province, ownerEmail){
   }
   // เรียงใหม่ → เก่า
   return plans.sort((a,b)=>b.dateISO<a.dateISO?-1:1);
-}
-
-/* ปุ่มลัดช่วงเวลา → คืน {from,to} เป็น ISO (อิง REF) */
-function presetRange(key){
-  const to = isoDay(REF);
-  if(key==="week"){ const d=new Date(REF); const dow=(d.getUTCDay()+6)%7; return {from:isoDay(REF-dow*DAY), to}; }  // จันทร์สัปดาห์นี้
-  if(key==="month"){ const d=new Date(REF); return {from:isoDay(Date.UTC(d.getUTCFullYear(),d.getUTCMonth(),1)), to}; }
-  if(key==="90"){ return {from:isoDay(REF-89*DAY), to}; }
-  return {from:"", to:""};
 }
 
 const PAGE_SIZE = 20;
@@ -140,7 +134,7 @@ export function VisitPlanReport(){
   }, [isTC, province]);
 
   // ── ข้อมูลแผน (จากข้อมูลจริงในจังหวัดของ TC) ──
-  const plans = useMemo(()=> isTC ? genVisitPlans(db.prospects||[], province, user.email) : [], [isTC, db.prospects, province, user && user.email]);
+  const plans = useMemo(()=> isTC ? genVisitPlans(db.prospects||[], province, user.email, db.customers||[]) : [], [isTC, db.prospects, db.customers, province, user && user.email]);
   // อำเภอทั้งหมดที่ปรากฏในแผน (ตัวเลือกตัวกรองอำเภอ) — จากข้อมูลจริง
   const distOpts = useMemo(()=>{ const s=new Set(); plans.forEach(pl=>pl.districts.forEach(d=>s.add(d)));
     return [["all","ทุกอำเภอ"], ...[...s].sort().map(d=>[d, districtTH(d)])]; }, [plans]);
@@ -181,8 +175,6 @@ export function VisitPlanReport(){
     window.addEventListener("popstate",onPop); return ()=>window.removeEventListener("popstate",onPop); }, []);
 
   // ── ปุ่มลัดช่วงเวลา ──
-  const rangeKey = (()=>{ for(const k of ["week","month","90"]){ const r=presetRange(k); if(r.from===from && r.to===to) return k; } return (from||to)?"custom":"custom"; })();
-  const applyPreset = k => { const r=presetRange(k); setFrom(r.from); setTo(r.to); };
 
   const clearFilters = ()=>{ setFrom(""); setTo(""); setDist("all"); setStatus("all"); };
   const anyFilter = from||to||dist!=="all"||status!=="all";
@@ -205,8 +197,8 @@ export function VisitPlanReport(){
     rows.push(["รายละเอียดผู้ถูกนัดในแต่ละแผน"]);
     fPlans.forEach(pl=>{ rows.push([]);
       rows.push(["แผนวันที่ "+beDateVP(pl.dateISO)+" · จุดเริ่มต้น "+pl.office.businessName+" · วางแผน "+pl.planned+" · เข้าพบ "+pl.visited]);
-      rows.push(["ลำดับ","ธุรกิจ","เกรด/คะแนน (ณ วันนั้น)","หมวดธุรกิจ","อำเภอ","สถานะ","เวลา","ผลการเข้าพบ","บันทึก","ระยะจากจุดก่อน (เส้นตรง)"]);
-      pl.targets.forEach((t,i)=>rows.push([i+1, t.businessName, t.grade_at+" · "+t.score_at, segTH(t.segment), districtTH(t.district),
+      rows.push(["ลำดับ","ธุรกิจ","Lead ของหมวด (ณ วันนั้น)","หมวดธุรกิจ","อำเภอ","สถานะ","เวลา","ผลการเข้าพบ","บันทึก","ระยะจากจุดก่อน (เส้นตรง)"]);
+      pl.targets.forEach((t,i)=>rows.push([i+1, t.businessName, GAP_TH[t.gapLevel_at]+" · ขาด "+t.gap_at+" ราย", segTH(t.segment), districtTH(t.district),
         VP_TARGET_TH[t.status], t.time||"—", t.outcome||"—", t.note||"—", fmtKm(t.distFromPrev)]));
     });
     return rows; };
@@ -225,14 +217,9 @@ export function VisitPlanReport(){
   if(denied) return html`<div class="page"><div class="vp-denied"><${Icon} name="lock" size=${18} color="var(--accent)"/> เซิร์ฟเวอร์ปฏิเสธการเข้าถึง (403) — คุณเรียกดูได้เฉพาะแผนของตนเองในพื้นที่ที่รับผิดชอบ</div><style>${VP_CSS}</style></div>`;
 
   const STATUS_OPTS = [["all","ทุกสถานะ"],["complete","เสร็จสมบูรณ์"],["partial","ทำได้บางส่วน"],["none","ไม่ได้ออกพื้นที่"]];
-  const CHIPS = [["week","สัปดาห์นี้"],["month","เดือนนี้"],["90","90 วัน"],["custom","กำหนดเอง"]];
 
-  return html`<div class="page fade-in vp-page">
-    <!-- แถบย่อยของโมดูลรายงาน -->
-    <div class="vp-subnav">
-      <button class="vp-subtab" onClick=${()=>nav("reports")}>แดชบอร์ด TC</button>
-      <button class="vp-subtab on">รายงานแผนการเข้าพบ</button>
-    </div>
+  return html`<div class="page fade-in vp-page tcrp-wrap">
+    <${TCReportNav} active="visit-plans" nav=${nav}/>
 
     <div class="page-head vp-head">
       <div>
@@ -247,20 +234,12 @@ export function VisitPlanReport(){
 
     <!-- ═══ ส่วนที่ 1: แถบตัวกรอง + สรุป ═══ -->
     <div class="vp-filters">
+      <!-- ตัวกรองทั้งหมดอยู่แถวเดียว · "ช่วงที่เลือก" กับปุ่มล้างถูกดันไปชิดขวาด้วย margin-left:auto -->
       <div class="vp-frow">
-        <div class="vp-f">
-          <label>ช่วงเวลา (ตั้งแต่)</label>
-          <input type="date" value=${from} max=${to||undefined} onChange=${e=>setFrom(e.target.value)}/>
-        </div>
-        <div class="vp-f">
-          <label>ถึง</label>
-          <input type="date" value=${to} min=${from||undefined} onChange=${e=>setTo(e.target.value)}/>
-        </div>
-        <div class="vp-chips">
-          ${CHIPS.map(([k,l])=>html`<button key=${k} class=${"vp-chip"+(rangeKey===k?" on":"")} onClick=${()=>applyPreset(k)}>${l}</button>`)}
-        </div>
-      </div>
-      <div class="vp-frow">
+        <div class="vp-f vp-date"><label>ช่วงเวลา (ตั้งแต่)</label>
+          <${DateField} value=${from} max=${to||undefined} onChange=${setFrom}/></div>
+        <div class="vp-f vp-date"><label>ถึง</label>
+          <${DateField} value=${to} min=${from||undefined} onChange=${setTo}/></div>
         <div class="vp-f vp-dd"><label>อำเภอ</label><${Dropdown} value=${dist} onChange=${setDist} options=${distOpts}/></div>
         <div class="vp-f vp-dd"><label>สถานะแผน</label><${Dropdown} value=${status} onChange=${setStatus} options=${STATUS_OPTS}/></div>
         <div class="vp-range-txt">ช่วงที่เลือก: <b>${rangeText}</b></div>
@@ -313,7 +292,7 @@ export function VisitPlanReport(){
             <div class="vp-tc-top">
               <div class="vp-tc-seq">${i+1}</div>
               <div class="vp-tc-main">
-                <div class="vp-tc-nm">${t.businessName} <span class=${"vp-grade g-"+t.grade_at}>${t.grade_at} · ${t.score_at}</span></div>
+                <div class="vp-tc-nm">${t.businessName} <span class=${"vp-gap g-"+t.gapLevel_at}>ขาด ${t.gap_at} ราย</span></div>
                 <div class="vp-tc-meta">${segTH(t.segment)} · ${districtTH(t.district)}</div>
               </div>
               <span class=${"vp-tbadge tb-"+t.status}>${VP_TARGET_TH[t.status]}</span>
@@ -339,10 +318,6 @@ export function VisitPlanReport(){
 
 const VP_CSS = `
 .vp-page{color:var(--txt)}
-.vp-subnav{display:flex;gap:8px;margin-bottom:14px}
-.vp-subtab{padding:8px 16px;border-radius:999px;border:1px solid var(--stroke2);background:var(--panel);color:var(--muted);
-  font-family:var(--font);font-size:13px;font-weight:600;cursor:pointer}
-.vp-subtab.on{background:var(--accent);border-color:var(--accent);color:#fff}
 .vp-head{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap;padding-right:52px}
 .vp-btn{display:inline-flex;align-items:center;gap:7px;height:38px;padding:0 15px;border-radius:10px;border:1px solid var(--stroke2);
   background:var(--panel);color:var(--txt);font-family:var(--font);font-size:13px;font-weight:600;cursor:pointer}
@@ -350,17 +325,18 @@ const VP_CSS = `
 .vp-btn.ghost{background:transparent}
 .vp-btn:hover{filter:brightness(.98)}
 .vp-filters{border:1px solid var(--stroke2);border-radius:14px;padding:14px 16px;background:var(--panel);margin-bottom:16px}
-.vp-frow{display:flex;align-items:flex-end;gap:14px;flex-wrap:wrap;margin-bottom:10px}
-.vp-frow:last-of-type{margin-bottom:0}
+.vp-frow{display:flex;align-items:flex-end;gap:14px;flex-wrap:wrap;margin-bottom:0}
+.vp-frow > .vp-btn{flex:0 0 auto;width:auto;align-self:flex-end;display:inline-flex}
 .vp-f{display:flex;flex-direction:column;gap:5px}
-.vp-f label{font-size:12px;font-weight:600;color:var(--muted)}
+.vp-f label{font-size:12px;font-weight:600;color:var(--muted);white-space:nowrap}
+/* ช่องวันที่กว้างเท่ากับ dropdown เพื่อให้ทั้งแถวเป็นระยะเดียวกัน */
+.vp-date{width:160px}
+.vp-date > *{width:100%}
 .vp-f input[type=date]{height:38px;border:1px solid var(--stroke2);border-radius:10px;padding:0 11px;font-family:var(--font);font-size:13px;color:var(--txt);background:var(--surface)}
-.vp-dd{min-width:190px}
-.vp-chips{display:flex;gap:7px;flex-wrap:wrap;margin-left:auto}
-.vp-chip{padding:8px 13px;border-radius:9px;border:1px solid var(--stroke2);background:var(--surface);color:var(--muted);
-  font-family:var(--font);font-size:12.5px;font-weight:600;cursor:pointer}
-.vp-chip.on{background:var(--accent-soft);border-color:var(--accent);color:var(--accent-deep,#b30019)}
-.vp-range-txt{font-size:12.5px;color:var(--muted);align-self:center}
+.vp-dd{width:160px;min-width:0}
+/* ข้อความช่วงเวลา = ตัวยืดหยุ่นของแถว หดได้และตัดด้วย … แทนที่จะดันปุ่มตกบรรทัด */
+.vp-range-txt{font-size:12.5px;color:var(--muted);align-self:flex-end;padding-bottom:10px;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:0 1 auto;min-width:0}
 .vp-range-txt b{color:var(--txt)}
 .vp-summary{margin-top:12px;padding-top:11px;border-top:1px dashed var(--stroke);font-size:13.5px;color:var(--txt)}
 .vp-summary b{color:var(--accent-deep,#b30019);font-weight:800}
@@ -406,9 +382,10 @@ const VP_CSS = `
   font-size:12px;font-weight:800;display:grid;place-items:center;margin-top:1px}
 .vp-tc-main{flex:1;min-width:0}
 .vp-tc-nm{font-size:13.5px;font-weight:700;color:var(--txt)}
-.vp-grade{font-size:11.5px;font-weight:800;padding:1px 8px;border-radius:999px;margin-left:5px;background:var(--surface2);color:var(--muted)}
-.vp-grade.g-A{background:rgba(51,214,159,.16);color:#0f7a3d}
-.vp-grade.g-B{background:rgba(255,176,46,.16);color:#b45309}
+.vp-gap{font-size:11.5px;font-weight:800;padding:1px 8px;border-radius:999px;margin-left:5px;background:var(--surface2);color:var(--muted)}
+.vp-gap.g-High{background:rgba(220,38,38,.14);color:#c81e1e}
+.vp-gap.g-Medium{background:rgba(255,176,46,.16);color:#b45309}
+.vp-gap.g-Low{background:rgba(51,214,159,.16);color:#0f7a3d}
 .vp-tc-meta{font-size:12px;color:var(--muted);margin-top:2px}
 .vp-tbadge{flex:none;font-size:11px;font-weight:800;padding:3px 9px;border-radius:999px;white-space:nowrap}
 .vp-tbadge.tb-visited{background:rgba(51,214,159,.16);color:#0f7a3d}
@@ -422,5 +399,5 @@ const VP_CSS = `
 .vp-tcard.t-cancelled .vp-tc-flag{color:#b30019;background:rgba(230, 0, 35,.08)}
 .vp-tc-dist{margin-top:8px;font-size:12px;color:var(--muted)}
 @media(max-width:900px){.vp-cols{grid-template-columns:1fr}.vp-card{height:auto;max-height:70vh}}
-@media print{.vp-subnav,.vp-chips,.vp-filters .vp-btn,.ph-right,.vp-pager{display:none!important}.vp-card{height:auto;overflow:visible}}
+@media print{.vp-filters .vp-btn,.ph-right,.vp-pager{display:none!important}.vp-card{height:auto;overflow:visible}}
 `;

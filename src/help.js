@@ -9,9 +9,9 @@ function markTip(email,k){ try{ localStorage.setItem(`${KEY}.${email||"guest"}.$
 // Each feature → the selector that identifies it + the tip text. Order = priority
 // (more specific first, so the heat row wins over the whole layer panel).
 const TIPS = [
-  { key:"heat",    sel:'[data-help="heat"]',   text:"แสดงความหนาแน่นของข้อมูล" },
+  { key:"heat",    sel:'[data-help="heat"]',   text:"แสดง Lead สูง — หมวดธุรกิจที่ยังขาดในพื้นที่" },
   { key:"layer",   sel:'[data-tour="layers"]', text:"ใช้เปิดหรือปิดข้อมูลบนแผนที่" },
-  { key:"opp",     sel:'[data-help="opp"]',    text:"คะแนนศักยภาพที่ระบบใช้จัดลำดับลูกค้า" },
+  { key:"opp",     sel:'[data-help="opp"]',    text:"ดัชนี Lead สูงที่ระบบใช้จัดลำดับพื้นที่" },
   { key:"route",   sel:'[data-help="route"]',  text:"ใช้วางแผนการเดินทาง" },
   { key:"cluster", sel:'.geo-cluster',         text:"รวม Marker ที่อยู่ใกล้กัน" },
   { key:"marker",  sel:'.geo-mk',              text:"คลิกเพื่อดูรายละเอียดลูกค้า" },
@@ -79,6 +79,6 @@ const CSS = `
 .help-txt{flex:1;font-size:12.5px;line-height:1.55;color:var(--txt)}
 .help-x{flex:none;width:20px;height:20px;border:none;border-radius:6px;cursor:pointer;background:transparent;
   color:var(--muted);font-size:12.5px;transition:.15s}
-.help-x:hover{background:rgba(255,255,255,.07);color:var(--txt)}
+.help-x:hover{background:rgba(30,45,80,.10);color:var(--txt)}
 @keyframes help-in{from{opacity:0;transform:translateY(6px) scale(.97)}to{opacity:1;transform:none}}
 `;

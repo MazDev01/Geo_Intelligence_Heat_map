@@ -1,40 +1,48 @@
 // ═══════════════════════════════════════════════════════════════════════════
 // src/mock/geoData.js — แหล่งข้อมูลจำลอง "ที่เดียวของทั้งระบบ" (single source of truth)
 // ใช้ร่วมกันทั้งฝั่ง Node (gen.mjs สร้าง JSON) และฝั่งเบราว์เซอร์ (lib.js/data.js อ้างชื่อ/พิกัดอำเภอ)
-// กติกา (ข้อ 7): มีเฉพาะ 4 จังหวัด · ยอด/สัดส่วนเกรดกำหนดตายตัว · validate() throw เมื่อยอดรวมไม่สอดคล้อง
+// กติกา (ข้อ 7): มีเฉพาะ 4 จังหวัด · ยอดลูกค้า/Lead กำหนดตายตัว · validate() throw เมื่อยอดรวมไม่สอดคล้อง
 // หมายเหตุ "พัทยา": เป็นเมืองชายทะเลภาคตะวันออก — ในระบบใช้ key "Pattaya" โดยอิงขอบเขต/พิกัดของพื้นที่เดิม
 // ═══════════════════════════════════════════════════════════════════════════
 
-// ── 12 เซกเมนต์ธุรกิจ ตาม Appendix A (ทั้งระบบใช้ชุดนี้) ──
-export const SEGMENTS = ["FoodBeverage","HealthBeauty","Hotel","MarketingEvents","AutoTransport",
-  "HomeLiving","Education","BusinessServices","Retail","ITElectronics","CleaningMaintenance","Other"];
+// ── 12 หมวดธุรกิจ (Parent Segment) — ชุดเดียวกับไฟล์ข้อมูลจริงของ Barter ──
+// ทั้งระบบใช้ชุดนี้: ลูกค้าจริงมากับหมวดนี้อยู่แล้ว · Lead จำลองถูกสร้างด้วยหมวดชุดเดียวกัน
+// เพื่อให้โมเดล Lead (อุปสงค์จาก Lead − อุปทานจากลูกค้า) เทียบกันได้ต่อหมวด
+export const SEGMENTS = ["Manufacturing","HomeLiving","FoodBeverage","HealthBeauty","Retail","ProfessionalServices",
+  "AutoTransport","Hospitality","Technology","PetAnimal","ArtsCulture","RealEstate"];
 export const SEG_TH = {
-  FoodBeverage:"อาหารและเครื่องดื่ม", HealthBeauty:"สุขภาพและความงาม", Hotel:"โรงแรมและที่พัก",
-  MarketingEvents:"การตลาดและอีเวนต์", AutoTransport:"ยานยนต์และขนส่ง", HomeLiving:"บ้านและเฟอร์นิเจอร์",
-  Education:"การศึกษาและฝึกอบรม", BusinessServices:"บริการธุรกิจและวิชาชีพ", Retail:"ค้าปลีกและอุปโภคบริโภค",
-  ITElectronics:"ไอทีและอิเล็กทรอนิกส์", CleaningMaintenance:"ทำความสะอาดและซ่อมบำรุง", Other:"อื่น ๆ" };
+  Manufacturing:"ผลิตและวัสดุอุตสาหกรรม", HomeLiving:"บ้าน อาคาร และของใช้ในบ้าน",
+  FoodBeverage:"อาหารและเครื่องดื่ม", HealthBeauty:"สุขภาพ ความงาม และเวลเนส",
+  Retail:"ค้าปลีกและสินค้าอุปโภคบริโภค", ProfessionalServices:"บริการวิชาชีพและการตลาด",
+  AutoTransport:"ยานยนต์และขนส่ง", Hospitality:"ที่พักและสันทนาการ",
+  Technology:"เทคโนโลยีและการสื่อสาร", PetAnimal:"สัตว์เลี้ยงและสัตว์",
+  ArtsCulture:"ศิลปะ วัฒนธรรม และบริการเฉพาะทาง", RealEstate:"อสังหาริมทรัพย์",
+  Other:"ไม่ระบุหมวด" };
 export const SEG_COLOR = {
-  FoodBeverage:"#ff5a3c", HealthBeauty:"#e87ba4", Hotel:"#34e0d0", MarketingEvents:"#8a7bff",
-  AutoTransport:"#3987e5", HomeLiving:"#c98500", Education:"#33d69f", BusinessServices:"#6d7cff",
-  Retail:"#ffb02e", ITElectronics:"#26c6da", CleaningMaintenance:"#9ccc65", Other:"#8aa0be" };
+  Manufacturing:"#33d69f", HomeLiving:"#c98500", FoodBeverage:"#ff5a3c", HealthBeauty:"#e87ba4",
+  Retail:"#ffb02e", ProfessionalServices:"#8a7bff", AutoTransport:"#3987e5", Hospitality:"#34e0d0",
+  Technology:"#26c6da", PetAnimal:"#9ccc65", ArtsCulture:"#6d7cff", RealEstate:"#b07be8",
+  Other:"#8aa0be" };
 export const SEG_ICON = {
-  FoodBeverage:"🍽️", HealthBeauty:"💄", Hotel:"🏨", MarketingEvents:"📣", AutoTransport:"🚗",
-  HomeLiving:"🛋️", Education:"🎓", BusinessServices:"💼", Retail:"🛒", ITElectronics:"💻",
-  CleaningMaintenance:"🧹", Other:"🏢" };
+  Manufacturing:"🏭", HomeLiving:"🛋️", FoodBeverage:"🍽️", HealthBeauty:"💄", Retail:"🛒",
+  ProfessionalServices:"💼", AutoTransport:"🚗", Hospitality:"🏨", Technology:"💻",
+  PetAnimal:"🐾", ArtsCulture:"🎨", RealEstate:"🏢", Other:"❓" };
 // ไอคอนเส้น (outline) หมวดธุรกิจ — เนื้อใน SVG viewBox 24×24 จาก lucide (ISC/MIT) แทนอิโมจิ stock
 // stroke=currentColor 2px กำหนดที่ตัวห่อ <svg> — ปรับสี/ขนาดจากภายนอกได้ ดู SegmentIcon/segIconSVG ใน lib.js
+// คีย์ "Other" ไม่อยู่ใน SEGMENTS — เป็นตัวสำรองเมื่อเจอค่าหมวดที่ไม่รู้จัก (segKey ใน lib.js)
 export const SEG_SVG = {
+  Manufacturing:'<path d="M12 16h.01"/><path d="M16 16h.01"/><path d="M3 19a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V9.5a.5.5 0 0 0-.769-.422l-4.462 2.844A.5.5 0 0 1 15 11.5v-2a.5.5 0 0 0-.769-.422L9.77 11.922A.5.5 0 0 1 9 11.5V5a1 1 0 0 0-1-1H6a3 3 0 0 0-3 3z"/><path d="M8 16h.01"/>',
+  HomeLiving:'<path d="M20 9V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v3"/><path d="M2 16a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-5a2 2 0 0 0-4 0v1.5a.5.5 0 0 1-.5.5h-11a.5.5 0 0 1-.5-.5V11a2 2 0 0 0-4 0z"/><path d="M4 18v2"/><path d="M20 18v2"/><path d="M12 4v9"/>',
   FoodBeverage:'<path d="m16 2-2.3 2.3a3 3 0 0 0 0 4.2l1.8 1.8a3 3 0 0 0 4.2 0L22 8"/><path d="M15 15 3.3 3.3a4.2 4.2 0 0 0 0 6l7.3 7.3c.7.7 2 .7 2.8 0L15 15Zm0 0 7 7"/><path d="m2.1 21.8 6.4-6.3"/><path d="m19 5-7 7"/>',
   HealthBeauty:'<path d="M2 9.5a5.5 5.5 0 0 1 9.591-3.676.56.56 0 0 0 .818 0A5.49 5.49 0 0 1 22 9.5c0 2.29-1.5 4-3 5.5l-5.492 5.313a2 2 0 0 1-3 .019L5 15c-1.5-1.5-3-3.2-3-5.5"/><path d="M3.22 13H9.5l.5-1 2 4.5 2-7 1.5 3.5h5.27"/>',
-  Hotel:'<path d="M2 20v-8a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v8"/><path d="M4 10V6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v4"/><path d="M12 4v6"/><path d="M2 18h20"/>',
-  MarketingEvents:'<path d="M11 6a13 13 0 0 0 8.4-2.8A1 1 0 0 1 21 4v12a1 1 0 0 1-1.6.8A13 13 0 0 0 11 14H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2z"/><path d="M6 14a12 12 0 0 0 2.4 7.2 2 2 0 0 0 3.2-2.4A8 8 0 0 1 10 14"/><path d="M8 6v8"/>',
-  AutoTransport:'<path d="M19 17h2c.6 0 1-.4 1-1v-3c0-.9-.7-1.7-1.5-1.9C18.7 10.6 16 10 16 10s-1.3-1.4-2.2-2.3c-.5-.4-1.1-.7-1.8-.7H5c-.6 0-1.1.4-1.4.9l-1.4 2.9A3.7 3.7 0 0 0 2 12v4c0 .6.4 1 1 1h2"/><circle cx="7" cy="17" r="2"/><path d="M9 17h6"/><circle cx="17" cy="17" r="2"/>',
-  HomeLiving:'<path d="M20 9V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v3"/><path d="M2 16a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-5a2 2 0 0 0-4 0v1.5a.5.5 0 0 1-.5.5h-11a.5.5 0 0 1-.5-.5V11a2 2 0 0 0-4 0z"/><path d="M4 18v2"/><path d="M20 18v2"/><path d="M12 4v9"/>',
-  Education:'<path d="M21.42 10.922a1 1 0 0 0-.019-1.838L12.83 5.18a2 2 0 0 0-1.66 0L2.6 9.08a1 1 0 0 0 0 1.832l8.57 3.908a2 2 0 0 0 1.66 0z"/><path d="M22 10v6"/><path d="M6 12.5V16a6 3 0 0 0 12 0v-3.5"/>',
-  BusinessServices:'<path d="M16 20V4a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/><rect width="20" height="14" x="2" y="6" rx="2"/>',
   Retail:'<path d="M16 10a4 4 0 0 1-8 0"/><path d="M3.103 6.034h17.794"/><path d="M3.4 5.467a2 2 0 0 0-.4 1.2V20a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6.667a2 2 0 0 0-.4-1.2l-2-2.667A2 2 0 0 0 17 2H7a2 2 0 0 0-1.6.8z"/>',
-  ITElectronics:'<path d="M18 8V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h8"/><path d="M10 19v-3.96 3.15"/><path d="M7 19h5"/><rect width="6" height="10" x="16" y="12" rx="2"/>',
-  CleaningMaintenance:'<path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.106-3.105c.32-.322.863-.22.983.218a6 6 0 0 1-8.259 7.057l-7.91 7.91a1 1 0 0 1-2.999-3l7.91-7.91a6 6 0 0 1 7.057-8.259c.438.12.54.662.219.984z"/>',
+  ProfessionalServices:'<path d="M16 20V4a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/><rect width="20" height="14" x="2" y="6" rx="2"/>',
+  AutoTransport:'<path d="M19 17h2c.6 0 1-.4 1-1v-3c0-.9-.7-1.7-1.5-1.9C18.7 10.6 16 10 16 10s-1.3-1.4-2.2-2.3c-.5-.4-1.1-.7-1.8-.7H5c-.6 0-1.1.4-1.4.9l-1.4 2.9A3.7 3.7 0 0 0 2 12v4c0 .6.4 1 1 1h2"/><circle cx="7" cy="17" r="2"/><path d="M9 17h6"/><circle cx="17" cy="17" r="2"/>',
+  Hospitality:'<path d="M2 20v-8a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v8"/><path d="M4 10V6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v4"/><path d="M12 4v6"/><path d="M2 18h20"/>',
+  Technology:'<path d="M18 8V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h8"/><path d="M10 19v-3.96 3.15"/><path d="M7 19h5"/><rect width="6" height="10" x="16" y="12" rx="2"/>',
+  PetAnimal:'<circle cx="11" cy="4" r="2"/><circle cx="18" cy="8" r="2"/><circle cx="20" cy="16" r="2"/><path d="M9 10a5 5 0 0 1 5 5v3.5a3.5 3.5 0 0 1-6.84 1.045Q6.52 17.48 4.46 16.84A3.5 3.5 0 0 1 5.5 10Z"/>',
+  ArtsCulture:'<path d="M12 22a1 1 0 0 1 0-20 10 9 0 0 1 10 9 5 5 0 0 1-5 5h-2.25a1.75 1.75 0 0 0-1.4 2.8l.3.4a1.75 1.75 0 0 1-1.4 2.8z"/><circle cx="13.5" cy="6.5" r=".5"/><circle cx="17.5" cy="10.5" r=".5"/><circle cx="6.5" cy="12.5" r=".5"/><circle cx="8.5" cy="7.5" r=".5"/>',
+  RealEstate:'<path d="M6 22V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v18Z"/><path d="M6 12H4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h2"/><path d="M18 9h2a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-2"/><path d="M10 6h4"/><path d="M10 10h4"/><path d="M10 14h4"/><path d="M10 18h4"/>',
   Other:'<path d="M8.3 10a.7.7 0 0 1-.626-1.079L11.4 3a.7.7 0 0 1 1.198-.043L16.3 8.9a.7.7 0 0 1-.572 1.1Z"/><rect x="3" y="14" width="7" height="7" rx="1"/><circle cx="17.5" cy="17.5" r="3.5"/>' };
 export const OTHER_COLOR = "#8aa0be";
 // helper ปลอดจำนวนเซกเมนต์ (แทนการ hardcode {Hotel:...,Restaurant:...} 4 หมวดเดิม)
@@ -42,27 +50,63 @@ export const segZero    = ()  => Object.fromEntries(SEGMENTS.map(s=>[s,0]));
 export const segAllTrue = ()  => Object.fromEntries(SEGMENTS.map(s=>[s,true]));
 export const segOnly    = (s) => Object.fromEntries(SEGMENTS.map(x=>[x,x===s]));
 
-// เกณฑ์เกรด (คะแนนศักยภาพ) ตาม Appendix B: A = 80–100 · B = 60–79 · C = 0–59
-export const GRADE_BANDS = { A:[80,100], B:[60,79], C:[15,59] };
-export const gradeOf = s => s>=80?"A":s>=60?"B":"C";
-// สัดส่วนเกรดบังคับ ทุกจังหวัดและระดับรวม
-export const GRADE_RATIO = { A:0.45, B:0.30, C:0.25 };
+// ═══════════════════════════════════════════════════════════════════════════
+// แบบจำลอง "Lead สูง" (High-Demand Gap) — แทนการจัดเกรด A/B/C + คะแนนศักยภาพเดิม
+// แนวคิด: ความร้อน (heat) ของพื้นที่ = "หมวดธุรกิจที่มีอุปสงค์ในพื้นที่นั้น แต่เครือข่าย Barter ยังขาด"
+// ไม่ใช่การให้คะแนนศักยภาพรายบริษัท และไม่ใช้ข้อมูลรีวิวใด ๆ (ลูกค้าไม่มีข้อมูลรีวิว)
+//   อุปสงค์ (demand) ต่อหมวด = จำนวนธุรกิจในหมวดนั้นที่ยังไม่อยู่ในเครือข่าย (Lead)
+//   อุปทาน (supply)  ต่อหมวด = จำนวนสมาชิกเครือข่ายปัจจุบันในหมวดนั้น (ลูกค้า)
+//   ช่องว่าง (gap)   ต่อหมวด = max(0, demand − supply)
+// ข้อมูลจริงที่ใช้มีเพียง ชื่อธุรกิจ · หมวดหมู่ธุรกิจ · ที่อยู่ · อีเมล
+// ═══════════════════════════════════════════════════════════════════════════
 
-// จำนวนเกรดต่อจำนวนLead — ปัดให้ A+B+C = prospects เป๊ะ (C รับเศษ)
-export function gradeCounts(prospects){
-  const A = Math.round(prospects*GRADE_RATIO.A);
-  const B = Math.round(prospects*GRADE_RATIO.B);
-  const C = prospects - A - B;
-  return { A, B, C };
+// ค่าอ้างอิงขนาดช่องว่าง (จำนวนราย) ที่ถือว่า "เต็มสเกล" ของแต่ละระดับพื้นที่
+export const GAP_REF = { country:900, province:300, cluster:120, district:60 };
+export const GAP_TH  = { High:"สูง", Medium:"ปานกลาง", Low:"ต่ำ" };
+
+// ช่องว่างรายหมวดของพื้นที่หนึ่ง — เรียงจากหมวดที่ขาดมากสุด
+export function gapBySegment(customers=[], prospects=[]){
+  const demand = segZero(), supply = segZero();
+  for(const p of prospects) if(demand[p.segment]!=null) demand[p.segment]++;
+  for(const c of customers) if(supply[c.segment]!=null) supply[c.segment]++;
+  return SEGMENTS.map(seg=>({ seg, demand:demand[seg], supply:supply[seg],
+      gap: Math.max(0, demand[seg]-supply[seg]) }))
+    .sort((a,b)=> b.gap-a.gap || b.demand-a.demand);
 }
 
-// ── สเปกจังหวัด (ยอดคงที่ตามโจทย์ 7.2) ──
+// ระดับช่องว่างจากดัชนี 0–100
+export const gapLevelOf = s => s>=67 ? "High" : s>=34 ? "Medium" : "Low";
+
+/* ดัชนี Lead สูง 0–100 ของพื้นที่ ประกอบด้วย 3 องค์ประกอบ
+     ลึก (depth 45%)     = สัดส่วนอุปสงค์ที่ยังไม่ถูกเติม  → พื้นที่ที่ Lead ล้นเทียบสมาชิกที่มี
+     กว้าง (breadth 25%) = สัดส่วนหมวดที่ยังขาด            → ขาดหลายหมวด = เติมได้หลายทาง
+     ปริมาณ (volume 30%) = ขนาดช่องว่างเทียบค่าอ้างอิง      → พื้นที่เล็กที่ขาดไม่กี่รายไม่ควรร้อนเท่าเมืองใหญ่ */
+export function demandGap(customers=[], prospects=[], ref=GAP_REF.district){
+  const segs = gapBySegment(customers, prospects);
+  const demandTotal = segs.reduce((a,x)=>a+x.demand, 0);
+  const gapCount    = segs.reduce((a,x)=>a+x.gap, 0);
+  const present     = segs.filter(x=>x.demand+x.supply>0).length;
+  const missing     = segs.filter(x=>x.gap>0).length;
+  const depth   = demandTotal ? gapCount/demandTotal : 0;
+  const breadth = present ? missing/present : 0;
+  const volume  = Math.min(1, gapCount/(ref||1));
+  const gapScore = Math.round(100*(0.45*depth + 0.25*breadth + 0.30*volume));
+  return { gapScore, gapLevel:gapLevelOf(gapScore), gapCount, demandTotal,
+    gapDepth:+(depth*100).toFixed(0), gapBreadth:missing, segsPresent:present,
+    gapSegs: segs.filter(x=>x.gap>0).slice(0,5),
+    topGapSegment: (segs[0] && segs[0].gap>0) ? segs[0].seg : null };
+}
+
+// ── สเปกจังหวัด "พื้นที่โฟกัส" 4 จังหวัด ──
+// ตั้งแต่รับข้อมูลลูกค้าจริงจาก Barter: **ลูกค้ามาจากไฟล์จริง** (data/source-customers.json) กระจายอยู่ 39 จังหวัด
+// สเปกนี้จึงคุมเฉพาะ "Lead จำลอง" ซึ่งยังสร้างเฉพาะ 4 จังหวัดโฟกัส (มีข้อมูลอำเภอ/พิกัดอ้างอิงครบ)
+// prospects = จำนวน Lead ตายตัวต่อจังหวัด · topSegment = หมวดที่ Lead เอนไปทาง (ใช้เอียงการสุ่ม)
 // key = ชื่ออังกฤษที่ใช้ทั้งระบบ · th = ชื่อไทย · center = พิกัดกลางจังหวัด (Pattaya ใช้พิกัดเมืองพัทยา)
 export const PROVINCES = [
-  { key:"Bangkok Metropolis", th:"กรุงเทพมหานคร", customers:168, prospects:540, topSegment:"Retail",       center:[100.55,13.75] },
-  { key:"Pattaya",            th:"ชลบุรี",        customers:88,  prospects:320, topSegment:"Hotel",        center:[100.8825,12.9236] },
-  { key:"Phuket",             th:"ภูเก็ต",        customers:82,  prospects:280, topSegment:"Hotel",        center:[98.35,7.95] },
-  { key:"Chiang Mai",         th:"เชียงใหม่",     customers:55,  prospects:260, topSegment:"FoodBeverage", center:[98.99,18.79] },
+  { key:"Bangkok Metropolis", th:"กรุงเทพมหานคร", prospects:540, topSegment:"Retail",       center:[100.55,13.75] },
+  { key:"Pattaya",            th:"ชลบุรี",        prospects:320, topSegment:"Hospitality",        center:[100.8825,12.9236] },
+  { key:"Phuket",             th:"ภูเก็ต",        prospects:280, topSegment:"Hospitality",        center:[98.35,7.95] },
+  { key:"Chiang Mai",         th:"เชียงใหม่",     prospects:260, topSegment:"FoodBeverage", center:[98.99,18.79] },
 ];
 export const PROVINCE_KEYS = PROVINCES.map(p=>p.key);
 export const provinceSpec = key => PROVINCES.find(p=>p.key===key);
@@ -106,80 +150,189 @@ export const DISTRICT_META = {
 };
 
 // แผนที่ช่วย (derive จาก DISTRICT_META — ให้ lib.js/data.js อ้างที่เดียว)
-export const DISTRICT_TH = Object.values(DISTRICT_META).flat()
-  .reduce((m,[en,th])=>{ m[en]=th; return m; }, {});
+/* ชื่อไทยของอำเภอ/เขตที่พบในข้อมูลจริงจาก Barter แต่อยู่นอก 4 จังหวัดนำร่อง
+   DISTRICT_META เก็บได้เฉพาะอำเภอที่มีพิกัดกึ่งกลาง/สถิติประกอบ ส่วนตารางนี้ใช้แปลชื่ออย่างเดียว
+   ทำให้คอลัมน์ "อำเภอ / เขต" ในทุกตารางเป็นภาษาไทยเหมือนคอลัมน์อื่น */
+const DISTRICT_TH_EXTRA = {
+  "Bang Bon":"บางบอน",
+  "Bang Kapi":"บางกะปิ",
+  "Bang Khae":"บางแค",
+  "Bang Khen":"บางเขน",
+  "Bang Kho Laem":"บางคอแหลม",
+  "Bang Khun Thian":"บางขุนเทียน",
+  "Bang Na":"บางนา",
+  "Bang Phlat":"บางพลัด",
+  "Bang Su":"บางซื่อ",
+  "Bangkok Noi":"บางกอกน้อย",
+  "Bangkok Yai":"บางกอกใหญ่",
+  "Bung Kum":"บึงกุ่ม",
+  "Din Daeng":"ดินแดง",
+  "Don Mueang":"ดอนเมือง",
+  "Dusit":"ดุสิต",
+  "Khanna Yao":"คันนายาว",
+  "Khlong Sam Wa":"คลองสามวา",
+  "Khlong San":"คลองสาน",
+  "Lak Si":"หลักสี่",
+  "Lat Krabang":"ลาดกระบัง",
+  "Lat Phrao":"ลาดพร้าว",
+  "Min Buri":"มีนบุรี",
+  "Nong Chok":"หนองจอก",
+  "Nong Khaem":"หนองแขม",
+  "Phasi Charoen":"ภาษีเจริญ",
+  "Phaya Thai":"พญาไท",
+  "Phra Khanong":"พระโขนง",
+  "Prawet":"ประเวศ",
+  "Rat Burana":"ราษฎร์บูรณะ",
+  "Sai Mai":"สายไหม",
+  "Samphanthawong":"สัมพันธวงศ์",
+  "Saphan Sung":"สะพานสูง",
+  "Suan Luang":"สวนหลวง",
+  "Taling Chan":"ตลิ่งชัน",
+  "Thawi Watthana":"ทวีวัฒนา",
+  "Thawi Vadhana":"ทวีวัฒนา",
+  "Thon Buri":"ธนบุรี",
+  "Thung Khu":"ทุ่งครุ",
+  "Wang Thong Lang":"วังทองหลาง",
+  "Yan Nawa":"ยานนาวา",
+  "Yannawa":"ยานนาวา",
+  "Vadhana":"วัฒนา",
+  "Mueang Nonthaburi":"เมืองนนทบุรี",
+  "Bang Bua Thong":"บางบัวทอง",
+  "Bang Kruai":"บางกรวย",
+  "Bang Yai":"บางใหญ่",
+  "Pak Kret":"ปากเกร็ด",
+  "Sai Noi":"ไทรน้อย",
+  "Mueang Pathum Thani":"เมืองปทุมธานี",
+  "Khlong Luang":"คลองหลวง",
+  "Lam Luk Ka":"ลำลูกกา",
+  "Lat Lum Kaeo":"ลาดหลุมแก้ว",
+  "Nong Suea":"หนองเสือ",
+  "Sam Khok":"สามโคก",
+  "Thanyaburi":"ธัญบุรี",
+  "Mueang Samut Prakan":"เมืองสมุทรปราการ",
+  "Bang Bo":"บางบ่อ",
+  "Bang Phli":"บางพลี",
+  "Bang Sao Thong":"บางเสาธง",
+  "Phra Pradaeng":"พระประแดง",
+  "Phra Samut Chedi":"พระสมุทรเจดีย์",
+  "Mueang Nakhon Pathom":"เมืองนครปฐม",
+  "Bang Len":"บางเลน",
+  "Don Tum":"ดอนตูม",
+  "Nakhon Chai Si":"นครชัยศรี",
+  "Phutthamonthon":"พุทธมณฑล",
+  "Sam Phran":"สามพราน",
+  "Mueang Samut Sakhon":"เมืองสมุทรสาคร",
+  "Ban Phaeo":"บ้านแพ้ว",
+  "Krathum Baen":"กระทุ่มแบน",
+  "Bang Khonthi":"บางคนที",
+  "Phra Nakhon Si Ayutthaya":"พระนครศรีอยุธยา",
+  "Bang Pa-In":"บางปะอิน",
+  "Bang Pa-in":"บางปะอิน",
+  "Bang Sai":"บางไทร",
+  "Lat Bua Luang":"ลาดบัวหลวง",
+  "Phachi":"ภาชี",
+  "Uthai":"อุทัย",
+  "Mueang Chon Buri":"เมืองชลบุรี",
+  "Ban Bueng":"บ้านบึง",
+  "Mueang Rayong":"เมืองระยอง",
+  "Klaeng":"แกลง",
+  "Nikhom Phatthana":"นิคมพัฒนา",
+  "Tha Mai":"ท่าใหม่",
+  "Ko Chang":"เกาะช้าง",
+  "Ko Kut":"เกาะกูด",
+  "Mueang Chachoengsao":"เมืองฉะเชิงเทรา",
+  "Bang Nam Priao":"บางน้ำเปรี้ยว",
+  "Pleang Yao":"แปลงยาว",
+  "Kabin Buri":"กบินทร์บุรี",
+  "Mueang Nakhon Nayok":"เมืองนครนายก",
+  "Ban Na":"บ้านนา",
+  "Ongkharak":"องครักษ์",
+  "Mueang Ratchaburi":"เมืองราชบุรี",
+  "Bang Phae":"บางแพ",
+  "Photharam":"โพธาราม",
+  "Tha Yang":"ท่ายาง",
+  "Kaeng Krachan":"แก่งกระจาน",
+  "Hua Hin":"หัวหิน",
+  "Bang Saphan Noi":"บางสะพานน้อย",
+  "Sangkhla Buri":"สังขละบุรี",
+  "Mueang Chiang Rai":"เมืองเชียงราย",
+  "Mueang Lamphun":"เมืองลำพูน",
+  "Ban Thi":"บ้านธิ",
+  "Mae Tha":"แม่ทา",
+  "Pa Sang":"ป่าซาง",
+  "Wiang Nong Long":"เวียงหนองล่อง",
+  "Mueang Lampang":"เมืองลำปาง",
+  "Hang Chat":"ห้างฉัตร",
+  "Mueang Pan":"เมืองปาน",
+  "Mueang Phitsanulok":"เมืองพิษณุโลก",
+  "Mueang Nakhon Sawan":"เมืองนครสวรรค์",
+  "Khlong Khlung":"คลองขลุง",
+  "Mueang Khon Kaen":"เมืองขอนแก่น",
+  "Nong Song Hong":"หนองสองห้อง",
+  "Mueang Nakhon Ratchasima":"เมืองนครราชสีมา",
+  "Pak Chong":"ปากช่อง",
+  "Dan Khun Thot":"ด่านขุนทด",
+  "Mueang Yang":"เมืองยาง",
+  "Mueang Maha Sarakham":"เมืองมหาสารคาม",
+  "Kantharawichai":"กันทรวิชัย",
+  "Mueang Surin":"เมืองสุรินทร์",
+  "Kantharalak":"กันทรลักษ์",
+  "Mueang Nong Khai":"เมืองหนองคาย",
+  "Phu Kradueng":"ภูกระดึง",
+  "Nong Phai":"หนองไผ่",
+  "Mueang Krabi":"เมืองกระบี่",
+  "Ko Lanta":"เกาะลันตา",
+  "Mueang Nakhon Si Thammarat":"เมืองนครศรีธรรมราช",
+  "Mueang Pattani":"เมืองปัตตานี",
+  "Mueang Sing Buri":"เมืองสิงห์บุรี",
+};
+export const DISTRICT_TH = { ...DISTRICT_TH_EXTRA,
+  ...Object.values(DISTRICT_META).flat().reduce((m,[en,th])=>{ m[en]=th; return m; }, {}) };
 export const DISTRICT_CENTER = Object.values(DISTRICT_META).flat()
   .reduce((m,[en,,,lat,lng])=>{ m[en]={lat,lng}; return m; }, {});
 
-// ── validate: บังคับกฎความสอดคล้อง (ข้อ 7.3) — throw ถ้าไม่ผ่าน ──
+// ── validate: บังคับกฎความสอดคล้องก่อนเขียนไฟล์ — throw ถ้าไม่ผ่าน ──
+// เปลี่ยนจากเดิม (ยอดลูกค้าตายตัว 4 จังหวัด) เพราะ **ลูกค้าเป็นข้อมูลจริงจาก Barter** แล้ว
+//   ลูกค้า : ตรวจว่าอยู่ในไทย · มีชื่อ/จังหวัด/อำเภอ · หมวดอยู่ใน 12 หมวด · พิกัดในกรอบไทย · รหัสไม่ซ้ำ (จังหวัดมีได้ทั้ง 77)
+//   Lead  : ยังเป็นข้อมูลจำลอง จึงคุมเข้มเหมือนเดิม — เฉพาะ 4 จังหวัดโฟกัส ยอดต่อจังหวัดตรงสเปก อำเภอ ≥ 6
 export function validateGeoData({customers, prospects}){
   const err = [];
   const only = new Set(PROVINCE_KEYS);
-  // 1) จังหวัดต้องมีเฉพาะ 4 จังหวัด และประเทศไทยเท่านั้น
-  for(const r of customers.concat(prospects)){
-    if(r.country!=="Thailand") err.push(`พบประเทศนอกไทย: ${r.country}`);
-    if(!only.has(r.province)) err.push(`พบจังหวัดนอกสเปก: ${r.province}`);
+  const segs = new Set(SEGMENTS);
+
+  // 1) ลูกค้า (ข้อมูลจริง)
+  const ids = new Set();
+  for(const c of customers){
+    const at = "ลูกค้า " + c.id + ": ";
+    if(c.country !== "Thailand") err.push(at + "ประเทศนอกไทย — " + c.country);
+    if(!c.province)     err.push(at + "ไม่มีจังหวัด");
+    if(!c.district)     err.push(at + "ไม่มีอำเภอ/เขต");
+    if(!c.businessName) err.push(at + "ไม่มีชื่อธุรกิจ");
+    if(!segs.has(c.segment)) err.push(at + "หมวดธุรกิจนอกชุด 12 หมวด — " + c.segment);
+    if(!(c.latitude >= 5.5 && c.latitude <= 20.6 && c.longitude >= 97 && c.longitude <= 106))
+      err.push(at + "พิกัดนอกกรอบประเทศไทย — " + c.latitude + "," + c.longitude);
+    if(ids.has(c.id)) err.push("รหัสลูกค้าซ้ำ: " + c.id); else ids.add(c.id);
   }
-  // 2) ยอดลูกค้า/Lead + สัดส่วนเกรด ต่อจังหวัด ต้องตรงสเปก
+
+  // 2) Lead (ข้อมูลจำลอง) — เฉพาะ 4 จังหวัดโฟกัส และยอดต้องตรงสเปก
+  for(const p of prospects){
+    const at = "Lead " + p.id + ": ";
+    if(p.country !== "Thailand") err.push(at + "ประเทศนอกไทย");
+    if(!only.has(p.province))    err.push(at + "จังหวัดนอก 4 จังหวัดโฟกัส — " + p.province);
+    if(!segs.has(p.segment))     err.push(at + "หมวดธุรกิจนอกชุด 12 หมวด — " + p.segment);
+  }
   for(const sp of PROVINCES){
-    const cs = customers.filter(c=>c.province===sp.key);
-    const ps = prospects.filter(p=>p.province===sp.key);
-    if(cs.length!==sp.customers) err.push(`${sp.key}: ลูกค้า ${cs.length} ≠ ${sp.customers}`);
-    if(ps.length!==sp.prospects) err.push(`${sp.key}: Lead ${ps.length} ≠ ${sp.prospects}`);
-    const g = gradeCounts(sp.prospects);
-    const got = {A:0,B:0,C:0}; ps.forEach(p=>{ got[gradeOf(p.potentialScore)]++; });
-    ["A","B","C"].forEach(k=>{ if(Math.abs(got[k]-g[k])>1) err.push(`${sp.key}: เกรด ${k} ${got[k]} ≠ ${g[k]} (±1)`); });
-    // A+B+C ต้องเท่ากับจำนวนLead
-    if(got.A+got.B+got.C!==ps.length) err.push(`${sp.key}: A+B+C ≠ Lead`);
-    // อำเภอ ≥ 6
-    const dist = new Set(cs.concat(ps).map(x=>x.district));
-    if(dist.size<6) err.push(`${sp.key}: อำเภอ ${dist.size} < 6`);
+    const ps = prospects.filter(p => p.province === sp.key);
+    if(ps.length !== sp.prospects) err.push(sp.key + ": Lead " + ps.length + " ≠ " + sp.prospects);
+    const dist = new Set(ps.map(x => x.district));
+    if(dist.size < 6) err.push(sp.key + ": Lead ครอบคลุมอำเภอ " + dist.size + " < 6");
   }
-  // 3) ยอดรวมทั้งหมด
-  const totC = PROVINCES.reduce((a,p)=>a+p.customers,0), totP = PROVINCES.reduce((a,p)=>a+p.prospects,0);
-  if(customers.length!==totC) err.push(`ลูกค้ารวม ${customers.length} ≠ ${totC}`);
-  if(prospects.length!==totP) err.push(`Leadรวม ${prospects.length} ≠ ${totP}`);
-  if(err.length) throw new Error("ข้อมูลจำลองไม่สอดคล้องตามกฎ 7.3:\n - "+err.join("\n - "));
+  const totP = PROVINCES.reduce((a, p) => a + p.prospects, 0);
+  if(prospects.length !== totP) err.push("Lead รวม " + prospects.length + " ≠ " + totP);
+
+  if(err.length) throw new Error("ข้อมูลไม่สอดคล้องตามกฎ:\n - " + err.slice(0, 20).join("\n - ")
+    + (err.length > 20 ? "\n   … และอีก " + (err.length - 20) + " ข้อ" : ""));
   return true;
-}
-
-// ═══ เครื่องคิดคะแนนศักยภาพ (Appendix B) — ใช้ร่วมกันทั้งฟอร์มและ gen ═══
-// กลุ่มกว้างของเซกเมนต์ (ใช้ตัดสิน "ตรงบางส่วน" ในปัจจัย Category Match)
-export const SEG_GROUP = {
-  FoodBeverage:"food", Hotel:"hospitality",
-  HealthBeauty:"services", MarketingEvents:"services", BusinessServices:"services", Education:"services", CleaningMaintenance:"services",
-  AutoTransport:"mobility", HomeLiving:"retail", ITElectronics:"retail", Retail:"retail", Other:"other" };
-export const catMatchOf = (segment, target) => !segment||!target ? "none"
-  : segment===target ? "exact"
-  : (SEG_GROUP[segment] && SEG_GROUP[segment]===SEG_GROUP[target]) ? "partial" : "none";
-
-// คืน {score 0-100, grade, catMatch, breakdown[]} — แต่ละปัจจัยคิดเกณฑ์สูงสุดที่เข้าเงื่อนไขเพียงข้อเดียว
-export function scoreProspect({segment, targetSegment, rating=0, reviewCount=0, hasWebsite=false, hasPhone=false, zoneOpp="Low", catMatch}={}){
-  const cm = catMatch || catMatchOf(segment, targetSegment);
-  const bd=[]; let s=0;
-  const put=(pts,label,opts={})=>{ if(pts>0) s+=pts; bd.push({pts,label,...opts}); };
-  // Category Match
-  if(cm==="exact")   put(20,"หมวดหมู่ตรงตัว");
-  else if(cm==="partial") put(10,"หมวดหมู่ตรงบางส่วน");
-  else put(0,"หมวดหมู่ไม่ตรง",{miss:true,hint:"ตรงตัว +20 · ตรงบางส่วน +10"});
-  // Rating Quality
-  if(rating>=4.2) put(15,`คะแนนรีวิว ${rating}`);
-  else if(rating>=3.5) put(8,`คะแนนรีวิว ${rating}`);
-  else put(0,"คะแนนรีวิวต่ำกว่า 3.5",{miss:true,hint:"≥3.5 +8 · ≥4.2 +15"});
-  // Review Volume
-  if(reviewCount>=100) put(15,`${reviewCount} รีวิว`);
-  else if(reviewCount>=50) put(10,`${reviewCount} รีวิว`);
-  else if(reviewCount>=20) put(5,`${reviewCount} รีวิว`);
-  else put(0,"รีวิวน้อยกว่า 20",{miss:true,hint:"≥20 +5 · ≥50 +10 · ≥100 +15"});
-  // Contact Availability
-  if(hasWebsite) put(10,"มีเว็บไซต์"); else put(0,"ยังไม่มีเว็บไซต์",{miss:true,hint:"+10 ถ้ามี"});
-  if(hasPhone)   put(10,"มีเบอร์โทรศัพท์"); else put(0,"ยังไม่มีเบอร์โทรศัพท์",{miss:true,hint:"+10 ถ้ามี"});
-  // Location Opportunity
-  if(zoneOpp==="High") put(30,"โซนโอกาสสูง");
-  else if(zoneOpp==="Medium") put(15,"โซนโอกาสปานกลาง");
-  else put(0,"โซนโอกาสต่ำ",{miss:true,hint:"ปานกลาง +15 · สูง +30"});
-  s=Math.min(100,s);
-  return { score:s, grade:gradeOf(s), catMatch:cm, breakdown:bd };
 }
 
 // ═══ ทีม TC + มอบหมายตามพิกัด (จุดยึดภูมิภาคเดียวกับ gen.mjs) ═══
@@ -198,7 +351,7 @@ export function assignTC(lat,lng){
   return best.tc;
 }
 
-// ═══ พิกัด → จังหวัด/โซน (ใช้ validate ขอบเขต + คิด Location Opportunity ในฟอร์ม) ═══
+// ═══ พิกัด → จังหวัด/โซน (ใช้ validate ขอบเขต + บอกระดับ Lead ของโซนในฟอร์ม) ═══
 // กรอบพิกัดต่อจังหวัด — คำนวณจากพิกัดอำเภอใน DISTRICT_META + เผื่อขอบ (pad)
 const PAD = 0.35;
 export const PROVINCE_BBOX = Object.fromEntries(Object.entries(DISTRICT_META).map(([prov,list])=>{
@@ -213,11 +366,11 @@ export function provinceOf(lat,lng){
   }
   return null;
 }
-// คืน {out} ถ้านอกพื้นที่ · มิฉะนั้น {province, district, gap:'High'|'Medium'|'Low'} จากอำเภอที่ใกล้พิกัดสุด
+// คืน {out} ถ้านอกพื้นที่ · มิฉะนั้น {province, district, gap} = ระดับ Lead ของอำเภอที่ใกล้พิกัดสุด
 export function zoneOf(lat,lng, districts=[]){
   const prov=provinceOf(lat,lng); if(!prov) return {out:true};
   let best=null, bd=Infinity;
   for(const [en,,,dlat,dlng] of (DISTRICT_META[prov]||[])){ const d=(lat-dlat)**2+(lng-dlng)**2; if(d<bd){bd=d;best=en;} }
   const rec=(districts||[]).find(x=>x.province===prov&&x.district===best);
-  return { out:false, province:prov, district:best, gap: rec?rec.marketGap:"Low" };
+  return { out:false, province:prov, district:best, gap: rec?rec.gapLevel:"Low" };
 }

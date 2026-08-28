@@ -1,12 +1,18 @@
 import {html, useState, useApp, Icon, roleTH} from "../lib.js";
 import {Card, Btn, Toggle, Field, Badge} from "../ui.js";
 import {toast} from "../ui.js";
+import {userSettableEvents, roleEvents, getUserOff, setUserOff} from "../notifications.js";
 
 export function Profile(){
   const {user, logout, profileTab} = useApp();
   const [tab, setTab] = useState(profileTab || "info");
-  const [notif, setNotif] = useState({newProspect:true, weeklyReport:true, syncAlerts:true, coverageDrop:false, marketing:false});
-  const N = (k)=>setNotif(x=>({...x,[k]:!x[k]}));
+  // รายการเหตุการณ์มาจาก notifications.js — แสดงเฉพาะที่ผู้ดูแลระบบเปิดไว้
+  // ผู้ใช้ "ปิด" ของตัวเองได้ แต่เปิดเกินที่ระบบอนุญาตไม่ได้ (ไม่มีรายการนั้นให้เห็นตั้งแต่แรก)
+  const [off, setOff] = useState(getUserOff);
+  // เฉพาะเหตุการณ์ที่ "บทบาทนี้มีสิทธิ์ได้รับ" และ "ระบบเปิดไว้" — ผู้บริหารจึงไม่เห็นสวิตช์ของงานแอดมิน
+  const roleAll  = roleEvents(user.role);
+  const myEvents = userSettableEvents(user.role);
+  const N = k => setOff(m=>{ const next={...m, [k]: !m[k]}; setUserOff(next); return next; });
 
   return html`<div class="page fade-in">
     <div class="page-head"><div><div class="eyebrow">บัญชี</div><h1>โปรไฟล์และการตั้งค่า</h1>
@@ -23,7 +29,8 @@ export function Profile(){
         <div class="hr"></div>
         ${[["info","ข้อมูลส่วนตัว","user"],["password","เปลี่ยนรหัสผ่าน","key"],["notif","ตั้งค่าการแจ้งเตือน","bell"]].map(([id,label,icon])=>
           html`<div key=${id} class="row" onClick=${()=>setTab(id)} style=${{gap:"11px",padding:"11px 10px",borderRadius:"9px",cursor:"pointer",
-            background:tab===id?"rgba(230, 0, 35,.12)":"transparent",color:tab===id?"#fff":"var(--muted)"}}>
+            background:tab===id?"rgba(230, 0, 35,.10)":"transparent",
+            color:tab===id?"var(--accent-deep)":"var(--muted)",fontWeight:tab===id?700:500}}>
             <${Icon} name=${icon} size=${17}/><span style=${{fontSize:"13px",fontWeight:600}}>${label}</span></div>`)}
         <div class="hr"></div>
         <${Btn} variant="danger" icon="logout" onClick=${logout}>ออกจากระบบ</${Btn}>
@@ -37,7 +44,6 @@ export function Profile(){
             <${Field} label="แผนก"><input class="input" defaultValue="ข่าวกรองเชิงพาณิชย์"/></${Field}>
             <${Field} label="ตำแหน่ง"><input class="input" defaultValue=${user.role==="Administrator"?"ผู้ดูแลระบบอาวุโส":roleTH(user.role)}/></${Field}>
             <${Field} label="เบอร์โทรศัพท์"><input class="input" defaultValue="+66 2 000 0000"/></${Field}>
-            <${Field} label="เข้าสู่ระบบล่าสุด"><input class="input mono" defaultValue="2026-07-13 09:12" readonly/></${Field}>
           </div>
           <div class="row" style=${{gap:"10px",marginTop:"8px"}}>
             <${Btn} variant="primary" icon="edit" onClick=${()=>toast("บันทึกโปรไฟล์แล้ว","good")}>แก้ไขโปรไฟล์</${Btn}>
@@ -55,11 +61,15 @@ export function Profile(){
           </div>
         </${Card}>`}
 
-        ${tab==="notif" && html`<${Card} title="ตั้งค่าการแจ้งเตือน">
-          ${[["newProspect","พบLeadศักยภาพสูงรายใหม่"],["weeklyReport","สรุปข่าวกรองประจำสัปดาห์"],
-             ["syncAlerts","แจ้งเตือนการซิงค์ข้อมูล"],["coverageDrop","เตือนเมื่อความครอบคลุมลดลง"],["marketing","ข่าวสารผลิตภัณฑ์และการตลาด"]].map(([k,label])=>
-            html`<div key=${k} class="row between" style=${{padding:"13px 0",borderBottom:"1px solid var(--stroke)"}}>
-              <span style=${{fontSize:"13px"}}>${label}</span><${Toggle} on=${notif[k]} onChange=${()=>N(k)}/></div>`)}
+        ${tab==="notif" && html`<${Card} title="ตั้งค่าการแจ้งเตือน"
+          sub="เลือกได้เฉพาะเหตุการณ์ที่ผู้ดูแลระบบเปิดไว้ · ปิดของตัวเองได้ แต่เปิดเกินที่ระบบอนุญาตไม่ได้">
+          ${myEvents.length ? myEvents.map(e=>
+            html`<div key=${e.key} class="row between" style=${{padding:"13px 0",borderBottom:"1px solid var(--stroke)"}}>
+              <span style=${{fontSize:"13px"}}>${e.label}</span>
+              <${Toggle} on=${!off[e.key]} onChange=${()=>N(e.key)}/></div>`)
+            : html`<div class="emptybox">ผู้ดูแลระบบปิดการแจ้งเตือนไว้ทั้งหมด</div>`}
+          ${myEvents.length < roleAll.length ? html`<div class="dim" style=${{fontSize:"11.5px",marginTop:"10px"}}>
+            อีก ${roleAll.length-myEvents.length} เหตุการณ์ถูกปิดไว้ที่ระดับระบบ จึงไม่แสดงที่นี่</div>` : ""}
           <div style=${{marginTop:"16px"}}><${Btn} variant="primary" icon="check" onClick=${()=>toast("บันทึกการตั้งค่าแล้ว","good")}>บันทึกการตั้งค่า</${Btn}></div>
         </${Card}>`}
       </div>

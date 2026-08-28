@@ -8,7 +8,8 @@ import {AreaPanel, CustomerPanel} from "./panels.js";
 import {Reports} from "./pages/reports.js";
 import {Profile} from "./pages/profile.js";
 import {Users, Config, Audit, Monitoring} from "./pages/admin.js";
-import {DataManagement} from "./pages/data-management.js";
+import {MasterData} from "./pages/master-data.js";
+import {DataManagement, DataImport, DataFiles, DataLeads, TerritoryManager} from "./pages/data-management.js";
 import {VisitPlanReport} from "./pages/visit-plan-report.js";
 import {WelcomeDialog, isOnboarded, markOnboarded} from "./onboarding.js";
 import {ProductTour} from "./tour.js";
@@ -17,31 +18,33 @@ import {VisitPlanner} from "./visit-planner.js";
 import {AddRecordsForm, USER_SOURCE} from "./add-records.js";
 import {OFFICE, officeFor, clusterCustomers, optimizeOrder} from "./visit.js";
 import {pushAudit} from "./audit.js";
-import {deriveVisitStatus} from "./visit-rounds.js";
+import {buildNotifs} from "./notifications.js";   // กระดิ่ง: กรองตามบทบาท + ขอบเขตพื้นที่ + สวิตช์จริง
+import {deriveVisitStatus, planTodayKey} from "./visit-rounds.js";
 
 // Country / Area / Customer are NOT nav items — they are interaction states of the one map.
 const NAV = [
   {group:"การดูแลระบบ", admin:true, items:[
     {id:"monitoring", label:"แดชบอร์ด", icon:"monitor"},
     {id:"users", label:"จัดการผู้ใช้", icon:"users"},
-    {id:"data-management", label:"จัดการข้อมูล", icon:"layers"},
-    {id:"config", label:"ตั้งค่าระบบ", icon:"config"},
+    {id:"data-management", label:"จัดการข้อมูล", icon:"layers", sub:[
+      {id:"data-import", label:"นำเข้าข้อมูล"},
+      {id:"data-files",  label:"จัดการไฟล์นำเข้า"},
+      {id:"data-leads",  label:"จัดการ Lead"},
+    ]},
+    {id:"territory", label:"จัดการขอบเขตพื้นที่การขาย", icon:"map"},
+    {id:"config", label:"ตั้งค่าระบบ", icon:"config", sub:[
+      {id:"master-data", label:"ข้อมูลหลัก"},
+    ]},
     {id:"audit", label:"บันทึกการตรวจสอบ", icon:"audit"},
   ]},
 ];
-const ADMIN = new Set(["users","data-management","config","audit","monitoring"]);
-const MODALS = {reports:Reports, "visit-plans":VisitPlanReport, profile:Profile, users:Users, "data-management":DataManagement, config:Config, audit:Audit, monitoring:Monitoring};
+const ADMIN = new Set(["users","data-management","data-import","data-files","data-leads","territory","config","master-data","audit","monitoring"]);
+const MODALS = {reports:Reports, "visit-plans":VisitPlanReport, profile:Profile, users:Users, "data-management":DataManagement, "data-import":DataImport, "data-files":DataFiles, "data-leads":DataLeads, territory:TerritoryManager, config:Config, "master-data":MasterData, audit:Audit, monitoring:Monitoring};
 // workspace/reports are no longer sidebar items, but other code (report breadcrumb, view state) still
 // looks up these labels via TITLES, so keep them here explicitly.
-const TITLES = {...Object.fromEntries(NAV.flatMap(g=>g.items).map(i=>[i.id,i.label])), workspace:"แผนที่วิเคราะห์", reports:"รายงาน", "visit-plans":"รายงานแผนการเข้าพบ", profile:"โปรไฟล์"};
+const TITLES = {...Object.fromEntries(NAV.flatMap(g=>g.items).flatMap(i=>[[i.id,i.label], ...(i.sub||[]).map(sb=>[sb.id,sb.label])])), workspace:"แผนที่วิเคราะห์", reports:"รายงาน", "visit-plans":"รายงานแผนการเข้าพบ", profile:"โปรไฟล์"};
 const THAILAND_CENTER = [13.2, 101];   // hardcoded fly-in target for the post-login intro (no search/query)
 const INTRO_KEY = "geointel_intro";    // sessionStorage flag — the globe intro plays once per session
-const NOTIFS = [
-  {icon:"target", t:"Leadเกรด A ใหม่ 12 รายในภูเก็ต", time:"3 นาที"},
-  {icon:"refresh", t:"ซิงค์ข้อมูล ERP เสร็จสมบูรณ์", time:"1 ชม."},
-  {icon:"trend", t:"ความครอบคลุมลดลง 4% ในเชียงใหม่", time:"2 ชม."},
-  {icon:"reports", t:"รายงานโอกาสประจำสัปดาห์พร้อมแล้ว", time:"5 ชม."},
-];
 
 function App(){
   // Seed an EMPTY-but-shaped db so the app paints the globe skeleton on frame 1
@@ -61,8 +64,7 @@ function App(){
   // zoomModes:true = เปิดโหมดแสดงผลตามระดับซูม 3 ขั้น (ซูมออก=Heat / กลาง=Cluster / ใกล้=Marker) เฉพาะแผนที่หลัก
   // existing/prospect เริ่มต้นเปิด เพราะเมื่อซูมเข้าถึงชั้น Cluster/Marker ต้องมีหมุดให้เห็น (ไม่งั้นซูมเข้าแล้วว่างเปล่า)
   const [layers,setLayers] = useState({heat:true,cluster:false,existing:true,prospect:true,province:false,zoomModes:true,route:true,
-    grades:{A:true,B:true,C:true},   // ตัวกรองเกรดLead (ค่าเริ่มต้นเปิดทุกเกรด)
-    op:{existing:90,prospect:85,heat:80,province:100}});   // route = เลเยอร์เส้นทางดำเนินการ (เส้นเชื่อมแผนเข้าพบของ TC)
+    op:{existing:90,prospect:40,heat:80,province:100}});   // ลูกค้า 90% (ทึบชัด) · Lead 40% (จาง) — แยกลูกค้า/Lead ด้วยความทึบ · route = เลเยอร์เส้นทาง
   const [selectedProvince,setSelectedProvince] = useState(null);
   const [selectedCustomer,setSelectedCustomer] = useState(null);
   const [collapsed,setCollapsed] = useState(false);
@@ -135,6 +137,15 @@ function App(){
     toast("บันทึกการแก้ไขแล้ว","good");
     setAddForm(null);
   };
+  // ลบระเบียนจากหน้า "จัดการข้อมูล" (ผู้ดูแลระบบ) — ไม่ติดเงื่อนไข "เฉพาะรายการที่เพิ่มเอง" แบบแผงบนแผนที่
+  const adminDeleteRecord = rec => {
+    setDb(prev=>({...prev,
+      customers:(prev.customers||[]).filter(x=>x.id!==rec.id),
+      prospects:(prev.prospects||[]).filter(x=>x.id!==rec.id) }));
+    pushAudit({ user:(user&&user.email)||"system", action:"ลบระเบียน", category:"ลบ",
+      detail:`${rec.businessName} (${rec.accountNo||rec.id})` });
+    toast("ลบรายการแล้ว","good");
+  };
   const deleteRecord = rec => {
     if(rec.source!==USER_SOURCE){ toast("ลบได้เฉพาะรายการที่คุณเพิ่มเอง","warn"); return; }
     setDb(prev=>({...prev,
@@ -161,6 +172,19 @@ function App(){
     toast("บันทึกการติดตามการเข้าพบแล้ว","good");
   };
 
+  // ── TC ยกเลิกการเข้าพบ Lead ──
+  // ถอด Lead ออกจากทุกแผน (รวมแผนที่บันทึกยืนยันแล้ว) เพื่อคืนให้ TC คนอื่นรับต่อได้
+  // แต่ "ประวัติ" ไม่ถูกลบ — บันทึกเป็นรอบสถานะ "ยกเลิก" พร้อมเหตุผล ให้ TC คนถัดไปเห็นว่าทำไมถึงถูกปล่อย
+  const cancelVisit = (rec, reason, note)=>{
+    const round = { round:((rec.visitRounds||[]).length)+1, status:"ยกเลิก", reason, note:note||"",
+      date:planTodayKey(), by:(user&&user.name)||"TC" };
+    addVisitRound(rec, round);
+    setVisitPlans(prev=>prev.map(p=>{
+      const left=(p.customers||[]).filter(x=>x.id!==rec.id);
+      return left.length===(p.customers||[]).length ? p : {...p, customers:left, route:null};
+    }));
+  };
+
   // ── โฟลว์ปิดดีลLead → แอดมินอนุมัติเปลี่ยนเป็นลูกค้า ──
   // TC ส่งสถานะ "ดีลสำเร็จ" (แนบเอกสารได้) → prospect.dealStatus="pending" เข้าคิวรออนุมัติในหน้าจัดการข้อมูล
   const submitDeal = (prospect, doc)=>{
@@ -172,10 +196,13 @@ function App(){
       detail:`${prospect.businessName} · รออนุมัติเปลี่ยนเป็นลูกค้า${doc?" · แนบ "+doc:""}` });
     toast("ส่งดีลให้แอดมินตรวจสอบแล้ว","good");
   };
-  // แอดมินอนุมัติ → ย้าย prospect ไปเป็นลูกค้า (status Existing) → heat map/marker ทั้งระบบเปลี่ยนให้ TC และผู้บริหารเห็น
+  // แอดมินอนุมัติ → ย้าย Lead ไปเป็นสมาชิกเครือข่าย (status Existing) → Lead ของหมวดนั้นลดลง heat/marker ทั้งระบบขยับตาม
   const approveDeal = (prospect)=>{
-    const asCust = {...prospect, status:"Existing", dealStatus:"approved", tradingStatus:"Active",
-      salesValue: prospect.salesValue||0, lastPurchaseDate:new Date().toISOString().slice(0,10), convertedFrom:"prospect" };
+    // ลูกค้าที่เกิดจากการปิดดีลใช้ฟิลด์ชุดเดียวกับข้อมูลลูกค้าจริง (ไม่มียอดขาย/สถานะการค้า)
+    const asCust = {...prospect, status:"Existing", dealStatus:"approved",
+      accountNo: prospect.id, dateJoin: new Date().toISOString().slice(0,10),
+      phone: prospect.phone||null, website: prospect.website||null, facebook: prospect.facebook||null,
+      convertedFrom:"prospect" };
     setDb(prev=>({...prev,
       prospects:(prev.prospects||[]).filter(x=>x.id!==prospect.id),
       customers:[...(prev.customers||[]), asCust] }));
@@ -200,8 +227,6 @@ function App(){
     loadDistricts().then(districts=>setDb(prev=>({...prev, districts}))).catch(()=>{});                          // Stage 3b (district aggregates)
 
     const q=new URLSearchParams(location.search);
-    // "ข้อมูลหลัก" ย้ายไปเป็นแท็บย่อยของ "ตั้งค่าระบบ" แล้ว — เปลี่ยนลิงก์เดิม ?go=master-data → หน้าตั้งค่าระบบ (Config เปิดแท็บข้อมูลหลักเองตาม ?type)
-    if(q.get("go")==="master-data"){ q.set("go","config"); const u=new URL(location.href); u.searchParams.set("go","config"); history.replaceState(null,"",u.pathname+u.search+u.hash); }
     if(q.get("demo")){ let demo=q.get("demo");
       // บทบาท "ผู้ใช้ธุรกิจ (user)" เดิมถูกยกเลิก → เปลี่ยนเส้นทางเป็น TC และแก้ URL ให้ตรง (คงพารามิเตอร์ go/prov เดิม)
       if(demo==="user"){ demo="tc"; const u=new URL(location.href); u.searchParams.set("demo","tc"); history.replaceState(null,"",u.pathname+u.search+u.hash); }
@@ -233,6 +258,11 @@ function App(){
         : {role:"Management", name:"ผู้บริหาร", email:"management@geointel.io", initials:"MG"});
       setView("workspace"); setMode("globe");   // everyone lands on the Geo Intelligence Workspace
       const go=q.get("go");
+      // ผู้บริหาร: ลูกโลกหมุนเข้าหาประเทศไทยเอง แล้วเปิดแผนที่ทั้งประเทศ (ไม่ต้องเลือกจังหวัดก่อน)
+      if(!admin && !go){
+        setFilters(f=>({...f, province:"All"}));
+        selectCountry("Thailand", THAILAND_CENTER);
+      }
       if(go==="country"||go==="area"||go==="customer"){
         const cd=await loadCountry("Thailand"); setDb(prev=>({...prev,...cd}));
         setView("workspace"); setActiveCountry("Thailand"); setMode("map");
@@ -271,35 +301,35 @@ function App(){
     const c = cd.customers && cd.customers[0]; if(c){ setSelectedCustomer(c); setOverlay("customer"); } };
   const TOUR_STEPS = [
     { target:"#globe-canvas", placement:"center", padding:0, before:tourShowGlobe,
-      title:"🌍 ลูกโลกสามมิติ",
+      title:"ลูกโลกสามมิติ",
       body:html`นี่คือพื้นที่หลักของระบบ<br/>ใช้สำหรับวิเคราะห์ข้อมูลเชิงพื้นที่` },
     { target:'[data-tour="country"]', placement:"bottom", before:tourShowGlobe,
-      title:"🌏 เลือกประเทศ",
+      title:"เลือกประเทศ",
       body:html`เลือกประเทศที่ต้องการวิเคราะห์<br/>ลูกโลกจะหมุนไปยังประเทศนั้นโดยอัตโนมัติ<br/>โดยไม่เปลี่ยนหน้า` },
     { target:'[data-tour="search"]', placement:"bottom", before:()=>tourShowMap(),
-      title:"🔍 ค้นหาจังหวัด / ลูกค้า",
+      title:"ค้นหาจังหวัด / ลูกค้า",
       body:html`พิมพ์ชื่อจังหวัด ลูกค้า หรือLead<br/>เพื่อค้นหาและซูมไปยังตำแหน่งนั้นได้ทันที` },
     { target:'[data-tour="segments"]', placement:"bottom", before:()=>tourShowMap(),
-      title:"🔍 กรองตามหมวดธุรกิจ",
+      title:"กรองตามหมวดธุรกิจ",
       body:html`แตะป้ายหมวดธุรกิจเพื่อเปิด/ปิดการแสดงผลบนแผนที่ (โรงแรม/ร้านอาหาร/ค้าปลีก/อื่นๆ)` },
     { target:'[data-tour="layers"]', placement:"left", before:()=>tourShowMap(),
-      title:"🗂 เลเยอร์แผนที่",
+      title:"เลเยอร์แผนที่",
       body:html`ปรับการแสดงผลบนแผนที่ได้ 2 ชั้น
-        <div style=${{margin:"8px 0 0",lineHeight:1.9}}>• Heat map ความหนาแน่น (เปิด/ปิด, ทึบแสง, รัศมี)<br/>• สถานะ marker (ลูกค้าปัจจุบัน/Lead แยกทึบแสงได้)<br/>• กรองเกรดLead A/B/C (ซ้อนอยู่ใต้ "Lead")</div>` },
+        <div style=${{margin:"8px 0 0",lineHeight:1.9}}>• Heat map Lead สูง (อัตโนมัติตามระดับซูม)<br/>• สถานะ marker (ลูกค้าปัจจุบัน/Lead แยกทึบแสงได้)<br/>• ชั้นพื้นที่จังหวัด — สีไล่ระดับตามดัชนีช่องว่าง</div>` },
     { target:".geo-mk", placement:"auto", padding:6,
       before:async ()=>{ const cd=await tourShowMap(null); const c=cd&&cd.customers&&cd.customers[0];
         if(c) setTourFocus({lat:c.latitude,lng:c.longitude,zoom:12,seq:Date.now()}); },
-      title:"📌 หมุดลูกค้า (Marker)",
+      title:"หมุดลูกค้า (Marker)",
       body:html`Marker แสดงตำแหน่งลูกค้า
-        <div style=${{margin:"8px 0 0",lineHeight:1.9}}>🔵 ลูกค้าปัจจุบัน<br/>🔷 Lead</div>
-        <div style=${{marginTop:"8px"}}>💡 ค่าเริ่มต้น marker ปิดอยู่ ต้องเปิดเองที่กล่องเลเยอร์แผนที่</div>
+        <div style=${{margin:"8px 0 0",lineHeight:1.9}}>ลูกค้าปัจจุบัน<br/>Lead</div>
+        <div style=${{marginTop:"8px"}}>ค่าเริ่มต้น marker ปิดอยู่ ต้องเปิดเองที่กล่องเลเยอร์แผนที่</div>
         <div style=${{marginTop:"8px"}}>คลิกเพื่อดูรายละเอียด</div>` },
     { target:'[data-tour="detail"]', placement:"left", before:tourShowDetail,
-      title:"📄 รายละเอียดลูกค้า",
+      title:"รายละเอียดลูกค้า",
       body:html`เมื่อคลิก Marker<br/>ระบบจะแสดงข้อมูลลูกค้า<br/>โดยไม่เปลี่ยนหน้า
         <div style=${{marginTop:"8px"}}>ลูกค้าปัจจุบันแสดงฝั่งซ้าย<br/>Leadแสดงฝั่งขวา</div>` },
     { placement:"center", final:true, finishLabel:"เริ่มใช้งาน", before:()=>setTourPanel(null),
-      title:"🎉 พร้อมเริ่มใช้งาน",
+      title:"พร้อมเริ่มใช้งาน",
       body:html`คุณพร้อมใช้งานระบบแล้ว<br/>เริ่มวิเคราะห์ข้อมูลลูกค้า ค้นหาโอกาสทางธุรกิจ<br/>และวางแผนการเข้าพบลูกค้าได้ทันที` },
   ];
 
@@ -336,8 +366,14 @@ function App(){
       return;
     }
     setUser(u); setView("workspace"); setMode("globe");
-    // The globe loads and STAYS STILL — no auto-fly. The user must pick one of the featured provinces
-    // from the on-globe picker; selectProvinceFromGlobe then flies in and scopes the map to it.
+    // ผู้บริหาร: ลูกโลกหมุนเข้าหาประเทศไทยเองทันทีหลังเข้าระบบ แล้วเปิดแผนที่ทั้งประเทศ
+    // (ไม่ต้องเลือกจังหวัดจากการ์ดก่อน — การ์ดจะไม่ขึ้นเพราะ flyTarget ถูกตั้งแล้ว)
+    // จังหวัดยังกรองได้จากช่อง "ทุกจังหวัด" บนแถบเหนือแผนที่
+    if(u && u.role!=="Administrator"){
+      setFilters(f=>({...f, province:"All"}));
+      selectCountry("Thailand", THAILAND_CENTER);
+    }
+    // ผู้ดูแลระบบยังเข้าหน้าลูกโลกแบบเลือกจังหวัดเองตามเดิม
   };
   // A featured-province card was clicked on the globe: scope every data stage to that province, warm the
   // caches, then fly the globe in. arriveCountry (the globe's onArrive) reveals the map; the province
@@ -361,7 +397,7 @@ function App(){
     setFlyTarget({country,center,seq:Date.now()});
   };
   // Globe finished flying in → reveal the 2D map on the SAME page. Staged, non-blocking:
-  //   • enter the map immediately with province AGGREGATES → a coarse heatmap paints at once
+  //   • enter the map immediately with province AGGREGATES → a coarse high-demand-gap heat paints at once
   //   • province outlines and the individual markers / fine heatmap stream in after
   const arriveCountry = async (country)=>{
     setIntroPlaying(false);                               // the globe intro (if any) is finished — hide the Skip button
@@ -377,8 +413,12 @@ function App(){
   // Back to the globe / province-picker screen. Clearing flyTarget is essential: the Globe unmounts while the
   // map is up, so returning here REMOUNTS it — a stale flyTarget would make its mount effect re-fly to the last
   // province and then fire onArrive, bouncing the user straight back into the map.
+  // กระดิ่ง: เหตุการณ์ที่บทบาทนี้มีสิทธิ์ได้รับ · ข้อความนับจากข้อมูลจริงในขอบเขตของผู้ใช้
+  const notifs = useMemo(()=>buildNotifs(user, db), [user, db.customers, db.prospects]);
+
   const backToGlobe = ()=>{ setView("workspace"); setMode("globe"); setActiveCountry(null); setSelectedProvince(null); setFilters(f=>({...f,province:"All"})); setOverlay(null); setFlyTarget(null); };
-  const pickProvince = p =>{ setSelectedProvince(p); setFilters(f=>({...f,province:p})); setOverlay("area"); };
+  const pickProvince = p =>{ setSelectedProvince(p); setFilters(f=>({...f,province:p}));
+    setOverlay(isTC ? null : "area"); };   // TC ไม่มีแผงวิเคราะห์พื้นที่
   const pickCustomer = c =>{ setSelectedCustomer(c); setOverlay("customer"); };
   // topbar-search province result → just zoom to the province (the province-filter effect flies there); no panel
   const pickProvinceZoom = p =>{ if(tcGuard(p, "พื้นที่ "+provinceTH(p))) return; setSelectedProvince(p); setFilters(f=>({...f,province:p})); setOverlay(null); };
@@ -396,7 +436,11 @@ function App(){
   const openCustomer = async (c)=>{ if(tcGuard(c&&c.province, c&&c.businessName)) return; if(!await withLoading(()=>ensureData("Thailand"))) return;
     setView("workspace"); setActiveCountry("Thailand"); setMode("map"); setSelectedCustomer(c); setOverlay("customer"); };
 
+  // เมนูย่อยที่ผู้ใช้สั่งพับเอง — กดเมนูหลักซ้ำ = สลับกาง/พับ (ค่าเริ่มต้นคือกางเมื่ออยู่ในกลุ่มนั้น)
+  const [subShut, setSubShut] = useState({});
+  const toggleSub = id => setSubShut(m=>({...m, [id]: !m[id]}));
   const navItem = async (id)=>{ setMenu(null);
+    setSubShut(m=> m[id] ? {...m, [id]:false} : m);   // ไปหน้าไหน ให้กางเมนูย่อยของหน้านั้นเสมอ
     if(id==="dashboard") return navItem("workspace");   // 'แดชบอร์ด' landing removed → Business Overview now lives in 'แดชบอร์ดผู้บริหาร (monitoring)'
     if(id==="workspace") return backToGlobe();
     // สองเส้นทางนี้ยังต้องรอข้อมูลจริง เพราะต้องใช้ข้อมูลมาเลือกว่าจะเปิดจังหวัด/ลูกค้ารายไหนเป็นค่าตั้งต้น
@@ -415,6 +459,9 @@ function App(){
       return;
     }
     if(id==="monitoring"){ setOverlay(id); โหลดเบื้องหลัง(); return; }
+    // "จัดการข้อมูล" + เมนูย่อย — ตารางข้อมูลต้องใช้ db.customers/db.prospects จึงโหลดเบื้องหลังไว้
+    if(id==="data-management" || id==="data-import" || id==="data-files" || id==="data-leads"){
+      setOverlay(id); โหลดเบื้องหลัง(); return; }
     setOverlay(id);   // profile / other admin — no customer data needed
   };
   const nav = (target, params={})=>{
@@ -452,7 +499,7 @@ function App(){
   // ปิดหน้ารายงาน(overlay) กลับไปแผนที่วิเคราะห์เต็มจอ — ใช้จากปุ่มในแดชบอร์ด TC (ไม่สร้างแผนที่ซ้ำสองที่)
   const goMap = ()=>{ setView("workspace"); setMode("map"); setOverlay(null); };
   const ctx = {db,user,logout,nav,filters,setFilters,routeParams:{area:selectedProvince},profileTab,visitPlans,office:planOffice,
-    deletePlan,setActivePlanId,approveDeal,rejectDeal,addToPlan,goMap,
+    deletePlan,setActivePlanId,approveDeal,rejectDeal,addToPlan,goMap,updateRecord,adminDeleteRecord,
     selectedProvince,setSelectedProvince,selectedCustomer,setSelectedCustomer,selectedCountry:activeCountry};
 
   if(!user) return html`<${AppCtx.Provider} value=${ctx}><${Login} db=${db} onLogin=${handleLogin}/><${ToastHost}/></${AppCtx.Provider}>`;
@@ -491,8 +538,22 @@ function App(){
       <div class="sb-scroll">
         ${NAV.filter(g=>!g.admin||user.role==="Administrator").map(g=>html`<div key=${g.group}>
           <div class="sb-group">${g.group}</div>
-          ${g.items.filter(it=>!it.admin||user.role==="Administrator").map(it=>html`<div key=${it.id} class=${"nav-item"+(activeNav===it.id?" on":"")} onClick=${()=>navItem(it.id)}>
-            <span class="ic"><${Icon} name=${it.icon} size=${18}/></span><span class="lb">${it.label}</span></div>`)}
+          ${g.items.filter(it=>!it.admin||user.role==="Administrator").map(it=>{
+            // เมนูย่อยจะกางเมื่ออยู่ที่เมนูหลักนั้นหรือหน้าใดหน้าหนึ่งในเมนูย่อยของมัน
+            const subs = it.sub||[];
+            const inGroup = activeNav===it.id || subs.some(sb=>sb.id===activeNav);
+            const openSub = subs.length>0 && inGroup && !subShut[it.id];
+            // กดเมนูหลักขณะที่อยู่หน้านั้นอยู่แล้ว = พับ/กางเมนูย่อย · กดจากที่อื่น = ไปหน้านั้นแล้วกาง
+            const onMain = ()=> (subs.length && activeNav===it.id) ? toggleSub(it.id) : navItem(it.id);
+            return html`<div key=${it.id}>
+              <div class=${"nav-item"+(activeNav===it.id?" on":"")+(openSub?" has-sub":"")} onClick=${onMain}>
+                <span class="ic"><${Icon} name=${it.icon} size=${18}/></span><span class="lb">${it.label}</span></div>
+              ${openSub && subs.length ? html`<div class="nav-sub">
+                ${subs.map(sb=>html`<div key=${sb.id} class=${"nav-subitem"+(activeNav===sb.id?" on":"")}
+                  onClick=${()=>navItem(sb.id)}><span class="lb">${sb.label}</span></div>`)}
+              </div>` : ""}
+            </div>`;
+          })}
         </div>`)}
       </div>
       <div class="sb-foot"><div class="row" style=${{gap:"7px"}}>
@@ -526,14 +587,18 @@ function App(){
               fontFamily:"var(--font)",fontSize:"12.5px",fontWeight:600,cursor:"pointer",backdropFilter:"blur(8px)"}}>
             <${Icon} name="reports" size=${15} color="var(--accent)"/> รายงาน</button>`}
           <div style=${{position:"relative"}}>
-            <button class="icon-btn" onClick=${()=>setMenu(menu==="notif"?null:"notif")}><${Icon} name="bell" size=${18}/><span class="dot"></span></button>
-            ${menu==="notif" && html`<div class="dropdown" style=${{width:"300px"}}>
-              <div class="row between" style=${{padding:"6px 10px 10px"}}><b style=${{fontSize:"13px"}}>การแจ้งเตือน</b><${Badge} tone="bad">${(isBiz?NOTIFS.filter(n=>n.icon!=="refresh"):NOTIFS).length}</${Badge}></div>
-              ${(isBiz?NOTIFS.filter(n=>n.icon!=="refresh"):NOTIFS).map((n,i)=>html`<div key=${i} class="dd-item" style=${{alignItems:"flex-start",cursor:"default"}}>
+            <button class="icon-btn" onClick=${()=>setMenu(menu==="notif"?null:"notif")}><${Icon} name="bell" size=${18}/>
+              ${notifs.length ? html`<span class="dot"></span>` : ""}</button>
+            ${menu==="notif" && (()=>{ const shown = notifs;
+              return html`<div class="dropdown" style=${{width:"300px"}}>
+              <div class="row between" style=${{padding:"6px 10px 10px"}}><b style=${{fontSize:"13px"}}>การแจ้งเตือน</b>
+                ${shown.length? html`<${Badge} tone="bad">${shown.length}</${Badge}>`:""}</div>
+              ${shown.length ? shown.map((n,i)=>html`<div key=${n.key} class="dd-item" style=${{alignItems:"flex-start",cursor:"default"}}>
                 <${Icon} name=${n.icon} size=${15} color="var(--accent2)"/>
                 <div style=${{flex:1}}><div style=${{fontSize:"12.5px",color:"var(--txt)"}}>${n.t}</div>
-                  <div class="dim" style=${{fontSize:"12px",marginTop:"2px"}}>${n.time}ที่แล้ว</div></div></div>`)}
-            </div>`}
+                  <div class="dim" style=${{fontSize:"12px",marginTop:"2px"}}>${n.time}ที่แล้ว</div></div></div>`)
+                : html`<div class="dim" style=${{padding:"14px 10px",fontSize:"12.5px",textAlign:"center"}}>ไม่มีการแจ้งเตือน</div>`}
+            </div>`; })()}
           </div>
           <div style=${{position:"relative"}}>
             <button class="userbtn" onClick=${()=>setMenu(menu==="user"?null:"user")} title=${user.name}
@@ -588,19 +653,17 @@ function App(){
           ? html`<${Dashboard}/>`
           : html`<${GeoStage} db=${db} mode=${mode} activeCountry=${activeCountry} flyTarget=${flyTarget} globeUnder=${globeUnder}
               lockProvince=${isTC ? user.province : null}
-              leadOnly=${isTC || user.role==="Management"}
               onArriveCountry=${arriveCountry} onSelectCountry=${selectCountry} onSelectProvince=${selectProvinceFromGlobe} onBackToGlobe=${backToGlobe}
               filters=${filters} setFilters=${setFilters} layers=${layers} setLayers=${setLayers}
               onPickProvince=${pickProvince} onPickCustomer=${pickCustomer}
               onOpenReports=${isBiz ? (()=>navItem("reports")) : undefined}
-              onOpenAddForm=${isBiz ? (()=>setAddForm({})) : undefined}
               focusProvince=${overlay==="area"?selectedProvince:null}
               highlightCustomer=${overlay==="customer"?selectedCustomer:null} tourPanel=${tourPanel} tourFocus=${tourFocus}
               visitPlan=${visitPlan} visitRoute=${visitRoute} office=${planOffice} planRoutes=${savedPlanRoutes}
               gsearch=${gsearch} setGsearch=${setGsearch} searchResults=${results}
               onPickProvinceZoom=${pickProvinceZoom} onPickCustomerNav=${p=>nav("customer",{id:p.id})}/>`}
 
-        ${view==="workspace" && overlay==="area" && selectedProvince && html`<${AreaPanel} key=${selectedProvince} db=${db} filters=${filters}
+        ${view==="workspace" && overlay==="area" && selectedProvince && !isTC && html`<${AreaPanel} key=${selectedProvince} db=${db} filters=${filters}
           province=${selectedProvince} onClose=${()=>setOverlay(null)}
           onReport=${user.role==="Administrator" ? (p=>{setSelectedProvince(p);setOverlay("reports");}) : undefined}
           onOpenCustomer=${p=>{setSelectedCustomer(p);setOverlay("customer");}}/>`}
@@ -613,7 +676,7 @@ function App(){
           onSetVisit=${setVisitStatus} onAddRound=${addVisitRound}
           onEditRecord=${r=>setAddForm({edit:r})} onDeleteRecord=${deleteRecord}
           onAddToPlan=${addToPlan} inPlan=${visitPlan.some(x=>x.id===selectedCustomer.id)}
-          user=${user} onSubmitDeal=${submitDeal}
+          user=${user} onSubmitDeal=${submitDeal} onCancelVisit=${cancelVisit}
           dealPlan=${(()=>{ const sp=visitPlans.find(p=>p.saved && (p.customers||[]).some(x=>x.id===selectedCustomer.id)); return sp?{visitDate:sp.visitDate, visitor:(user&&user.name)||"—", planName:sp.name}:null; })()}/>`}
 
         ${isTC && view==="workspace" && mode==="map" && !onGlobe && html`<${VisitPlanner} db=${db} office=${planOffice}
@@ -622,6 +685,8 @@ function App(){
           createPlan=${createPlan} deletePlan=${deletePlan} renamePlan=${renamePlan} onPickCustomers=${focusPickCustomers}
           visitDate=${activePlan?activePlan.visitDate:""} setVisitDate=${setVisitDate}/>`}
 
+        <!-- ไม่ส่ง allowImport → แถบอัปโหลด Excel/CSV ปิดอยู่ในหน้าทำงานของ TC และผู้บริหาร
+             การนำเข้าไฟล์ทำที่ แอดมิน › จัดการข้อมูล › นำเข้าข้อมูล ที่เดียว -->
         ${addForm && html`<${AddRecordsForm} editRecord=${addForm.edit} db=${db} prospectOnly=${isTC || user.role==="Management"}
           onClose=${()=>setAddForm(null)} onSave=${addForm.edit ? updateRecord : addRecords}/>`}
 
@@ -676,7 +741,7 @@ function searchAll(db,q){
   const s=q.toLowerCase();
   const areas = (db.areas||[]).filter(a=>a.province.toLowerCase().includes(s)||provinceTH(a.province).includes(q))
     .slice(0,5).map(a=>({province:a.province, title:provinceTH(a.province),
-      sub:`${num(a.customerCount)} ลูกค้า · โอกาส ${a.opportunityScore}`}));
+      sub:`${num(a.customerCount)} ลูกค้า · Lead ${a.gapScore}`}));
   const people = [...(db.customers||[]), ...(db.prospects||[])]
     .filter(c=>c.businessName.toLowerCase().includes(s) || c.id.toLowerCase().includes(s) || (c.address||"").toLowerCase().includes(s))
     .slice(0,8).map(c=>({id:c.id, title:c.businessName,

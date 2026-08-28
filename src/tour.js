@@ -161,7 +161,7 @@ const CSS = `
   backdrop-filter:blur(14px);animation:tour-in .32s cubic-bezier(.2,.9,.25,1)}
 .tour-x{position:absolute;top:12px;right:12px;width:26px;height:26px;border:none;border-radius:8px;cursor:pointer;
   background:transparent;color:var(--muted);font-size:13px;transition:.15s}
-.tour-x:hover{background:rgba(255,255,255,.06);color:var(--txt)}
+.tour-x:hover{background:rgba(30,45,80,.07);color:var(--txt)}
 .tour-count{font-size:12.5px;font-weight:700;letter-spacing:.6px;color:var(--accent2)}
 .tour-title{font-size:16px;font-weight:700;line-height:1.45;color:var(--txt);margin:8px 0 8px;padding-right:22px}
 .tour-body{font-size:13px;line-height:1.75;color:var(--muted);margin:0 0 16px}
