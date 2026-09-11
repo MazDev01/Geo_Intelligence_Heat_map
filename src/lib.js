@@ -1,9 +1,55 @@
 import React, {useState, useEffect, useRef, useMemo, useCallback, createContext, useContext} from "react";
 import {createRoot} from "react-dom/client";
 import htm from "htm";
-import {SEGMENTS, SEG_COLOR, SEG_ICON, SEG_SVG, SEG_TH, DISTRICT_TH as GEO_DISTRICT_TH} from "./mock/geoData.js";   // 12 เซกเมนต์ + ชื่ออำเภอ จากแหล่งข้อมูลเดียว
+import {SEGMENTS, SEG_COLOR, SEG_ICON, SEG_SVG, SEG_TH, SEG_EN, DISTRICT_TH as GEO_DISTRICT_TH} from "./mock/geoData.js";   // 13 เซกเมนต์ + ชื่ออำเภอ จากแหล่งข้อมูลเดียว
+import {t, tNode, TEXT_PROPS, getLang, isTH, setLang, onLangChange, LANGS} from "./i18n.js";
 export {React, useState, useEffect, useRef, useMemo, useCallback, createContext, useContext, createRoot};
-export const html = htm.bind(React.createElement);
+export {t, getLang, isTH, setLang, LANGS};
+
+/* ── ชั้นแปลภาษา: ห่อ createElement ที่ htm ใช้ ────────────────────────────────
+   ทุกข้อความที่กำลังจะถูกเรนเดอร์ผ่าน html`...` วิ่งผ่านตรงนี้ที่เดียว จึงสลับภาษาได้
+   ทั้งแอปโดยไฟล์หน้าจอไม่ต้องแก้
+   แปลเฉพาะ "ลูก" ของ element และ prop ที่เป็นข้อความให้คนอ่าน (TEXT_PROPS)
+   — ไม่แตะ value/key/id/class และไม่แตะ dangerouslySetInnerHTML (เนื้อ SVG อยู่ในนั้น)
+
+   ⚠ ทำไมต้องผูก htm แยกต่อภาษา: htm จำผลของ subtree ที่ "ไม่มี ${} เลย" ไว้ใช้ซ้ำ
+   (static subtree caching) โดยแคชผูกกับตัวฟังก์ชัน h ที่ bind ไว้ ถ้าใช้ h ตัวเดียว
+   ข้อความคงที่อย่าง <b>ลูกค้าปัจจุบัน</b> จะถูกสร้างครั้งเดียวด้วยภาษาแรกที่เปิด
+   แล้วค้างเป็นภาษานั้นตลอด สลับภาษาก็ไม่เปลี่ยน — แยก h ต่อภาษาทำให้แต่ละภาษามีแคชของตัวเอง */
+function translateProps(props){
+  if(!props) return props;
+  let copy = null;
+  for(const k in props){
+    if(TEXT_PROPS.has(k) && typeof props[k]==="string"){
+      const v = t(props[k]);
+      if(v!==props[k]){ copy = copy || {...props}; copy[k] = v; }
+    }
+  }
+  return copy || props;
+}
+const _binds = new Map();
+function bindFor(lang){
+  let bound = _binds.get(lang);
+  if(!bound){
+    const h = lang==="th"
+      // โหมดไทยไม่มีการแปล — ต้นทางเป็นไทยอยู่แล้ว จึงไม่มีค่าใช้จ่ายเพิ่มเลย
+      ? (type, props, ...children) => React.createElement(type, props, ...children)
+      : (type, props, ...children) => React.createElement(type, translateProps(props),
+          ...(type==="style"||type==="script" ? children : children.map(tNode)));
+    bound = htm.bind(h);
+    _binds.set(lang, bound);
+  }
+  return bound;
+}
+export const html = (...args) => bindFor(getLang())(...args);
+
+/* เรียกที่คอมโพเนนต์ราก — ภาษาเปลี่ยนแล้วเรนเดอร์ใหม่ทั้งต้นไม้
+   (ค่าที่ค้างใน useMemo ไม่เป็นปัญหา เพราะการแปลเกิดตอนเรนเดอร์ ไม่ใช่ตอนคำนวณ) */
+export function useLang(){
+  const [lang, set] = useState(getLang);
+  useEffect(()=>onLangChange(set), []);
+  return lang;
+}
 
 /* ---------------- วันที่/เวลา — ที่เดียวของทั้งระบบ ----------------
    ก่อนหน้านี้มีตัวแปลงวันที่ 9 ตัวกระจายใน 7 ไฟล์ ครึ่งหนึ่งอ่านค่าแบบ UTC อีกครึ่งใช้เวลาเครื่อง
@@ -14,6 +60,11 @@ export const html = htm.bind(React.createElement);
      • สตริงไม่มีโซนเวลา  "2026-07-11" / "2026-07-11 09:12"  → ถือว่าเป็นเวลาไทยอยู่แล้ว อ่านตรง ๆ
      • ISO ที่มีโซนเวลา   "2026-07-11T18:00:00.000Z"          → แปลงเป็นเวลาไทยก่อนค่อยอ่าน       */
 export const TH_MONTHS = ["ม.ค.","ก.พ.","มี.ค.","เม.ย.","พ.ค.","มิ.ย.","ก.ค.","ส.ค.","ก.ย.","ต.ค.","พ.ย.","ธ.ค."];
+export const EN_MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+/* ชื่อเดือน + ปี ตามภาษาที่ผู้ใช้เลือก — โหมดไทยใช้ พ.ศ. · โหมดอังกฤษใช้ ค.ศ.
+   ฐานเวลายังล็อกเป็น Asia/Bangkok เหมือนเดิมทั้งสองภาษา (วันที่ต้องตรงกัน ไม่ว่าอ่านภาษาไหน) */
+const MONTHS = () => isTH() ? TH_MONTHS : EN_MONTHS;
+const yearOf  = y => isTH() ? y+543 : y;
 const _NAIVE = /^(d{4})-(d{2})-(d{2})(?:[ T](d{2}):(d{2}))?$/;   // ไม่มี Z / ไม่มี offset
 const BKK_OFFSET = 7*3600e3;
 /* คืน Date ที่ "อ่านด้วย getUTC* แล้วได้เวลาไทย" — null ถ้าค่าใช้ไม่ได้ */
@@ -28,7 +79,7 @@ function bkk(v){
 }
 const pad2 = n => String(n).padStart(2,"0");
 /* "11 ก.ค. 2569" */
-export const thDate = v => { const d=bkk(v); return d ? d.getUTCDate()+" "+TH_MONTHS[d.getUTCMonth()]+" "+(d.getUTCFullYear()+543) : "—"; };
+export const thDate = v => { const d=bkk(v); return d ? d.getUTCDate()+" "+MONTHS()[d.getUTCMonth()]+" "+yearOf(d.getUTCFullYear()) : "—"; };
 /* "09:12" (24 ชม.) */
 export const thTime = v => { const d=bkk(v); return d ? pad2(d.getUTCHours())+":"+pad2(d.getUTCMinutes()) : "—"; };
 /* "11 ก.ค. 2569 09:12" */
@@ -38,8 +89,8 @@ export const thMonth = (v, short=true) => {
   let y,mo;
   if(typeof v==="string" && /^d{4}-d{2}$/.test(v.trim())){ const [a,b]=v.trim().split("-"); y=+a; mo=+b-1; }
   else { const d=bkk(v); if(!d) return "—"; y=d.getUTCFullYear(); mo=d.getUTCMonth(); }
-  const be = y+543;
-  return TH_MONTHS[mo]+" "+(short ? String(be).slice(-2) : be);
+  const yr = yearOf(y);
+  return MONTHS()[mo]+" "+(short ? String(yr).slice(-2) : yr);
 };
 /* วันนี้ตามเวลาไทย ในรูป "YYYY-MM-DD" — ใช้กับ <input type="date"> และค่าที่เก็บลงข้อมูล */
 export const todayBKK = () => { const d=new Date(Date.now()+BKK_OFFSET);
@@ -60,7 +111,7 @@ export const pct = n => (n==null?"—":Math.round(n)+"%");
 export const cx = (...a)=>a.filter(Boolean).join(" ");
 
 // 12 เซกเมนต์ + สี/ไอคอน/ชื่อไทย — re-export จาก geoData (นำเข้าไว้บนสุดแล้ว)
-export {SEGMENTS, SEG_COLOR, SEG_ICON, SEG_SVG, SEG_TH};
+export {SEGMENTS, SEG_COLOR, SEG_ICON, SEG_SVG, SEG_TH, SEG_EN};
 // customer status colours (the ONLY thing colour encodes)
 export const STATUS_COLOR = {Existing:"#1565C0", Prospect:"#64B5F6"};
 
@@ -94,14 +145,19 @@ export const PROVINCE_TH = {
   "Trang":"ตรัง","Trat":"ตราด","Ubon Ratchathani":"อุบลราชธานี","Udon Thani":"อุดรธานี","Uthai Thani":"อุทัยธานี",
   "Uttaradit":"อุตรดิตถ์","Yala":"ยะลา","Yasothon":"ยโสธร"
 };
-export const provinceTH = p => PROVINCE_TH[p]||p;
+/* ── ชื่อค่าข้อมูล (จังหวัด/อำเภอ/หมวด/บทบาท/ประเทศ) ตามภาษาที่เลือก ──────────
+   คีย์ในไฟล์ข้อมูลเป็นภาษาอังกฤษอยู่แล้ว โหมดอังกฤษจึงคืนคีย์ตรง ๆ ไม่ต้องมีตารางแปลซ้ำ
+   ชื่อฟังก์ชันยังลงท้าย TH เหมือนเดิม เพื่อไม่ให้ต้องไล่แก้จุดเรียกใช้หลายร้อยแห่ง */
+export const provinceTH = p => isTH() ? (PROVINCE_TH[p]||p) : p;
 // ชื่ออำเภอ/เขต ภาษาไทย — ใช้จากแหล่งข้อมูลเดียว (src/mock/geoData.js) ครอบคลุม 4 จังหวัด
 export const DISTRICT_TH = GEO_DISTRICT_TH;
-export const districtTH = d => DISTRICT_TH[d]||d;
-export const segTH = s => SEG_TH[s]||s;
-export const gapTH = g => GAP_TH[g]||g;
-export const roleTH = r => ROLE_TH[r]||r;
-export const countryTH = c => COUNTRY_TH[c]||c;
+export const districtTH = d => isTH() ? (DISTRICT_TH[d]||d) : d;
+export const segTH = s => (isTH() ? SEG_TH[s] : SEG_EN[s]) || s;
+export const gapTH = g => isTH() ? (GAP_TH[g]||g) : g;
+export const roleTH = r => isTH() ? (ROLE_TH[r]||r) : r;
+export const countryTH = c => isTH() ? (COUNTRY_TH[c]||c) : c;
+/* ชื่อหมวดธุรกิจตามภาษาปัจจุบัน — ชื่อที่สื่อความหมายกว่าสำหรับโค้ดที่เขียนใหม่ */
+export const segLabel = segTH;
 
 /* ---------------- icons (24x24 stroke) ---------------- */
 const P = {

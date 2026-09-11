@@ -1,5 +1,5 @@
 import {html, useState, useEffect, useRef, Icon, SegmentIcon, num, pct, SEG_COLOR, SEGMENTS,
-  segTH, gapTH, provinceTH, districtTH, fetchDrivingRoute} from "./lib.js";
+  segTH, gapTH, provinceTH, districtTH, fetchDrivingRoute, t as tr} from "./lib.js";
 import {basemap} from "./basemap.js";
 import {Btn, Badge, Meter, toast} from "./ui.js";
 import {Donut, BarChart, Gauge, rampRed} from "./charts.js";
@@ -448,7 +448,7 @@ function RouteMap({origin, route}){
     const map=L.map(ref.current,{zoomControl:false,attributionControl:true}).setView([origin.latitude,origin.longitude],12);
     basemap(map, "th");
     const pts=[[origin.latitude,origin.longitude],...route.stops.map(s=>[s.latitude,s.longitude])];
-    L.circleMarker(pts[0],{radius:8,color:"#34e0d0",fillColor:"#34e0d0",fillOpacity:.9,weight:2}).addTo(map).bindTooltip("จุดเริ่ม: "+origin.businessName);
+    L.circleMarker(pts[0],{radius:8,color:"#34e0d0",fillColor:"#34e0d0",fillOpacity:.9,weight:2}).addTo(map).bindTooltip(tr("จุดเริ่ม:")+" "+origin.businessName);
     route.stops.forEach((s,i)=>L.marker([s.latitude,s.longitude]).addTo(map).bindTooltip(`${i+1}. ${s.businessName}`));
     let line = L.polyline(pts,{color:"#38bdf8",weight:2.5,dashArray:"6 6"}).addTo(map);
     map.fitBounds(L.latLngBounds(pts).pad(0.25));

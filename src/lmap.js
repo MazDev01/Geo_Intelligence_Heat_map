@@ -1,4 +1,7 @@
-import {html, useRef, useEffect, useApp, segTH, provinceTH, segIconSVG, SEG_COLOR} from "./lib.js";
+// tr = ตัวแปลข้อความ (ตั้งชื่อสั้นแต่ไม่ใช่ "t" เพราะไฟล์นี้ใช้ t เป็นตัวแปรวนลูปของ territory อยู่แล้ว)
+// tooltip/popup ของ Leaflet ถูกประกอบเป็น HTML string แล้วยัดเข้า DOM เอง ไม่ผ่าน html`...`
+// จึงไม่ได้รับการแปลอัตโนมัติเหมือนที่อื่น — ต้องเรียก tr() ตรงจุดที่สร้างข้อความเอง
+import {html, useRef, useEffect, useApp, segTH, provinceTH, segIconSVG, SEG_COLOR, t as tr, gapTH} from "./lib.js";
 import {custPass, prosPass} from "./data.js";
 import {demandGap, GAP_REF, GAP_TH} from "./mock/geoData.js";
 import {basemap, EARTH} from "./basemap.js";   // EARTH มาจาก namedFlavor("light") ไม่ใช่ literal
@@ -331,7 +334,7 @@ export function LeafletMap({db, filters, layers, country="Thailand", onPickArea,
     planRoutes.forEach((pr,gi)=>{ const col=ROUTE_COLORS[gi%ROUTE_COLORS.length];
       if(pr.pts && pr.pts.length>1){
         L.polyline(pr.pts,{color:col,weight:2.5,opacity:.85,dashArray:"6 5",interactive:true})
-          .addTo(grp).bindTooltip("แผน: "+(pr.name||""),{sticky:true,direction:"top",className:"gc-tt"});
+          .addTo(grp).bindTooltip(tr("แผน:")+" "+(pr.name||""),{sticky:true,direction:"top",className:"gc-tt"});
         // จุดสาขา (จุดเริ่มต้น) ของเส้นทางนี้
         L.circleMarker(pr.pts[0],{radius:5,color:"#fff",weight:2,fillColor:"#111",fillOpacity:1,interactive:false}).addTo(grp);
       }
@@ -385,13 +388,13 @@ export function LeafletMap({db, filters, layers, country="Thailand", onPickArea,
     // ขอบเขตของแต่ละ TC — โปร่งแสง สีตาม TC
     territories.hulls.forEach(t=>{ if(!t.latlngs||t.latlngs.length<3) return;
       const poly=L.polygon(t.latlngs, {color:t.color,weight:2,opacity:.95,fillColor:t.color,fillOpacity:.14,dashArray:"6 5"});
-      poly.bindTooltip("เขตรับผิดชอบ: "+t.tc, {sticky:true, direction:"top", className:"gc-tt"});
+      poly.bindTooltip(tr("เขตรับผิดชอบ:")+" "+t.tc, {sticky:true, direction:"top", className:"gc-tt"});
       poly.addTo(grp);
     });
     // พื้นที่ทับซ้อน — ไฮไลต์ต่างออกไป (แดงโปร่ง + ขอบขาวประ) พร้อม tooltip บอกว่า TC คนไหนซ้อนกัน
     (territories.overlaps||[]).forEach(o=>{ if(!o.latlngs||o.latlngs.length<3) return;
       const poly=L.polygon(o.latlngs, {color:"#ffffff",weight:1.5,opacity:.95,fillColor:"#ff2d55",fillOpacity:.42,dashArray:"3 3", className:"terr-overlap"});
-      poly.bindTooltip("พื้นที่ทับซ้อน: "+(o.tcs||[]).join(" ↔ "), {sticky:true, direction:"top", className:"gc-tt"});
+      poly.bindTooltip(tr("พื้นที่ทับซ้อน:")+" "+(o.tcs||[]).join(" ↔ "), {sticky:true, direction:"top", className:"gc-tt"});
       poly.addTo(grp);
     });
     grp.addTo(m.map); m.terrLayer=grp;
@@ -464,8 +467,8 @@ export function LeafletMap({db, filters, layers, country="Thailand", onPickArea,
           if(!showFill) return;   // tooltip + hover highlight only when the choropleth fill is visible
           const a=db.areaByProvince[pname];
           const gTip=provGapTip[pname];
-          lyr.bindTooltip(`<div class="mk-tip"><b>${provinceTH(pname)}</b><br/>ธุรกิจในพื้นที่: ${cntTip[pname]||0}`
-            + (gTip ? `<br/>Lead ${gTip.gapScore} (${GAP_TH[gTip.gapLevel]}) · ยังขาด ${gTip.gapCount} ราย` : (a?`<br/>Lead ${a.gapScore}`:""))
+          lyr.bindTooltip(`<div class="mk-tip"><b>${provinceTH(pname)}</b><br/>${tr("ธุรกิจในพื้นที่: "+(cntTip[pname]||0))}`
+            + (gTip ? `<br/>${tr(`Lead ${gTip.gapScore} (${gapTH(gTip.gapLevel)}) · ยังขาด ${gTip.gapCount} ราย`)}` : (a?`<br/>Lead ${a.gapScore}`:""))
             + `</div>`,{sticky:true});
           lyr.on("mouseover",()=>lyr.setStyle({weight:2.4,color:"#38bdf8"}));
           lyr.on("mouseout",()=>gj.resetStyle(lyr));
@@ -627,7 +630,7 @@ export function LeafletMap({db, filters, layers, country="Thailand", onPickArea,
         m=L.marker([x.latitude,x.longitude],{icon:markerIcon(x,isCust?(op.existing??90):(op.prospect??40),zoom,cov),
           seg:x.segment, status:x.status, prov:x.province, keyboard:false});
       }
-      m.bindTooltip(`<div class="mk-tip"><b>${x.businessName}</b><br/>${x.id} · ${segTH(x.segment)} · ${isCust?"สมาชิกเครือข่ายปัจจุบัน":"Lead"}</div>`,{direction:"top",offset:[0,-16]});
+      m.bindTooltip(`<div class="mk-tip"><b>${x.businessName}</b><br/>${x.id} · ${segTH(x.segment)} · ${isCust?tr("สมาชิกเครือข่ายปัจจุบัน"):"Lead"}</div>`,{direction:"top",offset:[0,-16]});
       m.on("click",()=>onPickCustomer&&onPickCustomer(x));   // detail panel reads THIS marker
       grp.addLayer(m);
     });
@@ -668,7 +671,7 @@ export function LeafletMap({db, filters, layers, country="Thailand", onPickArea,
     kids.forEach(m=>{const s=m.options.seg; if(s)counts[s]=(counts[s]||0)+1;});
     const rows=Object.entries(counts).sort((a,b)=>b[1]-a[1])
       .map(([s,c])=>`<span class="gc-row" style="display:flex;align-items:center;gap:6px">${segIconSVG(s,{size:14})} ${segTH(s)} · <b>${c}</b></span>`).join("");
-    return `<div class="mk-tip gc-tip"><b>รวม ${kids.length} ราย</b>${rows}</div>`;
+    return `<div class="mk-tip gc-tip"><b>${tr("รวม "+kids.length+" ราย")}</b>${rows}</div>`;
   }
 
   // โหมดมืด: ใส่คลาส map-dark → CSS filter ทำงานเฉพาะ .leaflet-tile-pane (แผ่นไทล์ OSM) เท่านั้น

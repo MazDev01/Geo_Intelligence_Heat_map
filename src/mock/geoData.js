@@ -5,28 +5,43 @@
 // หมายเหตุ "พัทยา": เป็นเมืองชายทะเลภาคตะวันออก — ในระบบใช้ key "Pattaya" โดยอิงขอบเขต/พิกัดของพื้นที่เดิม
 // ═══════════════════════════════════════════════════════════════════════════
 
-// ── 12 หมวดธุรกิจ (Parent Segment) — ชุดเดียวกับไฟล์ข้อมูลจริงของ Barter ──
+// ── 13 หมวดธุรกิจ (Parent Segment) — ชุดเดียวกับไฟล์ข้อมูลจริงของ Barter ──
 // ทั้งระบบใช้ชุดนี้: ลูกค้าจริงมากับหมวดนี้อยู่แล้ว · Lead จำลองถูกสร้างด้วยหมวดชุดเดียวกัน
 // เพื่อให้โมเดล Lead (อุปสงค์จาก Lead − อุปทานจากลูกค้า) เทียบกันได้ต่อหมวด
-export const SEGMENTS = ["Manufacturing","HomeLiving","FoodBeverage","HealthBeauty","Retail","ProfessionalServices",
-  "AutoTransport","Hospitality","Technology","PetAnimal","ArtsCulture","RealEstate"];
+// ⚠ ลำดับใน SEGMENTS = ลำดับที่ผู้ใช้เห็นใน dropdown/ตาราง/กราฟ (ไม่เรียงใหม่ที่ปลายทาง)
+//   "RestaurantCafe" แยกออกมาจาก FoodBeverage — ร้านอาหาร/คาเฟ่/เบเกอรี่ที่ขายหน้าร้าน
+//   ส่วน FoodBeverage ที่เหลือคือผู้ผลิต/ค้าส่ง/เทรดดิ้งอาหารและเครื่องดื่ม (กติกาแยกอยู่ใน gen.mjs)
+export const SEGMENTS = ["Retail","FoodBeverage","HomeLiving","AutoTransport","Manufacturing","HealthBeauty",
+  "RealEstate","ProfessionalServices","PetAnimal","Hospitality","Technology","ArtsCulture","RestaurantCafe"];
+// ชื่อหมวดสองภาษา — แหล่งเดียวของทั้งระบบ · segLabel() ใน lib.js เลือกตามภาษาที่ผู้ใช้ตั้งไว้
 export const SEG_TH = {
-  Manufacturing:"ผลิตและวัสดุอุตสาหกรรม", HomeLiving:"บ้าน อาคาร และของใช้ในบ้าน",
-  FoodBeverage:"อาหารและเครื่องดื่ม", HealthBeauty:"สุขภาพ ความงาม และเวลเนส",
-  Retail:"ค้าปลีกและสินค้าอุปโภคบริโภค", ProfessionalServices:"บริการวิชาชีพและการตลาด",
-  AutoTransport:"ยานยนต์และขนส่ง", Hospitality:"ที่พักและสันทนาการ",
-  Technology:"เทคโนโลยีและการสื่อสาร", PetAnimal:"สัตว์เลี้ยงและสัตว์",
-  ArtsCulture:"ศิลปะ วัฒนธรรม และบริการเฉพาะทาง", RealEstate:"อสังหาริมทรัพย์",
+  Retail:"ค้าปลีกและสินค้าอุปโภคบริโภค", FoodBeverage:"อาหารและเครื่องดื่ม",
+  HomeLiving:"บ้าน อาคาร และของใช้ในบ้าน", AutoTransport:"ยานยนต์และขนส่ง",
+  Manufacturing:"ผลิตและวัสดุอุตสาหกรรม", HealthBeauty:"สุขภาพ ความงาม และเวลเนส",
+  RealEstate:"ที่ดินและอสังหาริมทรัพย์", ProfessionalServices:"บริการวิชาชีพและการตลาด",
+  PetAnimal:"สัตว์เลี้ยงและสัตว์", Hospitality:"ที่พักและสันทนาการ",
+  Technology:"เทคโนโลยีและการสื่อสาร", ArtsCulture:"ศิลปะ วัฒนธรรม และบริการเฉพาะทาง",
+  RestaurantCafe:"ร้านอาหารและคาเฟ่",
   Other:"ไม่ระบุหมวด" };
+export const SEG_EN = {
+  Retail:"Retail & Consumer Goods", FoodBeverage:"Food & Beverage",
+  HomeLiving:"Home, Building & Living", AutoTransport:"Automotive & Transport",
+  Manufacturing:"Manufacturing & Industrial Supplies", HealthBeauty:"Health, Beauty & Wellness",
+  RealEstate:"Property & Real Estate", ProfessionalServices:"Professional & Marketing Services",
+  PetAnimal:"Pet & Animal", Hospitality:"Hospitality & Leisure",
+  Technology:"Technology & Communications", ArtsCulture:"Arts, Culture & Specialty Services",
+  RestaurantCafe:"Restaurant and Cafe",
+  Other:"Uncategorised" };
 export const SEG_COLOR = {
   Manufacturing:"#33d69f", HomeLiving:"#c98500", FoodBeverage:"#ff5a3c", HealthBeauty:"#e87ba4",
   Retail:"#ffb02e", ProfessionalServices:"#8a7bff", AutoTransport:"#3987e5", Hospitality:"#34e0d0",
   Technology:"#26c6da", PetAnimal:"#9ccc65", ArtsCulture:"#6d7cff", RealEstate:"#b07be8",
+  RestaurantCafe:"#8a5a44",
   Other:"#8aa0be" };
 export const SEG_ICON = {
   Manufacturing:"🏭", HomeLiving:"🛋️", FoodBeverage:"🍽️", HealthBeauty:"💄", Retail:"🛒",
   ProfessionalServices:"💼", AutoTransport:"🚗", Hospitality:"🏨", Technology:"💻",
-  PetAnimal:"🐾", ArtsCulture:"🎨", RealEstate:"🏢", Other:"❓" };
+  PetAnimal:"🐾", ArtsCulture:"🎨", RealEstate:"🏢", RestaurantCafe:"☕", Other:"❓" };
 // ไอคอนเส้น (outline) หมวดธุรกิจ — เนื้อใน SVG viewBox 24×24 จาก lucide (ISC/MIT) แทนอิโมจิ stock
 // stroke=currentColor 2px กำหนดที่ตัวห่อ <svg> — ปรับสี/ขนาดจากภายนอกได้ ดู SegmentIcon/segIconSVG ใน lib.js
 // คีย์ "Other" ไม่อยู่ใน SEGMENTS — เป็นตัวสำรองเมื่อเจอค่าหมวดที่ไม่รู้จัก (segKey ใน lib.js)
@@ -43,6 +58,7 @@ export const SEG_SVG = {
   PetAnimal:'<circle cx="11" cy="4" r="2"/><circle cx="18" cy="8" r="2"/><circle cx="20" cy="16" r="2"/><path d="M9 10a5 5 0 0 1 5 5v3.5a3.5 3.5 0 0 1-6.84 1.045Q6.52 17.48 4.46 16.84A3.5 3.5 0 0 1 5.5 10Z"/>',
   ArtsCulture:'<path d="M12 22a1 1 0 0 1 0-20 10 9 0 0 1 10 9 5 5 0 0 1-5 5h-2.25a1.75 1.75 0 0 0-1.4 2.8l.3.4a1.75 1.75 0 0 1-1.4 2.8z"/><circle cx="13.5" cy="6.5" r=".5"/><circle cx="17.5" cy="10.5" r=".5"/><circle cx="6.5" cy="12.5" r=".5"/><circle cx="8.5" cy="7.5" r=".5"/>',
   RealEstate:'<path d="M6 22V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v18Z"/><path d="M6 12H4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h2"/><path d="M18 9h2a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-2"/><path d="M10 6h4"/><path d="M10 10h4"/><path d="M10 14h4"/><path d="M10 18h4"/>',
+  RestaurantCafe:'<path d="M10 2v2"/><path d="M14 2v2"/><path d="M16 8a1 1 0 0 1 1 1v8a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4V9a1 1 0 0 1 1-1h14a4 4 0 1 1 0 8h-1"/><path d="M6 2v2"/>',
   Other:'<path d="M8.3 10a.7.7 0 0 1-.626-1.079L11.4 3a.7.7 0 0 1 1.198-.043L16.3 8.9a.7.7 0 0 1-.572 1.1Z"/><rect x="3" y="14" width="7" height="7" rx="1"/><circle cx="17.5" cy="17.5" r="3.5"/>' };
 export const OTHER_COLOR = "#8aa0be";
 // helper ปลอดจำนวนเซกเมนต์ (แทนการ hardcode {Hotel:...,Restaurant:...} 4 หมวดเดิม)

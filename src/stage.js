@@ -4,10 +4,11 @@ import {Dropdown} from "./select.js";
 import {Globe} from "./globe.js";
 import {LeafletMap} from "./lmap.js";
 import {filterData} from "./data.js";
-import {CategoryChips} from "./category-chips.js";
+import {CategoryDropdown} from "./category-dropdown.js";
 
 // Post-login globe picker: a FIXED shortlist of four featured provinces.
 // "Pattaya" ใช้ key นี้ทั้งระบบ โดยอิงขอบเขต/พิกัดของพื้นที่ชายฝั่งตะวันออกเดิม
+// label = ชื่อไทยไว้อ่านในโค้ดเท่านั้น — ชื่อที่แสดงบนการ์ดมาจาก provinceTH() จึงสลับภาษาตามผู้ใช้
 const FEATURED_PROVINCES = [
   {province:"Bangkok Metropolis", label:"กรุงเทพมหานคร"},
   {province:"Chiang Mai",         label:"เชียงใหม่"},
@@ -110,7 +111,7 @@ export function GeoStage({db, mode, activeCountry, flyTarget, globeUnder, onArri
     onClick=${()=>clickCard(f)}>
     <div class="pick-head-row">
       <${Icon} name="pin" size=${15} color="#ff3b5c"/>
-      <span class="pick-name">${f.label}</span>
+      <span class="pick-name">${provinceTH(f.province)}</span>
     </div>
     ${f.area ? html`<div class="pick-body">
       <div class="pick-metric"><span class="pick-num">${num(f.area.customerCount)}</span><span class="pick-lab">ลูกค้า</span></div>
@@ -174,9 +175,9 @@ export function GeoStage({db, mode, activeCountry, flyTarget, globeUnder, onArri
         </div>`}
       </div>
 
-      <!-- ตัวกรองหมวดหมู่ธุรกิจ 12 หมวด — แถวเดียว เลื่อนแนวนอนได้ (data-tour="segments") -->
-      <div data-tour="segments" style=${{flex:"1",minWidth:0,display:"flex"}}>
-        <${CategoryChips} active=${filters.segments} onToggle=${setSeg}
+      <!-- ตัวกรองหมวดธุรกิจ 13 หมวด — dropdown เลือกได้หลายหมวด (data-tour="segments") -->
+      <div data-tour="segments" style=${{flex:"0 1 auto",minWidth:0,display:"flex"}}>
+        <${CategoryDropdown} active=${filters.segments} onToggle=${setSeg}
           onSetAll=${v=>setFilters(f=>({...f, segments:Object.fromEntries(SEGMENTS.map(s=>[s,v]))}))}/>
       </div>
 
@@ -221,19 +222,22 @@ export function GeoStage({db, mode, activeCountry, flyTarget, globeUnder, onArri
         <!-- แสดง/ซ่อน marker ตามสถานะลูกค้า (ทำงานร่วมกับโหมด Cluster/Marker) แต่ละอันปรับความทึบได้ -->
         <div>
           <div class="dim" style=${{fontSize:"11.5px",marginBottom:"6px"}}>สถานะ marker</div>
-          ${[{k:"existing",name:"ลูกค้า (หมุดทึบ)",c:"#475569",swOp:1,opDef:90},
-             {k:"prospect",name:"Lead (หมุดจาง)",c:"#475569",swOp:.4,opDef:40}].map(r=>html`<div key=${r.k} style=${{paddingTop:"6px"}}>
+          ${[{k:"existing",name:"ลูกค้าปัจจุบัน",c:"#475569",swOp:1,opDef:90},
+             {k:"prospect",name:"Lead ในพื้นที่",c:"#475569",swOp:.4,opDef:40}].map(r=>html`<div key=${r.k} style=${{paddingTop:"6px"}}>
             <div class="row between">
               <div class="row" style=${{gap:"9px",opacity:layers[r.k]!==false?1:.45,transition:"opacity .15s"}}>
                 <span class="dotc" style=${{background:r.c,opacity:r.swOp,width:"11px",height:"11px",borderRadius:"3px"}}></span>
                 <span style=${{fontSize:"12px",fontWeight:layers[r.k]!==false?600:400}}>${r.name}</span></div>
               <${Toggle} on=${layers[r.k]!==false} onChange=${()=>setLayers(x=>({...x,[r.k]:x[r.k]===false}))}/>
             </div>
-            <div class="row" style=${{gap:"8px",marginTop:"6px",opacity:layers[r.k]!==false?1:.45,transition:"opacity .15s"}}>
-              <span class="dim" style=${{fontSize:"11.5px",width:"42px",flex:"none"}}>ทึบแสง</span>
+            <!-- ป้าย "ความเข้มของหมุด" ยาวกว่าเดิมมาก จึงย้ายขึ้นบรรทัดบนคู่กับค่า %
+                 แล้วให้ slider กินเต็มความกว้างแผง — ถ้าวางแถวเดียวกันแบบเดิม slider จะเหลือที่ไม่พอ -->
+            <div style=${{marginTop:"6px",opacity:layers[r.k]!==false?1:.45,transition:"opacity .15s"}}>
+              <div class="row between" style=${{marginBottom:"2px"}}>
+                <span class="dim" style=${{fontSize:"11px"}}>ความเข้มของหมุด</span>
+                <span class="mono" style=${{fontSize:"11px"}}>${(layers.op&&layers.op[r.k])??r.opDef}%</span></div>
               <input type="range" min="10" max="100" value=${(layers.op&&layers.op[r.k])??r.opDef}
-                onInput=${e=>setLayers(x=>({...x,op:{...x.op,[r.k]:+e.target.value}}))} style=${{flex:1}}/>
-              <span class="mono" style=${{fontSize:"11.5px",width:"30px",textAlign:"right",flex:"none"}}>${(layers.op&&layers.op[r.k])??r.opDef}%</span></div>
+                onInput=${e=>setLayers(x=>({...x,op:{...x.op,[r.k]:+e.target.value}}))} style=${{width:"100%",display:"block"}}/></div>
           </div>`)}
         </div>
 

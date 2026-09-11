@@ -2,7 +2,7 @@
 import {topGapLeads} from "./data.js";
 import {demandGap, GAP_REF} from "./mock/geoData.js";
 // เพราะแผงนี้ไม่ใช้บริการคำนวณเส้นทาง และไม่แสดงตัวเลขระยะทาง/เวลาเดินทางแล้ว
-import {html, useState, useEffect, useRef, Icon, segTH, provinceTH, districtTH} from "./lib.js";
+import {html, useState, useEffect, useRef, Icon, segTH, provinceTH, districtTH, t as tr} from "./lib.js";
 import {basemap} from "./basemap.js";
 import {clusterCustomers, clusterRoute, computeRoute, optimizeOrder, haversine} from "./visit.js";
 import {PLAN_TODAY, deriveStatus, overdueAppt, beDate} from "./visit-rounds.js";
@@ -220,7 +220,7 @@ function PlanMiniMap({office, clusters, routes}){
     const map = L.map(ref.current,{zoomControl:false,attributionControl:true});
     basemap(map, "th");
     const all=[[office.latitude,office.longitude]];
-    L.circleMarker([office.latitude,office.longitude],{radius:6,color:"#fff",weight:2,fillColor:"#111",fillOpacity:1}).addTo(map).bindTooltip("จุดเริ่มต้น · "+(office.businessName||""));
+    L.circleMarker([office.latitude,office.longitude],{radius:6,color:"#fff",weight:2,fillColor:"#111",fillOpacity:1}).addTo(map).bindTooltip(tr("จุดเริ่มต้น ·")+" "+(office.businessName||""));
     let alive=true;
     routes.forEach((r,gi)=>{ const col=CLUSTER_COLORS[gi%CLUSTER_COLORS.length];
       const pts=r.order.map(c=>[c.latitude,c.longitude]); pts.forEach(p=>all.push(p));

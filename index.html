@@ -427,7 +427,16 @@ input[type=range]{width:100%;accent-color:var(--accent2)}
 .lg-side .lg-cap p{color:var(--muted);font-size:14px;max-width:420px;line-height:1.6}
 .lg-side .lg-tags{display:flex;gap:10px;margin-top:18px;flex-wrap:wrap}
 .lg-tags .t{font-size:12.5px;color:var(--muted);border:1px solid var(--stroke2);border-radius:20px;padding:5px 12px}
-.lg-form{display:grid;place-items:center;padding:30px}
+.lg-form{position:relative;display:grid;place-items:center;padding:30px}
+/* ปุ่มสลับภาษาบนหน้าเข้าสู่ระบบ — มุมขวาบนของคอลัมน์ฟอร์ม ไม่แย่งสายตากับฟอร์ม */
+.lg-lang{position:absolute;top:22px;right:26px;display:inline-flex;gap:2px;padding:3px;border-radius:999px;
+  border:1px solid var(--stroke2);background:var(--surface)}
+.lg-lang-b{border:none;background:none;border-radius:999px;padding:5px 13px;cursor:pointer;
+  font-family:var(--font);font-size:12px;font-weight:600;color:var(--muted)}
+.lg-lang-b:hover{color:var(--txt)}
+.lg-lang-b.on{background:var(--accent);color:#fff}
+.lg-lang-b:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+@media(max-width:900px){.lg-lang{top:14px;right:14px}}
 .lg-card{width:min(380px,100%)}
 .lg-card .mk{width:52px;height:52px;border-radius:15px;display:grid;place-items:center;margin-bottom:16px;
   background:conic-gradient(from 210deg,#e60023,#ff3b5c,#ff8a9c,#e60023);box-shadow:0 0 30px rgba(255,122,168,.4)}

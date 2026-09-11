@@ -1,4 +1,4 @@
-import {React, html, useState, useEffect, useMemo, createRoot, AppCtx, Icon, brandMark, num, roleTH, countryTH, provinceTH} from "./lib.js";
+import {React, html, useState, useEffect, useMemo, createRoot, AppCtx, Icon, brandMark, num, roleTH, countryTH, provinceTH, useLang, getLang, setLang, LANGS} from "./lib.js";
 import {loadCountries, loadWorld, loadAreas, loadProvincesGeo, loadDetail, loadCountry, loadDistricts, defaultFilters} from "./data.js";
 import {LoadingScreen, ToastHost, Badge, Btn, toast} from "./ui.js";
 import {Login} from "./pages/login.js";
@@ -70,6 +70,9 @@ function App(){
   const [collapsed,setCollapsed] = useState(false);
   const [menu,setMenu] = useState(null);
   const [roleSub,setRoleSub] = useState(false);   // เมนูย่อย "สลับบทบาท (เดโม)" เปิด/ปิด
+  const [langSub,setLangSub] = useState(false);   // เมนูย่อย "ภาษา" เปิด/ปิด
+  // ภาษาปัจจุบัน — เรียกที่รากเพื่อให้ทั้งต้นไม้เรนเดอร์ใหม่ทันทีที่สลับภาษา (ดู useLang ใน lib.js)
+  const lang = useLang();
   const [gsearch,setGsearch] = useState("");
   const [loadingData,setLoadingData] = useState(false);
   const [profileTab,setProfileTab] = useState("info");   // which Profile tab "View Profile / Change Password / Notifications" opens
@@ -315,7 +318,7 @@ function App(){
     { target:'[data-tour="layers"]', placement:"left", before:()=>tourShowMap(),
       title:"เลเยอร์แผนที่",
       body:html`ปรับการแสดงผลบนแผนที่ได้ 2 ชั้น
-        <div style=${{margin:"8px 0 0",lineHeight:1.9}}>• Heat map Lead สูง (อัตโนมัติตามระดับซูม)<br/>• สถานะ marker (ลูกค้าปัจจุบัน/Lead แยกทึบแสงได้)<br/>• ชั้นพื้นที่จังหวัด — สีไล่ระดับตามดัชนีช่องว่าง</div>` },
+        <div style=${{margin:"8px 0 0",lineHeight:1.9}}>• Heat map Lead สูง (อัตโนมัติตามระดับซูม)<br/>• สถานะ marker (ลูกค้าปัจจุบัน/Lead ในพื้นที่ ปรับความเข้มของหมุดได้)<br/>• ชั้นพื้นที่จังหวัด — สีไล่ระดับตามดัชนีช่องว่าง</div>` },
     { target:".geo-mk", placement:"auto", padding:6,
       before:async ()=>{ const cd=await tourShowMap(null); const c=cd&&cd.customers&&cd.customers[0];
         if(c) setTourFocus({lat:c.latitude,lng:c.longitude,zoom:12,seq:Date.now()}); },
@@ -635,6 +638,21 @@ function App(){
                         ${roleDemo===d?html`<span style=${{marginLeft:"auto",color:"var(--accent2)",fontSize:"12px",fontWeight:700}}>ปัจจุบัน</span>`:""}</div>`)}
                   </div>`}
                 </div>`}
+                <!-- ภาษาของหน้าจอ — เก็บเป็น preference ส่วนตัวใน localStorage (ออกจากระบบแล้วยังจำไว้)
+                     สลับแล้วทั้งแอปเปลี่ยนทันทีโดยไม่ต้องโหลดหน้าใหม่ จึงไม่หลุดจากระบบและไม่เสียมุมมองแผนที่ -->
+                <div>
+                  <div class="dd-item" role="menuitem" tabindex="0" aria-haspopup="true" aria-expanded=${langSub} onClick=${()=>setLangSub(s=>!s)}>
+                    <${Icon} name="globe" size=${16}/>ภาษา
+                    <span style=${{marginLeft:"auto",display:"inline-flex",alignItems:"center",gap:"7px"}}>
+                      <span style=${{fontSize:"11px",fontWeight:700,color:"var(--accent2)"}}>${(LANGS.find(l=>l.code===lang)||LANGS[0]).label}</span>
+                      <${Icon} name="chevron" size=${13} style=${{transform:langSub?"rotate(180deg)":"none",transition:".2s"}}/></span></div>
+                  ${langSub && html`<div style=${{paddingLeft:"12px"}}>
+                    ${LANGS.map(l=>html`
+                      <div key=${l.code} class="dd-item" role="menuitem" tabindex="0" onClick=${()=>setLang(l.code)}>
+                        <span style=${{width:"15px",textAlign:"center",fontSize:"11px",fontWeight:700}}>${l.code.toUpperCase()}</span>${l.label}
+                        ${lang===l.code?html`<span style=${{marginLeft:"auto",color:"var(--accent2)",fontSize:"12px",fontWeight:700}}>ปัจจุบัน</span>`:""}</div>`)}
+                  </div>`}
+                </div>
                 <div class="dd-item" role="menuitem" tabindex="0" onClick=${()=>{setMenu(null);toast("ศูนย์ช่วยเหลือ GeoIntel · เวอร์ชัน 1.0","info");}}><${Icon} name="reports" size=${16}/>ช่วยเหลือ</div>
               </div>
 

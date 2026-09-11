@@ -1,4 +1,4 @@
-import {html, useState, Icon, brandMark, roleTH} from "../lib.js";
+import {html, useState, Icon, brandMark, roleTH, getLang, setLang, LANGS} from "../lib.js";
 import {Globe} from "../globe.js";
 
 export function Login({db, onLogin}){
@@ -39,6 +39,13 @@ export function Login({db, onLogin}){
     </div>
 
     <div class="lg-form">
+      <!-- สลับภาษาตั้งแต่หน้าเข้าสู่ระบบ — ผู้ใช้ที่อ่านไทยไม่ออกต้องเปลี่ยนได้ก่อนล็อกอิน
+           ไม่ใช่หลังจากนั้น (ในระบบมีให้เปลี่ยนอีกที่ในเมนูผู้ใช้) -->
+      <div class="lg-lang" role="group" aria-label="เปลี่ยนภาษา">
+        ${LANGS.map(l=>html`<button key=${l.code} type="button" class=${"lg-lang-b"+(getLang()===l.code?" on":"")}
+          aria-pressed=${getLang()===l.code} onClick=${()=>setLang(l.code)}>${l.label}</button>`)}
+      </div>
+
       <form class="lg-card" onSubmit=${submit}>
         <div class="mk">${brandMark(24)}</div>
         <h1>ยินดีต้อนรับกลับ</h1>

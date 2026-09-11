@@ -69,6 +69,11 @@ createServer(async (req,res)=>{
     // แล้วสรุปผิดว่า "Protomaps ช้า" ทั้งที่เป็นข้อจำกัดของ server. ใช้ stream ทุกไฟล์
     // (แทน readFile ทั้งก้อน) + โฆษณา Accept-Ranges เสมอ
     const st = await stat(file);
+    // ── กันเซิร์ฟเวอร์ล่มจากการขอ path ที่เป็นโฟลเดอร์ ──────────────────────
+    // stat() ผ่านสำหรับโฟลเดอร์ แต่ createReadStream จะยิง error 'EISDIR' แบบ async
+    // ซึ่งอยู่นอก try/catch ก้อนนี้ → กลายเป็น unhandled 'error' event และโปรเซสตายทั้งตัว
+    // (เจอได้ง่ายมาก เช่นเบราว์เซอร์ขอ "//" หรือ "/src/") จึงตอบ 404 ตั้งแต่ตรงนี้
+    if(st.isDirectory()){ res.writeHead(404, {'Content-Type':'text/plain'}); res.end('404 not a file'); return; }
     const range = req.headers['range'];
     if(range){
       const m = /^bytes=(\d*)-(\d*)$/.exec(range);
@@ -81,11 +86,11 @@ createServer(async (req,res)=>{
           res.writeHead(416, {'Content-Range':`bytes */${st.size}`, 'Accept-Ranges':'bytes'}).end(); return;
         }
         res.writeHead(206, {'Content-Type':type,'Accept-Ranges':'bytes','Content-Range':`bytes ${start}-${end}/${st.size}`,'Content-Length':end-start+1,'Cache-Control':cache});
-        createReadStream(file, {start, end}).pipe(res); return;
+        createReadStream(file, {start, end}).on('error',e=>{ console.error('[stream]', e.code||e.message); if(!res.headersSent) res.writeHead(500,{'Content-Type':'text/plain'}); res.end(); }).pipe(res); return;
       }
     }
     res.writeHead(200, {'Content-Type':type,'Accept-Ranges':'bytes','Content-Length':st.size,'Cache-Control':cache});
-    createReadStream(file).pipe(res);
+    createReadStream(file).on('error',e=>{ console.error('[stream]', e.code||e.message); if(!res.headersSent) res.writeHead(500,{'Content-Type':'text/plain'}); res.end(); }).pipe(res);
   }catch(e){
     res.writeHead(404, {'Content-Type':'text/plain'}).end('404 '+e.message);
   }
