@@ -1588,11 +1588,35 @@ function buildProvincePaths(geo){
     }
     byProv[nm]=(byProv[nm]||"")+d+"Z";
   }
-  return {W,H,byProv};
+  // คืนค่าการฉายพิกัดออกไปด้วย เพื่อให้รูปโซน (zones.geojson) ฉายด้วยสเกลเดียวกันเป๊ะ
+  // ไม่งั้นโซนจะวางเหลื่อมกับรูปจังหวัดบนภาพเดียวกัน
+  return {W,H,byProv, proj:{lnMin, laMax, kx, sx, sy}};
+}
+
+/* ฉายรูปโซน (SL/LP/TL) ด้วยการฉายชุดเดียวกับรูปจังหวัด → { zone_id: "d" } */
+function buildZonePaths(zonesGeo, proj){
+  if(!zonesGeo || !zonesGeo.features || !proj) return null;
+  const {lnMin, laMax, kx, sx, sy} = proj;
+  const out={};
+  for(const f of zonesGeo.features){
+    const id=f.properties && f.properties.zone_id, g=f.geometry;
+    if(!id || !g) continue;
+    const polys = g.type==="Polygon" ? [g.coordinates] : g.type==="MultiPolygon" ? g.coordinates : [];
+    let d="";
+    for(const poly of polys){
+      const ring=poly[0]; if(!ring || ring.length<4) continue;
+      const step=Math.max(1, Math.ceil(ring.length/260));   // ลดจุดเท่ารูปจังหวัด — ภาพเล็ก ไม่ต้องละเอียดกว่านี้
+      const pts=[]; for(let i=0;i<ring.length;i+=step) pts.push(ring[i]);
+      pts.push(ring[ring.length-1]);
+      d += "M" + pts.map((c,i)=>((c[0]-lnMin)*kx*sx).toFixed(1)+" "+((laMax-c[1])*sy).toFixed(1)).join("L") + "Z";
+    }
+    if(d) out[id]=d;
+  }
+  return Object.keys(out).length ? out : null;
 }
 
 /* แผนที่ขอบเขต — ระบายสีตาม TC ที่ดูแล · จังหวัดไร้ผู้ดูแลใช้ลายทแยงแดง (เห็นชัดแม้พิมพ์ขาวดำ) */
-function TerritoryMap({paths, assign, focus, onFocus}){
+function TerritoryMap({paths, assign, focus, onFocus, zonePaths}){
   const [hover,setHover]=useState(null);
   if(!paths) return html`<div class="tr-map-load">${t("กำลังโหลดขอบเขตจังหวัด…", "Loading province boundaries…")}</div>`;
   const shown = hover || focus;
@@ -1602,6 +1626,8 @@ function TerritoryMap({paths, assign, focus, onFocus}){
     if(!ids.length) return null;
     if(ids.length>1) return "mixed";
     return TC_BY_ID[ids[0]]||null; };
+  // shown เป็นได้ทั้งชื่อจังหวัด ("Chiang Mai") และคีย์หน่วยระดับโซน ("Bangkok Metropolis/LP")
+  const ownerOf = key => key && key.includes("/") ? (TC_BY_ID[assign[key]]||null) : tcOf(key);
   return html`<div class="tr-map">
     <svg viewBox=${"0 0 "+paths.W+" "+paths.H} class="tr-map-svg" preserveAspectRatio="xMidYMid meet"
       role="img" aria-label=${t("แผนที่ขอบเขตพื้นที่การขายรายจังหวัด", "Sales territory map by province")} onMouseLeave=${()=>setHover(null)}>
@@ -1617,6 +1643,10 @@ function TerritoryMap({paths, assign, focus, onFocus}){
         </pattern>
       </defs>
       ${ALL_PROVINCES.map(pv=>{ const d=paths.byProv[pv]; if(!d) return null;
+        // กรุงเทพฯ ที่มีรูปโซนแล้ว: วาดเป็นพื้นกลาง ๆ ไว้ก่อน แล้วค่อยวาดโซนทับด้านล่าง
+        // (ไม่ระบายสี TC ตรงนี้ ไม่งั้นสีจังหวัดจะทับซ้อนกับสีโซนจนอ่านไม่ออก)
+        if(pv===BKK && zonePaths)
+          return html`<path key=${pv} d=${d} class="tr-path" fill="rgba(148,163,184,.10)" stroke="#94a3b8" stroke-width="0.7"/>`;
         const tc=tcOf(pv), on=shown===pv;
         return html`<path key=${pv} d=${d} class=${"tr-path"+(on?" on":"")}
           fill=${tc==="mixed" ? "url(#trMixed)" : tc? tcColor(tc.id)+"3d" : "url(#trNoMan)"}
@@ -1625,10 +1655,21 @@ function TerritoryMap({paths, assign, focus, onFocus}){
           onMouseEnter=${()=>setHover(pv)}
           onClick=${()=>onFocus(focus===pv?null:pv)}><title>${provinceTH(pv)} · ${tc==="mixed" ? t("หลายผู้ดูแล (แบ่งตามโซน)","Several owners (split by zone)") : tc?tc.name:t("ยังไม่มีคนดูแล", "No owner yet")}</title></path>`;
       })}
+      <!-- โซนของกรุงเทพฯ ตามเส้นที่แอดมินลากไว้ — 1 รูป = 1 หน่วยที่มอบหมายได้ คลิกเลือกได้ทีละโซน -->
+      ${zonePaths && BKK_ZONES.map(z=>{ const d=zonePaths[z.key]; if(!d) return null;
+        const key=unitKey(BKK,z.key), tc=TC_BY_ID[assign[key]]||null, on=shown===key;
+        return html`<path key=${key} d=${d} class=${"tr-path"+(on?" on":"")}
+          fill=${tc? tcColor(tc.id)+"55" : "url(#trNoMan)"}
+          stroke=${on? "#161d2b" : tc? tcColor(tc.id) : "#dc2626"}
+          stroke-width=${on? 2.2 : 1}
+          onMouseEnter=${()=>setHover(key)}
+          onClick=${()=>onFocus(focus===key?null:key)}>
+          <title>${unitLabel(key)} · ${tc?tc.name:t("ยังไม่มีคนดูแล", "No owner yet")}</title></path>`;
+      })}
     </svg>
-    <div class=${"tr-map-cap"+(shown && !tcOf(shown) ? " none":"")}>
-      ${shown ? (()=>{ const o=tcOf(shown);
-            return html`<b>${provinceTH(shown)}</b> · ${o==="mixed" ? t("หลายผู้ดูแล (แบ่งตามโซน)","Several owners (split by zone)") : o ? o.name : t("ยังไม่มีคนดูแล (no man’s land)", "No owner yet (no man's land)")}`; })()
+    <div class=${"tr-map-cap"+(shown && !ownerOf(shown) ? " none":"")}>
+      ${shown ? (()=>{ const o=ownerOf(shown);
+            return html`<b>${unitLabel(shown)}</b> · ${o==="mixed" ? t("หลายผู้ดูแล (แบ่งตามโซน)","Several owners (split by zone)") : o ? o.name : t("ยังไม่มีคนดูแล (no man’s land)", "No owner yet (no man's land)")}`; })()
               : t("ชี้ที่จังหวัดเพื่อดูผู้ดูแล · คลิกเพื่อกรองตารางด้านล่าง", "Hover a province to see its owner · click to filter the table below")}
     </div>
   </div>`;
@@ -1655,6 +1696,15 @@ export function TerritoryManager(){
     let alive=true; loadProvincesGeo().then(g=>{ if(alive) setGeo(g); }).catch(()=>{});
     return ()=>{ alive=false; }; },[db.provincesGeo]);
   const paths = useMemo(()=>buildProvincePaths(geo),[geo]);
+
+  // รูปโซนที่แอดมินลากไว้ (ไฟล์เดียวกับที่แมพหลักใช้) — เอามาวาดทับกรุงเทพฯ ให้เห็นการแบ่งจริง
+  // โหลดไม่ได้ = ไม่เป็นไร แผนที่จะวาดกรุงเทพฯ เป็นรูปจังหวัดเดียวเหมือนเดิม
+  const [zonesGeo,setZonesGeo] = useState(null);
+  useEffect(()=>{ let alive=true;
+    fetch("/data/zones.geojson").then(r=>r.json()).then(g=>{ if(alive) setZonesGeo(g); })
+      .catch(e=>console.warn("[territory] โหลด zones.geojson ไม่สำเร็จ", e));
+    return ()=>{ alive=false; }; },[]);
+  const zonePaths = useMemo(()=>buildZonePaths(zonesGeo, paths && paths.proj),[zonesGeo, paths]);
 
   const areaBy = db.areaByProvince||{};
   // 1 แถว = 1 หน่วย (กรุงเทพฯ ได้ 3 แถว ตามโซน) · ตัวเลข Lead ยังอ้างระดับจังหวัดตามเดิม
@@ -1746,7 +1796,8 @@ export function TerritoryManager(){
         </div>`
         : html`<div class="tr-as-hint">${t("คลิกจังหวัดบนแผนที่เพื่อกำหนดหรือเปลี่ยน TC ที่ดูแลพื้นที่นั้น", "Click a province on the map to set or change the TC who owns it")}</div>`}
 
-        <${TerritoryMap} paths=${paths} assign=${assign} focus=${focus && unitProv(focus)} onFocus=${focusFromMap}/>
+        <${TerritoryMap} paths=${paths} zonePaths=${zonePaths} assign=${assign}
+          focus=${focus && (unitZone(focus) ? focus : unitProv(focus))} onFocus=${focusFromMap}/>
         <div class="tr-legend">
           ${TC_USERS.filter(u=>provOf(u.id).length).map(u=>html`<span key=${u.id} class="tr-lg">
             <span class="tr-sw" style=${{background:tcColor(u.id)+"3d",borderColor:tcColor(u.id)}}></span>
