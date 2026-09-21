@@ -1,5 +1,5 @@
-import {html, useState, useEffect, useMemo, useApp, Icon, num, pct, roleTH, provinceTH, segTH, STATUS_COLOR, thDate, thDateTime, thMonth} from "../lib.js";
-import {SEGMENTS, SEG_COLOR, OTHER_COLOR, DISTRICT_TH, GAP_REF, GAP_TH, demandGap, gapBySegment} from "../mock/geoData.js";
+import {html, useState, useEffect, useMemo, useApp, Icon, num, pct, roleTH, provinceTH, segTH, STATUS_COLOR, thDate, thDateTime, thMonth, gapTH} from "../lib.js";
+import {SEGMENTS, SEG_COLOR, OTHER_COLOR, DISTRICT_TH, GAP_REF, demandGap, gapBySegment} from "../mock/geoData.js";
 import {LeafletMap} from "../lmap.js";   // แผนที่ความร้อนระดับประเทศ (ใช้ตัวเดียวกับหน้าอื่น)
 import {getAudit, subscribeAudit, pushAudit} from "../audit.js";
 import {Card, Kpi, Btn, Badge, Toggle, Field, Table, Tabs, Modal, Meter, DateField, toast} from "../ui.js";
@@ -11,8 +11,10 @@ import {ExportDialog, defaultReportName, downloadXLS} from "./reports.js";   // 
 import {downloadCSV, areaCoverage} from "../data.js";
 import {canExport, EXPORT_ROLES, EXPORT_FORMATS, getExportPerms, setExportPerms} from "../export-perms.js";
 import {NOTIF_EVENTS, PRIORITY_TH, getSysNotif, setSysNotif} from "../notifications.js";
+import {getLayerOpacity, setLayerOpacity} from "../layer-opacity.js";   // ความทึบของแผนที่ — ตั้งที่นี่ที่เดียว
 import {ROLES, SCOPES, DEFAULT_SCOPE, PERM_MODULES, PERM_INDEX, PERM_COUNT, GUARD_KEY,
   permByRole, roleGrants, roleForbids, effectivePerms, realOverrides} from "../permissions.js";
+import {t} from "../i18n.js";   // สลับภาษา TH/EN — ดู src/i18n.js
 
 /* ================= จัดการผู้ใช้ ================= */
 // ชื่อ TC ใช้ชุดเดียวกับทีมภาคสนามใน src/mock/geoData.js (TC_TEAM) — ตัวตนของ TC ไม่ผูกกับชื่อจังหวัด
@@ -38,15 +40,15 @@ export function Users(){
   const [roleF,setRoleF]=useState("All");   // ตัวกรองตามบทบาท
   const [search,setSearch]=useState("");    // ค้นหาชื่อ/อีเมล
   const save=u=>{ setUsers(list=> u.id? list.map(x=>x.id===u.id?u:x) : [...list,{...u,id:Date.now(),status:"Active",last:"—"}]);
-    setEdit(null); toast(u.id?"อัปเดตผู้ใช้แล้ว":"สร้างผู้ใช้แล้ว","good"); };
-  const del=u=>{ setUsers(list=>list.filter(x=>x.id!==u.id)); toast("ลบผู้ใช้แล้ว","bad"); };
+    setEdit(null); toast(u.id?t("อัปเดตผู้ใช้แล้ว", "User updated"):t("สร้างผู้ใช้แล้ว", "User created"),"good"); };
+  const del=u=>{ setUsers(list=>list.filter(x=>x.id!==u.id)); toast(t("ลบผู้ใช้แล้ว", "User deleted"),"bad"); };
   // บันทึกสิทธิ์: เขียน log ทีละรายการตามกติกา G5 (เปลี่ยนของใคร จากอะไรเป็นอะไร)
   const savePerm=(target, next, changes)=>{
     setUsers(list=>list.map(x=> x.id===target.id ? {...x, role:next.role, scope:next.scope, permOverrides:next.overrides} : x));
-    for(const c of changes) pushAudit({action:"แก้ไขสิทธิ์ผู้ใช้", category:"แก้ไข",
+    for(const c of changes) pushAudit({action:t("แก้ไขสิทธิ์ผู้ใช้", "Edited user permissions"), category:"แก้ไข",
       detail:`${target.name} · ${c.key} : ${c.from} → ${c.to}`});
     setPerm(null);
-    toast(changes.length? `บันทึกสิทธิ์แล้ว ${changes.length} รายการ` : "ไม่มีการเปลี่ยนแปลง", changes.length?"good":"info");
+    toast(changes.length? `${t("บันทึกสิทธิ์แล้ว", "Permissions saved")} ${changes.length} ${t("รายการ", "records")}` : t("ไม่มีการเปลี่ยนแปลง", "Nothing changed"), changes.length?"good":"info");
   };
   const q = search.trim().toLowerCase();
   const shown = users.filter(u=> (roleF==="All" || u.role===roleF)
@@ -56,67 +58,67 @@ export function Users(){
 
   return html`<div class="page fade-in um-page">
     <div class="page-head">
-      <div><h1>จัดการผู้ใช้</h1>
-        <div class="sub">จัดการบัญชีและสิทธิ์การเข้าถึงระบบ</div></div>
+      <div><h1>${t("จัดการผู้ใช้", "User management")}</h1>
+        <div class="sub">${t("จัดการบัญชีและสิทธิ์การเข้าถึงระบบ", "Manage accounts and system access")}</div></div>
       <div class="ph-right">
         <${Btn} variant="primary" icon="plus"
-          onClick=${()=>setEdit({name:"",email:"",role:"Trade Coordinator"})}>เพิ่มผู้ใช้</${Btn}></div>
+          onClick=${()=>setEdit({name:"",email:"",role:"Trade Coordinator"})}>${t("เพิ่มผู้ใช้", "Add user")}</${Btn}></div>
     </div>
 
     <!-- สรุปจำนวนตามบทบาท — การ์ดเตี้ยกว่าปกติ ไม่ให้แย่งพื้นที่ไปจากตาราง -->
     <div class="grid g4 um-kpis">
-      <${Kpi} label="ผู้ใช้ทั้งหมด" value=${users.length} icon="users"/>
-      <${Kpi} label="ผู้ดูแลระบบ" value=${users.filter(u=>u.role==="Administrator").length} icon="shield"/>
-      <${Kpi} label="ผู้ประสานงานการค้า (TC)" value=${users.filter(u=>u.role==="Trade Coordinator").length} icon="user"/>
-      <${Kpi} label="ผู้บริหาร" value=${users.filter(u=>u.role==="Management").length} icon="check"/>
+      <${Kpi} label=${t("ผู้ใช้ทั้งหมด", "All users")} value=${users.length} icon="users"/>
+      <${Kpi} label=${t("ผู้ดูแลระบบ", "System Administrator")} value=${users.filter(u=>u.role==="Administrator").length} icon="shield"/>
+      <${Kpi} label=${t("ผู้ประสานงานการค้า (TC)", "Trade Coordinator (TC)")} value=${users.filter(u=>u.role==="Trade Coordinator").length} icon="user"/>
+      <${Kpi} label=${t("ผู้บริหาร", "Management")} value=${users.filter(u=>u.role==="Management").length} icon="check"/>
     </div>
 
     <!-- แถบเครื่องมือ: ค้นหา + กรองบทบาท อยู่แถวเดียวกัน · ห่อบรรทัดเองเมื่อจอแคบ -->
     <div class="um-bar">
       <div class="searchbox um-search"><${Icon} name="search" size=${15}/>
-        <input placeholder="ค้นหาชื่อหรืออีเมล…" value=${search} onInput=${e=>setSearch(e.target.value)}/></div>
+        <input placeholder=${t("ค้นหาชื่อหรืออีเมล…", "Search by name or email…")} value=${search} onInput=${e=>setSearch(e.target.value)}/></div>
       <div class="um-dd"><${Dropdown} value=${roleF} onChange=${setRoleF}
-        options=${[["All","ทุกบทบาท"],["Administrator","ผู้ดูแลระบบ"],["Management","ผู้บริหาร"],["Trade Coordinator","ผู้ประสานงานการค้า (TC)"]]}/></div>
-      ${(roleF!=="All"||q) && html`<button class="um-clear" onClick=${()=>{setRoleF("All");setSearch("");}}>ล้าง</button>`}
+        options=${[["All",t("ทุกบทบาท", "All roles")],["Administrator",t("ผู้ดูแลระบบ", "System Administrator")],["Management",t("ผู้บริหาร", "Management")],["Trade Coordinator",t("ผู้ประสานงานการค้า (TC)", "Trade Coordinator (TC)")]]}/></div>
+      ${(roleF!=="All"||q) && html`<button class="um-clear" onClick=${()=>{setRoleF("All");setSearch("");}}>${t("ล้าง", "Clear")}</button>`}
     </div>
 
     <!-- ตารางเป็นตัวเอกของหน้า — Table วาดกรอบการ์ดให้อยู่แล้ว จึงไม่ต้องมี Card ซ้อนอีกชั้น -->
     <div class="um-table">
-      <${Table} empty="ไม่พบบัญชีตามเงื่อนไขนี้" cols=${[
-        {h:"ผู้ใช้", render:u=>html`<div class="um-user">
+      <${Table} empty=${t("ไม่พบบัญชีตามเงื่อนไขนี้", "No accounts match these filters")} cols=${[
+        {h:t("ผู้ใช้", "User"), render:u=>html`<div class="um-user">
           <span class=${"um-av "+roleCls(u.role)}>${initials(u.name)}</span>
           <div style=${{minWidth:0}}>
             <div class="um-nm">${u.name}</div>
             <div class="um-em">${u.email}</div></div></div>`},
-        {h:"บทบาท", w:"210px", render:u=>html`<span class=${"um-role "+roleCls(u.role)}>${roleTH(u.role)}</span>`},
-        {h:"เข้าสู่ระบบล่าสุด", w:"170px", render:u=>html`<span class="um-last">${u.last==="—"?"—":thDateTime(u.last)}</span>`},
-        {h:"การจัดการ", w:"230px", render:u=>html`<div class="um-act">
-          <button class="um-btn" onClick=${()=>setEdit(u)}><${Icon} name="edit" size=${14}/>แก้ไข</button>
-          <button class="um-btn" onClick=${()=>setPerm(u)}><${Icon} name="key" size=${14}/>สิทธิ์</button>
-          <button class="um-del" onClick=${()=>setDelUser(u)} title="ลบบัญชี"
-            aria-label=${"ลบบัญชี "+u.name}><${Icon} name="trash" size=${15}/></button>
+        {h:t("บทบาท", "Role"), w:"210px", render:u=>html`<span class=${"um-role "+roleCls(u.role)}>${roleTH(u.role)}</span>`},
+        {h:t("เข้าสู่ระบบล่าสุด", "Last sign-in"), w:"170px", render:u=>html`<span class="um-last">${u.last==="—"?"—":thDateTime(u.last)}</span>`},
+        {h:t("การจัดการ", "Actions"), w:"230px", render:u=>html`<div class="um-act">
+          <button class="um-btn" onClick=${()=>setEdit(u)}><${Icon} name="edit" size=${14}/>${t("แก้ไข", "Edit")}</button>
+          <button class="um-btn" onClick=${()=>setPerm(u)}><${Icon} name="key" size=${14}/>${t("สิทธิ์", "Permissions")}</button>
+          <button class="um-del" onClick=${()=>setDelUser(u)} title=${t("ลบบัญชี", "Delete account")}
+            aria-label=${t("ลบบัญชี ", "Delete account ")+u.name}><${Icon} name="trash" size=${15}/></button>
         </div>`},
       ]} rows=${shown}/>
     </div>
     <style>${UM_CSS}</style>
 
 
-    ${edit && html`<${Modal} title=${edit.id?"แก้ไขผู้ใช้":"เพิ่มผู้ใช้"} onClose=${()=>setEdit(null)}
-      footer=${html`<${Btn} variant="ghost" onClick=${()=>setEdit(null)}>ยกเลิก</${Btn}>
-        <${Btn} variant="outline" icon="check" onClick=${()=>{const f=window.__uf; save({...edit,name:f.name.value,email:f.email.value,role:f.role.value});}}>บันทึก</${Btn}>`}>
+    ${edit && html`<${Modal} title=${edit.id?t("แก้ไขผู้ใช้", "Edit user"):t("เพิ่มผู้ใช้", "Add user")} onClose=${()=>setEdit(null)}
+      footer=${html`<${Btn} variant="ghost" onClick=${()=>setEdit(null)}>${t("ยกเลิก", "Cancel")}</${Btn}>
+        <${Btn} variant="outline" icon="check" onClick=${()=>{const f=window.__uf; save({...edit,name:f.name.value,email:f.email.value,role:f.role.value});}}>${t("บันทึก", "Save")}</${Btn}>`}>
       <form ref=${el=>window.__uf=el}>
-        <${Field} label="ชื่อ-นามสกุล"><input class="input" name="name" defaultValue=${edit.name}/></${Field}>
-        <${Field} label="อีเมล"><input class="input" name="email" defaultValue=${edit.email}/></${Field}>
-        <${Field} label="บทบาท"><select class="input" name="role" defaultValue=${edit.role}>
-          <option value="Administrator">ผู้ดูแลระบบ</option><option value="Management">ผู้บริหาร</option>
-          <option value="Trade Coordinator">ผู้ประสานงานการค้า (TC)</option></select></${Field}>
+        <${Field} label=${t("ชื่อ-นามสกุล", "Full name")}><input class="input" name="name" defaultValue=${edit.name}/></${Field}>
+        <${Field} label=${t("อีเมล", "Email")}><input class="input" name="email" defaultValue=${edit.email}/></${Field}>
+        <${Field} label=${t("บทบาท", "Role")}><select class="input" name="role" defaultValue=${edit.role}>
+          <option value="Administrator">${t("ผู้ดูแลระบบ", "System Administrator")}</option><option value="Management">${t("ผู้บริหาร", "Management")}</option>
+          <option value="Trade Coordinator">${t("ผู้ประสานงานการค้า (TC)", "Trade Coordinator (TC)")}</option></select></${Field}>
       </form>
     </${Modal}>`}
 
-    ${delUser && html`<${Modal} title="ยืนยันการลบบัญชี" small=${true} onClose=${()=>setDelUser(null)}
-      footer=${html`<${Btn} variant="ghost" onClick=${()=>setDelUser(null)}>ยกเลิก</${Btn}>
-        <${Btn} variant="danger" icon="trash" onClick=${()=>{ del(delUser); setDelUser(null); }}>ยืนยันลบ</${Btn}>`}>
-      <div style=${{fontSize:"13px",lineHeight:1.8}}>ลบ <b>${delUser.name}</b> (${delUser.email}) ออกจากระบบ?</div>
+    ${delUser && html`<${Modal} title=${t("ยืนยันการลบบัญชี", "Confirm account deletion")} small=${true} onClose=${()=>setDelUser(null)}
+      footer=${html`<${Btn} variant="ghost" onClick=${()=>setDelUser(null)}>${t("ยกเลิก", "Cancel")}</${Btn}>
+        <${Btn} variant="danger" icon="trash" onClick=${()=>{ del(delUser); setDelUser(null); }}>${t("ยืนยันลบ", "Confirm deletion")}</${Btn}>`}>
+      <div style=${{fontSize:"13px",lineHeight:1.8}}>${t("ลบ", "Delete")} <b>${delUser.name}</b> (${delUser.email}${t(") ออกจากระบบ?", ") from the system?")}</div>
     </${Modal}>`}
 
     ${perm && html`<${PermissionDialog} key=${perm.id} target=${perm} users=${users} me=${me}
@@ -150,14 +152,14 @@ function PermissionDialog({target, users, me, onClose, onSave}){
 
   const has = k => Object.prototype.hasOwnProperty.call(ov,k) ? !!ov[k] : roleGrants(k, role);
   const lockReason = k => {
-    if(isSelf) return "แก้สิทธิ์ของตัวเองไม่ได้";
-    if(roleForbids(k, role)) return "บทบาทนี้ถือสิทธิ์นี้ไม่ได้ — ต้องเปลี่ยนบทบาทก่อน";
-    if(k===GUARD_KEY && lastGuard && has(k)) return "ต้องเหลือผู้ให้สิทธิ์อย่างน้อย 1 คน";
+    if(isSelf) return t("แก้สิทธิ์ของตัวเองไม่ได้", "You cannot edit your own permissions");
+    if(roleForbids(k, role)) return t("บทบาทนี้ถือสิทธิ์นี้ไม่ได้ — ต้องเปลี่ยนบทบาทก่อน", "This role cannot hold this permission — change the role first");
+    if(k===GUARD_KEY && lastGuard && has(k)) return t("ต้องเหลือผู้ให้สิทธิ์อย่างน้อย 1 คน", "At least one permission granter must remain");
     return null;
   };
   const toggle = k => { const r=lockReason(k); if(r){ toast(r,"warn"); return; } setOv(m=>({...m,[k]:!has(k)})); };
   // เปลี่ยนบทบาท = รีเซ็ตสิทธิ์กลับเป็นค่าตั้งต้นของบทบาทใหม่ทั้งหมด (UX2 ในเอกสาร)
-  const changeRole = r => { if(isSelf) { toast("แก้บทบาทของตัวเองไม่ได้","warn"); return; }
+  const changeRole = r => { if(isSelf) { toast(t("แก้บทบาทของตัวเองไม่ได้", "You cannot change your own role"),"warn"); return; }
     setRole(r); setOv({}); setScope(DEFAULT_SCOPE[r]||"own_area"); };
 
   const diff = realOverrides(role, ov);
@@ -165,9 +167,9 @@ function PermissionDialog({target, users, me, onClose, onSave}){
   const roleChanged = role!==target.role, scopeChanged = scope!==prevScope;
   const changes = (()=>{
     const out=[];
-    if(roleChanged)  out.push({key:"บทบาท",        from:thRole(target.role), to:thRole(role)});
-    if(scopeChanged) out.push({key:"ขอบเขตข้อมูล", from:thScope(prevScope),  to:thScope(scope)});
-    const lbl = (m,k)=> Object.prototype.hasOwnProperty.call(m,k) ? (m[k]?"เปิด":"ปิด") : "ตามบทบาท";
+    if(roleChanged)  out.push({key:t("บทบาท","Role"),        from:thRole(target.role), to:thRole(role)});
+    if(scopeChanged) out.push({key:t("ขอบเขตข้อมูล","Data scope"), from:thScope(prevScope),  to:thScope(scope)});
+    const lbl = (m,k)=> Object.prototype.hasOwnProperty.call(m,k) ? (m[k]?t("เปิด", "On"):t("ปิด", "Close")) : t("ตามบทบาท", "By role");
     for(const k of new Set([...Object.keys(prevDiff), ...Object.keys(diff)])){
       const a=lbl(prevDiff,k), b=lbl(diff,k);
       if(a!==b) out.push({key:k, from:a, to:b});
@@ -177,24 +179,24 @@ function PermissionDialog({target, users, me, onClose, onSave}){
 
   const eff = effectivePerms(role, ov);
 
-  return html`<${Modal} title=${"สิทธิ์ · "+target.name} onClose=${onClose}
+  return html`<${Modal} title=${t("สิทธิ์ · ", "permissions · ")+target.name} onClose=${onClose}
     footer=${html`<span class="pm-diff">${changes.length
-        ? html`ต่างจากเดิม <b>${changes.length} รายการ</b>`
-        : html`<span class="dim">ยังไม่มีการเปลี่ยนแปลง</span>`}</span>
-      <${Btn} variant="ghost" onClick=${onClose}>ยกเลิก</${Btn}>
+        ? html`${t("ต่างจากเดิม", "changed")} <b>${changes.length} ${t("รายการ", "records")}</b>`
+        : html`<span class="dim">${t("ยังไม่มีการเปลี่ยนแปลง", "No changes yet")}</span>`}</span>
+      <${Btn} variant="ghost" onClick=${onClose}>${t("ยกเลิก", "Cancel")}</${Btn}>
       <${Btn} variant="primary" icon="check" disabled=${isSelf||!changes.length}
-        onClick=${()=>onSave(target,{role,scope,overrides:diff},changes)}>บันทึกและบันทึก log</${Btn}>`}>
+        onClick=${()=>onSave(target,{role,scope,overrides:diff},changes)}>${t("บันทึกและบันทึก log", "Save and write to the log")}</${Btn}>`}>
 
     <!-- ชั้นที่ 1 · บทบาท -->
     <div class="pm-field">
-      <label>บทบาท</label>
+      <label>${t("บทบาท", "Role")}</label>
       <${Dropdown} value=${role} onChange=${changeRole} disabled=${isSelf}
         options=${ROLES.map(r=>[r.key, r.code])}/>
     </div>
 
     <!-- ชั้นที่ 3 · ขอบเขตข้อมูล -->
     <div class="pm-field">
-      <label>ขอบเขตข้อมูล</label>
+      <label>${t("ขอบเขตข้อมูล", "Data scope")}</label>
       <div class="pm-segbar">
         ${SCOPES.map(sc=>html`<button key=${sc.key} class=${"pm-seg"+(scope===sc.key?" on":"")}
           disabled=${isSelf} onClick=${()=>!isSelf&&setScope(sc.key)}>${sc.th}</button>`)}
@@ -203,7 +205,7 @@ function PermissionDialog({target, users, me, onClose, onSave}){
 
     <!-- ชั้นที่ 2 · สิทธิ์รายเมนู -->
     <div class="pm-field">
-      <label>สิทธิ์รายเมนู <span class="dim">(${eff.size}/${PERM_COUNT} รายการ)</span></label>
+      <label>${t("สิทธิ์รายเมนู", "Permissions by area")} <span class="dim">(${eff.size}/${PERM_COUNT} ${t("รายการ)", "records)")}</span></label>
       <div class="pm-acc">
         ${PERM_MODULES.map(m=>{
           const total=m.perms.length;
@@ -213,19 +215,19 @@ function PermissionDialog({target, users, me, onClose, onSave}){
           return html`<div key=${m.key}>
             <button class=${"pm-row"+(isOpen?" open":"")} onClick=${()=>setOpen(isOpen?"":m.key)}>
               <span class="pm-car">${isOpen?"⌄":"›"}</span>
-              <span class="pm-nm">${m.name}</span>
+              <span class="pm-nm">${m.name()}</span>
               <span class="pm-cnt">${on}/${total}</span>
-              <span class=${"pm-pill"+(custom?"":" inh")}>${custom?("กำหนดเอง "+custom):"ตามบทบาท"}</span>
+              <span class=${"pm-pill"+(custom?"":" inh")}>${custom?(t("กำหนดเอง ", "custom ")+custom):t("ตามบทบาท", "By role")}</span>
             </button>
             ${isOpen ? html`<div class="pm-open">
               ${m.perms.map(([k,label])=>{ const reason=lockReason(k), forbid=roleForbids(k,role);
                 return html`<div key=${k} class=${"pm-perm"+(forbid?" off":"")}>
                   <span class="pm-key" title=${k}>${k}</span>
-                  <span class="pm-lb">${label}</span>
+                  <span class="pm-lb">${label()}</span>
                   ${permByRole(k,role)==="o" && !Object.prototype.hasOwnProperty.call(diff,k)
-                    ? html`<span class="pm-tag">ต้องเปิดเอง</span>` : ""}
+                    ? html`<span class="pm-tag">${t("ต้องเปิดเอง", "opt-in")}</span>` : ""}
                   <button class=${"pm-sw"+(has(k)&&!forbid?" on":"")+(reason?" lock":"")}
-                    title=${reason||""} aria-label=${label}
+                    title=${reason||""} aria-label=${label()}
                     onClick=${()=>toggle(k)}></button>
                 </div>`; })}
             </div>` : ""}
@@ -344,8 +346,8 @@ export function Integration(){
   // ปุ่ม "อัปโหลดไฟล์ใหม่" ถูกย้าย/รวมไว้ที่หน้า "จัดการข้อมูล" แล้ว จึงตัดออกจากหน้านี้ (กันซ้ำซ้อน)
   // แหล่งไฟล์นำเข้า 2 แหล่ง (แทนการเชื่อมต่อระบบภายนอกเดิม)
   const sources=[
-    {name:"ไฟล์จากลูกค้า",type:"db",status:"นำเข้าแล้ว",detail:"อัปโหลดล่าสุด: 11 ก.ค. 2026 · 2,301 รายการ",tone:"good"},
-    {name:"ข้อมูลสาธารณะ (MAZ)",type:"api",status:"นำเข้าแล้ว",detail:"กลุ่มธุรกิจ Hospitality · อัปเดตล่าสุด: 09 ก.ค. 2026",tone:"good"},
+    {name:t("ไฟล์จากลูกค้า","Customer files"),type:"db",status:t("นำเข้าแล้ว","Imported"),detail:t("อัปโหลดล่าสุด: 11 ก.ค. 2026 · 2,301 รายการ", "Last upload: 11 Jul 2026 · 2,301 records"),tone:"good"},
+    {name:t("ข้อมูลสาธารณะ (MAZ)","Public data (MAZ)"),type:"api",status:t("นำเข้าแล้ว","Imported"),detail:t("กลุ่มธุรกิจ Hospitality · อัปเดตล่าสุด: 09 ก.ค. 2026", "Hospitality category · last updated: 09 Jul 2026"),tone:"good"},
   ];
   const mapping=[
     ["customer_id","id","string","✓"],["company_name","businessName","string","✓"],
@@ -353,12 +355,12 @@ export function Integration(){
     ["industry_code","segment","enum","✓"],["phone","phone","string","✓"],["date_join","dateJoin","date","✓"]];
   // ประวัติการนำเข้าไฟล์ (ชื่อไฟล์, แหล่งที่มา, วันที่อัปโหลด, จำนวนแถวที่นำเข้าสำเร็จ, สถานะ)
   const imports=[
-    ["customers_2026-07-11.xlsx","ลูกค้า","11 ก.ค. 2026","2,301","สำเร็จ"],
-    ["maz_hospitality_2026-07-09.csv","MAZ","09 ก.ค. 2026","6,862","สำเร็จ"],
-    ["customers_2026-07-05.xlsx","ลูกค้า","05 ก.ค. 2026","2,254","มีข้อผิดพลาด"]];
+    ["customers_2026-07-11.xlsx",t("ลูกค้า", "Customers"),t("11 ก.ค. 2026", "11 Jul 2026"),"2,301",t("สำเร็จ", "Success")],
+    ["maz_hospitality_2026-07-09.csv","MAZ",t("09 ก.ค. 2026", "09 Jul 2026"),"6,862",t("สำเร็จ", "Success")],
+    ["customers_2026-07-05.xlsx",t("ลูกค้า", "Customers"),t("05 ก.ค. 2026", "05 Jul 2026"),"2,254",t("มีข้อผิดพลาด", "Has errors")]];
 
   return html`<div class="page fade-in">
-    <div class="page-head"><div><h1>เชื่อมต่อข้อมูล</h1></div></div>
+    <div class="page-head"><div><h1>${t("เชื่อมต่อข้อมูล", "Data connections")}</h1></div></div>
 
     <div class="grid g2" style=${{marginBottom:"16px"}}>
       ${sources.map(c=>html`<${Card} key=${c.name} className="hoverable">
@@ -373,28 +375,28 @@ export function Integration(){
     </div>
 
     <div class="grid g2" style=${{marginBottom:"16px"}}>
-      <${Card} title="การจับคู่ข้อมูล" sub="คอลัมน์ในไฟล์ Excel → โครงสร้างแพลตฟอร์ม" pad0=${true}>
+      <${Card} title=${t("การจับคู่ข้อมูล", "Field mapping")} sub=${t("คอลัมน์ในไฟล์ Excel → โครงสร้างแพลตฟอร์ม", "Excel columns → platform schema")} pad0=${true}>
         <${Table} cols=${[
-          {h:"ฟิลด์ต้นทาง", render:r=>html`<span class="mono" style=${{fontSize:"12px"}}>${r[0]}</span>`},
-          {h:"เป้าหมาย", render:r=>html`<span class="mono" style=${{fontSize:"12px",color:"#e60023"}}>${r[1]}</span>`},
-          {h:"ชนิด", render:r=>r[2]},
-          {h:"ถูกต้อง", render:r=>html`<${Badge} tone="good">${r[3]}</${Badge}>`},
+          {h:t("ฟิลด์ต้นทาง", "Source field"), render:r=>html`<span class="mono" style=${{fontSize:"12px"}}>${r[0]}</span>`},
+          {h:t("เป้าหมาย", "Target"), render:r=>html`<span class="mono" style=${{fontSize:"12px",color:"#e60023"}}>${r[1]}</span>`},
+          {h:t("ชนิด", "Type"), render:r=>r[2]},
+          {h:t("ถูกต้อง", "Valid"), render:r=>html`<${Badge} tone="good">${r[3]}</${Badge}>`},
         ]} rows=${mapping}/>
       </${Card}>
-      <${Card} title="การตรวจสอบข้อมูล">
-        ${[["ความถูกต้องของพิกัด",98],["การจับคู่กลุ่มธุรกิจ",100],["การตรวจจับข้อมูลซ้ำ",96],["ความครบถ้วนของที่อยู่",89]].map(([l,v])=>
+      <${Card} title=${t("การตรวจสอบข้อมูล", "Data validation")}>
+        ${[[t("ความถูกต้องของพิกัด", "Coordinate accuracy"),98],[t("การจับคู่กลุ่มธุรกิจ", "Business-category matching"),100],[t("การตรวจจับข้อมูลซ้ำ", "Duplicate detection"),96],[t("ความครบถ้วนของที่อยู่", "Address completeness"),89]].map(([l,v])=>
           html`<div key=${l} style=${{marginBottom:"12px"}}><div class="row between" style=${{fontSize:"12.5px",marginBottom:"5px"}}>
             <span>${l}</span><b>${v}%</b></div><${Meter} value=${v} color=${v>=95?"linear-gradient(90deg,#33d69f,#34e0d0)":"linear-gradient(90deg,#ffb02e,#ff5a3c)"}/></div>`)}
       </${Card}>
     </div>
 
-    <${Card} title="ประวัติการนำเข้า" sub="ไฟล์ที่นำเข้าล่าสุดโดยผู้ดูแลระบบ" pad0=${true}>
+    <${Card} title=${t("ประวัติการนำเข้า", "Import history")} sub=${t("ไฟล์ที่นำเข้าล่าสุดโดยผู้ดูแลระบบ", "Files most recently imported by an administrator")} pad0=${true}>
       <${Table} cols=${[
-        {h:"ชื่อไฟล์", render:r=>html`<span class="mono" style=${{fontSize:"12.5px"}}>${r[0]}</span>`},
-        {h:"แหล่งที่มา", render:r=>r[1]},
-        {h:"วันที่อัปโหลด", render:r=>r[2]},
-        {h:"นำเข้าสำเร็จ", render:r=>r[3]+" แถว"},
-        {h:"สถานะ", render:r=>html`<${Badge} tone=${r[4]==="สำเร็จ"?"good":"warn"}>${r[4]}</${Badge}>`},
+        {h:t("ชื่อไฟล์", "File name"), render:r=>html`<span class="mono" style=${{fontSize:"12.5px"}}>${r[0]}</span>`},
+        {h:t("แหล่งที่มา", "Source"), render:r=>r[1]},
+        {h:t("วันที่อัปโหลด", "Uploaded"), render:r=>r[2]},
+        {h:t("นำเข้าสำเร็จ", "Imported"), render:r=>r[3]+t(" แถว", " rows")},
+        {h:t("สถานะ", "Status"), render:r=>html`<${Badge} tone=${r[4]==="สำเร็จ"?"good":"warn"}>${r[4]}</${Badge}>`},
       ]} rows=${imports}/>
     </${Card}>
   </div>`;
@@ -411,12 +413,15 @@ export function Config(){
   // ถูกกำหนดตายตัวใน src/mock/geoData.js (demandGap / gapLevelOf / GAP_REF) และ JSON ถูกสร้างล่วงหน้าโดย gen.mjs
 
   // 1) Map layers (reorderable, toggle, opacity)
+  // ⚠ ความทึบของ 3 ตัวแรกคือค่าที่ "แผนที่ใช้จริง" — อ่านจากสโตร์กลาง ไม่ใช่เลขฝังตายคนละชุด
+  //   (เดิมการ์ดนี้ตั้ง Lead ไว้ 85 แต่แผนที่ใช้ 40 กดบันทึกทีเดียวหมุดจางจะเปลี่ยนเป็นทึบทันที)
+  const _op0 = getLayerOpacity();
   const DEF_LAYERS=[
-    {id:"existing",name:"ลูกค้าปัจจุบัน",color:"#2563eb",on:true,opacity:90},
-    {id:"prospect",name:"Lead",color:"#38bdf8",on:true,opacity:85},
-    {id:"heat",name:"แผนที่ความร้อน (Lead)",color:"#ff5a3c",on:true,opacity:70},
-    {id:"boundary",name:"ขอบเขตบริการ",color:"#34e0d0",on:false,opacity:50},
-    {id:"route",name:"เส้นทางเดินทาง",color:"#8a7bff",on:false,opacity:80},
+    {id:"existing",name:t("ลูกค้าปัจจุบัน", "Existing customers"),color:"#2563eb",on:true,opacity:_op0.existing},
+    {id:"prospect",name:"Lead",color:"#38bdf8",on:true,opacity:_op0.prospect},
+    {id:"heat",name:t("แผนที่ความร้อน (Lead)", "Heatmap (Lead)"),color:"#ff5a3c",on:true,opacity:_op0.heat},
+    {id:"boundary",name:t("ขอบเขตบริการ", "Service boundaries"),color:"#34e0d0",on:false,opacity:50},
+    {id:"route",name:t("เส้นทางเดินทาง", "Travel routes"),color:"#8a7bff",on:false,opacity:80},
   ];
   const [layers,setLayers]=useState(DEF_LAYERS.map(l=>({...l})));
   const [drag,setDrag]=useState(null);
@@ -442,9 +447,9 @@ export function Config(){
   const [xperms,setXperms]=useState(()=>{ const p=getExportPerms(); return EXPORT_ROLES.reduce((a,r)=>{a[r.key]={...p[r.key]};return a;},{}); });
   const toggleXp=(role,fmt)=>setXperms(prev=>{ const next={...prev,[role]:{...prev[role],[fmt]:!prev[role][fmt]}};
     setExportPerms(next);
-    pushAudit({action:"แก้ไขสิทธิ์การส่งออกตามบทบาท", category:"ตั้งค่า",
-      detail:`${(EXPORT_ROLES.find(r=>r.key===role)||{}).label} · ${fmt.toUpperCase()} → ${!prev[role][fmt]?"อนุญาต":"ปิด"}`});
-    toast("อัปเดตสิทธิ์การส่งออกแล้ว","good"); return next; });
+    pushAudit({action:t("แก้ไขสิทธิ์การส่งออกตามบทบาท", "Edited export permissions by role"), category:"ตั้งค่า",
+      detail:`${(EXPORT_ROLES.find(r=>r.key===role)||{}).label} · ${fmt.toUpperCase()} → ${!prev[role][fmt]?t("อนุญาต", "allowed"):t("ปิด", "Close")}`});
+    toast(t("อัปเดตสิทธิ์การส่งออกแล้ว", "Export permissions updated"),"good"); return next; });
 
   const [confirmReset,setConfirmReset]=useState(null);
   // ── ติดตามการแก้ไขรวมทุกการ์ด: เก็บ "ค่าที่บันทึกล่าสุด" ไว้เทียบ เพื่อรู้ว่ามีอะไรค้างยังไม่บันทึก ──
@@ -453,10 +458,14 @@ export function Config(){
   const [savedSnap,setSavedSnap]=useState(()=>snapshot(DEF_LAYERS,DEF_NOTIF));
   const currentSnap=snapshot(layers,notif);
   const dirty=currentSnap!==savedSnap;
-  const saveAll=()=>{ setSavedSnap(currentSnap); toast("บันทึกการตั้งค่าทั้งหมดแล้ว","good"); };
+  const saveAll=()=>{
+    // ความทึบมีผลกับแผนที่ของทุกบทบาททันที (TC/ผู้บริหารปรับเองไม่ได้แล้ว)
+    const op = Object.fromEntries(layers.filter(l=>["existing","prospect","heat"].includes(l.id)).map(l=>[l.id, l.opacity]));
+    setLayerOpacity(op);
+    setSavedSnap(currentSnap); toast(t("บันทึกการตั้งค่าทั้งหมดแล้ว", "All settings saved"),"good"); };
   const cancelAll=()=>{ const s=JSON.parse(savedSnap);
     setLayers(s.เลเยอร์.map(l=>({...l}))); setNotif(s.แจ้งเตือน.map(n=>({...n})));
-    setConfirmReset(null); toast("ยกเลิกการเปลี่ยนแปลงทั้งหมดแล้ว","info"); };
+    setConfirmReset(null); toast(t("ยกเลิกการเปลี่ยนแปลงทั้งหมดแล้ว", "All changes discarded"),"info"); };
 
 
   const Section=(key,icon,title,sub,body,rightBadge)=>html`<div class="card" style=${{padding:0,marginBottom:"16px"}}>
@@ -471,11 +480,11 @@ export function Config(){
 
 
   return html`<div class="page fade-in">
-    <div class="page-head"><div><h1>ตั้งค่าระบบ</h1></div></div>
+    <div class="page-head"><div><h1>${t("ตั้งค่าระบบ", "System settings")}</h1></div></div>
 
 
     <!-- SECTION 1 -->
-    ${Section("layers","layers","การจัดการเลเยอร์","Map Layer Management — เปิด/ปิด, ความทึบ, ลำดับความสำคัญ (ลากเพื่อจัดลำดับ)",
+    ${Section("layers","layers",t("การจัดการเลเยอร์", "Layer management"),t("Map Layer Management — เปิด/ปิด, ความทึบ, ลำดับความสำคัญ (ลากเพื่อจัดลำดับ)", "Map layer management — on/off, opacity, priority (drag to reorder)"),
       // แต่ละเลเยอร์ยุบเหลือบรรทัดเดียว: [ลากจัดลำดับ][สี] ชื่อ [แถบเลื่อน][%][ตัวอย่าง][เปิด/ปิด]
       html`${layers.map((l,i)=>html`<div key=${l.id} draggable=${true}
         onDragStart=${()=>setDrag(i)} onDragOver=${e=>e.preventDefault()} onDrop=${()=>dropAt(i)}
@@ -484,7 +493,7 @@ export function Config(){
         <${Icon} name="grid" size=${15} color="var(--dim)" style=${{flex:"none",cursor:"grab"}}/>
         <span style=${{width:"14px",height:"14px",borderRadius:"50%",flex:"none",background:l.color,opacity:l.on?1:.35}}></span>
         <span class="cfg-layer-nm">${i+1}. ${l.name}</span>
-        <input type="range" min="10" max="100" value=${l.opacity} aria-label=${"ความทึบของ"+l.name}
+        <input type="range" min="10" max="100" value=${l.opacity} aria-label=${t("ความทึบของ", "Opacity of")+l.name}
           onInput=${e=>setLayer(i,{opacity:+e.target.value})} class="cfg-layer-rng"/>
         <span class="mono cfg-layer-pct">${l.opacity}%</span>
         <span class="cfg-layer-prev" style=${{background:`linear-gradient(90deg,transparent,${l.color})`,opacity:l.on?l.opacity/100:.15}}></span>
@@ -493,30 +502,30 @@ export function Config(){
       html`<${Badge} tone="info">${layers.filter(l=>l.on).length}/${layers.length}</${Badge}>`)}
 
     <!-- SECTION 2 -->
-    ${Section("notif","bell","การแจ้งเตือน","เหตุการณ์ที่ระบบจะแจ้ง — ผู้ใช้ปิดของตัวเองได้ที่หน้าโปรไฟล์ แต่เปิดเกินที่ตั้งไว้ตรงนี้ไม่ได้",
+    ${Section("notif","bell",t("การแจ้งเตือน", "Notifications"),t("เหตุการณ์ที่ระบบจะแจ้ง — ผู้ใช้ปิดของตัวเองได้ที่หน้าโปรไฟล์ แต่เปิดเกินที่ตั้งไว้ตรงนี้ไม่ได้", "Events the system will notify about — users can turn theirs off in their profile, but not on beyond what is set here"),
       html`<div class="row" style=${{padding:"0 0 8px",fontSize:"12px",letterSpacing:".5px",color:"var(--dim)",textTransform:"uppercase"}}>
-        <span style=${{flex:1}}>ประเภทการแจ้งเตือน</span><span style=${{width:"130px"}}>ช่องทาง</span><span style=${{width:"110px"}}>ระดับ</span></div>
+        <span style=${{flex:1}}>${t("ประเภทการแจ้งเตือน", "Notification type")}</span><span style=${{width:"130px"}}>${t("ช่องทาง", "Channel")}</span><span style=${{width:"110px"}}>${t("ระดับ", "Priority")}</span></div>
       ${notif.map((n,i)=>html`<div key=${n.key} class="row between" style=${{padding:"10px 0",borderTop:"1px solid var(--stroke)",gap:"12px"}}>
         <div class="row" style=${{gap:"11px",flex:1,minWidth:0}}>
           <${Toggle} on=${n.on} onChange=${v=>setN(i,{on:v})}/>
           <span style=${{fontSize:"13px",opacity:n.on?1:.45}}>${n.label}</span></div>
         <!-- ช่องทางกำหนดตายตัวเป็น "แจ้งเตือนระบบ" จึงแสดงเป็นข้อความ ไม่ใช่ตัวเลือกให้กดเปลี่ยน -->
-        <span style=${{width:"130px",flex:"none",fontSize:"13px",color:"var(--muted)",opacity:n.on?1:.45}}>แจ้งเตือนระบบ</span>
+        <span style=${{width:"130px",flex:"none",fontSize:"13px",color:"var(--muted)",opacity:n.on?1:.45}}>${t("แจ้งเตือนระบบ", "System alert")}</span>
         <select class="input" style=${{width:"110px",padding:"7px 10px",flex:"none"}} value=${n.priority} onChange=${e=>setN(i,{priority:e.target.value})}>
-          <option value="low">ต่ำ</option><option value="medium">กลาง</option><option value="high">สูง</option></select>
+          <option value="low">${t("ต่ำ", "Low")}</option><option value="medium">${t("กลาง", "Medium")}</option><option value="high">${t("สูง", "High")}</option></select>
       </div>`)}
       `,
-      html`<${Badge} tone="info">${notif.filter(n=>n.on).length} เปิด</${Badge}>`)}
+      html`<${Badge} tone="info">${notif.filter(n=>n.on).length} ${t("เปิด", "On")}</${Badge}>`)}
 
 
     <!-- SECTION 3 · สิทธิ์การส่งออกตามบทบาท -->
-    ${Section("perms","download","สิทธิ์การส่งออกตามบทบาท","กำหนดว่าบทบาทใดส่งออกไฟล์ประเภทใดได้ (บันทึกทันที)",
+    ${Section("perms","download",t("สิทธิ์การส่งออกตามบทบาท", "Export permissions by role"),t("กำหนดว่าบทบาทใดส่งออกไฟล์ประเภทใดได้ (บันทึกทันที)", "Decide which roles can export which file types (saved immediately)"),
       html`<div>
         <div class="muted" style=${{fontSize:"12px",lineHeight:1.7,marginBottom:"12px"}}>
-          CSV ใช้ดึงข้อมูลทั้งชุดไปทำเหมืองต่อ — ค่าเริ่มต้นจึงเปิดเฉพาะผู้ดูแลระบบ ·
-          การกำหนดนี้ช่วย "กรอง/ซ่อน" ตัวเลือกบนหน้าจอ ส่วนการบังคับสิทธิ์จริงต้องทำที่เซิร์ฟเวอร์</div>
+          ${t("CSV ใช้ดึงข้อมูลทั้งชุดไปทำเหมืองต่อ — ค่าเริ่มต้นจึงเปิดเฉพาะผู้ดูแลระบบ ·", "CSV pulls the whole dataset out for further mining — so it defaults to administrators only ·")}
+          ${t("การกำหนดนี้ช่วย \"กรอง/ซ่อน\" ตัวเลือกบนหน้าจอ ส่วนการบังคับสิทธิ์จริงต้องทำที่เซิร์ฟเวอร์", "this only filters or hides options on screen — real enforcement must happen on the server")}</div>
         <div class="cfg-perm">
-          <div class="cfg-perm-row cfg-perm-head"><span>บทบาท</span>
+          <div class="cfg-perm-row cfg-perm-head"><span>${t("บทบาท", "Role")}</span>
             ${EXPORT_FORMATS.map(f=>html`<span key=${f.key}>${f.label}</span>`)}</div>
           ${EXPORT_ROLES.map(r=>html`<div key=${r.key} class="cfg-perm-row">
             <span>${r.label}</span>
@@ -538,33 +547,43 @@ export function Config(){
           .cfg-pchk.on{background:var(--accent);border-color:var(--accent)}
         `}</style>
       </div>`,
-      html`<${Badge} tone="neutral">CSV เฉพาะผู้ดูแล</${Badge}>`)}
+      html`<${Badge} tone="neutral">${t("CSV เฉพาะผู้ดูแล", "CSV for administrators only")}</${Badge}>`)}
 
     <!-- แถบบันทึกลอยด้านล่าง — โผล่เฉพาะตอนมีการแก้ไขที่ยังไม่บันทึก และมีผลกับการ์ดเลเยอร์/แจ้งเตือนพร้อมกัน
          เว้นที่ว่างด้านล่างหน้าไว้เท่าความสูงแถบ (cfg-bar-space) เพื่อไม่ให้แถบบังเนื้อหาส่วนท้าย -->
     ${dirty && html`<div class="cfg-bar-space"></div>`}
     ${dirty && html`<div class="cfg-bar">
-      <span class="cfg-bar-note">มีการเปลี่ยนแปลงที่ยังไม่ได้บันทึก</span>
-      <${Btn} variant="ghost" icon="close" onClick=${()=>setConfirmReset("all")}>ยกเลิกการเปลี่ยนแปลง</${Btn}>
-      <${Btn} variant="outline" icon="check" onClick=${saveAll}>บันทึกการตั้งค่าทั้งหมด</${Btn}>
+      <span class="cfg-bar-note">${t("มีการเปลี่ยนแปลงที่ยังไม่ได้บันทึก", "You have unsaved changes")}</span>
+      <${Btn} variant="ghost" icon="close" onClick=${()=>setConfirmReset("all")}>${t("ยกเลิกการเปลี่ยนแปลง", "Discard changes")}</${Btn}>
+      <${Btn} variant="outline" icon="check" onClick=${saveAll}>${t("บันทึกการตั้งค่าทั้งหมด", "Save all settings")}</${Btn}>
     </div>`}
 
-    ${confirmReset && html`<${Modal} title="ยืนยันการยกเลิก" onClose=${()=>setConfirmReset(null)}
-      footer=${html`<${Btn} variant="ghost" onClick=${()=>setConfirmReset(null)}>ปิด</${Btn}>
-        <${Btn} variant="danger" icon="refresh" onClick=${cancelAll}>ยืนยันยกเลิก</${Btn}>`}>
-      <div style=${{fontSize:"13px",lineHeight:1.8}}>ต้องการยกเลิกการเปลี่ยนแปลงทั้งหมดของทุกการ์ด และกลับไปใช้ค่าที่บันทึกไว้ล่าสุดหรือไม่? การเปลี่ยนแปลงที่ยังไม่บันทึกจะหายไป</div>
+    ${confirmReset && html`<${Modal} title=${t("ยืนยันการยกเลิก", "Confirm discard")} onClose=${()=>setConfirmReset(null)}
+      footer=${html`<${Btn} variant="ghost" onClick=${()=>setConfirmReset(null)}>${t("ปิด", "Close")}</${Btn}>
+        <${Btn} variant="danger" icon="refresh" onClick=${cancelAll}>${t("ยืนยันยกเลิก", "Confirm cancellation")}</${Btn}>`}>
+      <div style=${{fontSize:"13px",lineHeight:1.8}}>${t("ต้องการยกเลิกการเปลี่ยนแปลงทั้งหมดของทุกการ์ด และกลับไปใช้ค่าที่บันทึกไว้ล่าสุดหรือไม่? การเปลี่ยนแปลงที่ยังไม่บันทึกจะหายไป", "Discard every change across all cards and go back to the last saved values? Unsaved changes will be lost.")}</div>
     </${Modal}>`}
   </div>`;
 }
 
 /* ================= บันทึกการตรวจสอบ ================= */
-const ACT_TH = {Login:"เข้าสู่ระบบ", Logout:"ออกจากระบบ", Export:"ส่งออก", Sync:"ซิงค์ข้อมูล", "User Activity":"กิจกรรมผู้ใช้"};
+// getter — คีย์เป็นชนิดเหตุการณ์ (ค่าข้อมูล) ส่วนค่าที่คืนคือป้ายบนหน้าจอ
+// ต้องขี้เกียจประเมิน ไม่งั้นค้างเป็นภาษาแรกที่โหลดโมดูล
+const ACT_TH = {
+  get Login(){ return t("เข้าสู่ระบบ","Sign in"); },
+  get Logout(){ return t("ออกจากระบบ","Sign out"); },
+  get Export(){ return t("ส่งออก","Export"); },
+  get Sync(){ return t("ซิงค์ข้อมูล","Data sync"); },
+  get "User Activity"(){ return t("กิจกรรมผู้ใช้","User activity"); } };
 const AUDIT = (()=>{ const acts=[["Login","shield","info"],["Logout","logout","neutral"],["Export","download","warn"],["Sync","refresh","good"],["User Activity","user","info"]];
   // อีเมลต้องตรงกับบัญชีจริงใน SEED_USERS ไม่งั้นเทียบบทบาทไม่ได้ · คละให้ครบทั้ง 3 บทบาท
   const who=["admin@geointel.io","david@geointel.io","management@geointel.io","tc.bkk@geointel.io","tc.cm@geointel.io"];
-  const det={Login:"เข้าสู่ระบบจาก 10.4.2.x",Logout:"สิ้นสุดเซสชัน",Export:"ส่งออกรายงานโอกาส (PDF)",Sync:"ซิงค์ชุดข้อมูล ERP","User Activity":"เปิดดูแดชบอร์ดพื้นที่กรุงเทพ"};
+  // รายละเอียดของ log สาธิต — เป็นฟังก์ชัน เพราะแถวถูกสร้างตอนโหลดโมดูล (detail ต้องอ่านตอนเรนเดอร์)
+  const det={Login:()=>t("เข้าสู่ระบบจาก 10.4.2.x","Signed in from 10.4.2.x"), Logout:()=>t("สิ้นสุดเซสชัน","Session ended"),
+    Export:()=>t("ส่งออกรายงานโอกาส (PDF)","Exported the opportunity report (PDF)"), Sync:()=>t("ซิงค์ชุดข้อมูล ERP","Synced the ERP dataset"),
+    "User Activity":()=>t("เปิดดูแดชบอร์ดพื้นที่กรุงเทพ","Opened the Bangkok area dashboard")};
   const rows=[]; for(let i=0;i<40;i++){ const a=acts[i%acts.length]; const h=String(9-(i%9)).padStart(2,"0");
-    rows.push({time:`2026-07-11 ${h}:${String((i*7)%60).padStart(2,"0")}`,type:a[0],icon:a[1],tone:a[2],user:who[i%who.length],detail:det[a[0]]}); }
+    rows.push({time:`2026-07-11 ${h}:${String((i*7)%60).padStart(2,"0")}`,type:a[0],icon:a[1],tone:a[2],user:who[i%who.length], get detail(){ return det[a[0]](); }}); }
   return rows; })();
 /* อีเมล → บทบาท (จากบัญชีผู้ใช้ในระบบ) — ใช้ทั้งตัวกรองบทบาทและป้ายใต้ชื่อผู้ใช้ */
 const ROLE_OF_EMAIL = Object.fromEntries(SEED_USERS.map(u=>[u.email, u.role]));
@@ -587,30 +606,30 @@ export function Audit(){
   const pageRows=rows.slice((pg-1)*AU_PAGE, pg*AU_PAGE);
   const reset = fn => v => { setPage(1); fn(v); };   // เปลี่ยนตัวกรองแล้วกลับไปหน้าแรกเสมอ
   return html`<div class="page fade-in">
-    <div class="page-head"><div><h1>บันทึกการตรวจสอบ</h1></div></div>
+    <div class="page-head"><div><h1>${t("บันทึกการตรวจสอบ", "Audit log")}</h1></div></div>
     <div class="row wrap" style=${{gap:"10px",marginBottom:"16px"}}>
-      <div class="searchbox"><${Icon} name="search" size=${15}/><input placeholder="ค้นหาผู้ใช้หรือการกระทำ…" value=${q} onInput=${e=>{setPage(1);setQ(e.target.value);}}/></div>
+      <div class="searchbox"><${Icon} name="search" size=${15}/><input placeholder=${t("ค้นหาผู้ใช้หรือการกระทำ…", "Search users or actions…")} value=${q} onInput=${e=>{setPage(1);setQ(e.target.value);}}/></div>
       <div style=${{width:"190px",flex:"none"}}>
         <${Dropdown} value=${type} onChange=${reset(setType)}
-          options=${[["All","ทุกการกระทำ"], ...["Login","Logout","Export","Sync","User Activity"].map(t=>[t,ACT_TH[t]])]}/></div>
+          options=${[["All",t("ทุกการกระทำ", "All actions")], ...["Login","Logout","Export","Sync","User Activity"].map(t=>[t,ACT_TH[t]])]}/></div>
       <div style=${{width:"210px",flex:"none"}}>
         <${Dropdown} value=${roleF} onChange=${reset(setRoleF)}
-          options=${[["All","ทุกบทบาท"],["Administrator","ผู้ดูแลระบบ"],["Management","ผู้บริหาร"],["Trade Coordinator","ผู้ประสานงานการค้า (TC)"]]}/></div>
-      <${Badge} tone="neutral">${rows.length} รายการ</${Badge}>
+          options=${[["All",t("ทุกบทบาท", "All roles")],["Administrator",t("ผู้ดูแลระบบ", "System Administrator")],["Management",t("ผู้บริหาร", "Management")],["Trade Coordinator",t("ผู้ประสานงานการค้า (TC)", "Trade Coordinator (TC)")]]}/></div>
+      <${Badge} tone="neutral">${rows.length} ${t("รายการ", "records")}</${Badge}>
     </div>
     <${Card} pad0=${true}>
       <${Table} cols=${[
-        {h:"เวลา", w:"190px", render:r=>html`<span style=${{fontSize:"12.5px",color:"var(--muted)"}}>${thDateTime(r.time)}</span>`},
-        {h:"การกระทำ", render:r=>html`<span class="row" style=${{gap:"8px"}}><${Icon} name=${r.icon} size=${15} color="var(--muted)"/>
+        {h:t("เวลา", "Time"), w:"190px", render:r=>html`<span style=${{fontSize:"12.5px",color:"var(--muted)"}}>${thDateTime(r.time)}</span>`},
+        {h:t("การกระทำ", "Action"), render:r=>html`<span class="row" style=${{gap:"8px"}}><${Icon} name=${r.icon} size=${15} color="var(--muted)"/>
           <${Badge} tone=${r.tone}>${r.label||ACT_TH[r.type]||r.type}</${Badge}></span>`},
-        {h:"ผู้ใช้", w:"250px", render:r=>html`<div><div>${r.user}</div>
-          <div class="dim" style=${{fontSize:"11.5px",marginTop:"1px"}}>${roleTH(ROLE_OF_EMAIL[r.user])||"ระบบ"}</div></div>`},
-        {h:"รายละเอียด", render:r=>html`<span class="muted">${r.detail}</span>`},
+        {h:t("ผู้ใช้", "User"), w:"250px", render:r=>html`<div><div>${r.user}</div>
+          <div class="dim" style=${{fontSize:"11.5px",marginTop:"1px"}}>${roleTH(ROLE_OF_EMAIL[r.user])||t("ระบบ","System")}</div></div>`},
+        {h:t("รายละเอียด", "Details"), render:r=>html`<span class="muted">${r.detail}</span>`},
       ]} rows=${pageRows}/>
     </${Card}>
 
     ${pages>1 ? html`<div class="pager">
-      <span class="dim">แสดง ${(pg-1)*AU_PAGE+1}–${Math.min(pg*AU_PAGE, rows.length)} จาก ${num(rows.length)} รายการ</span>
+      <span class="dim">${t("แสดง", "Showing")} ${(pg-1)*AU_PAGE+1}–${Math.min(pg*AU_PAGE, rows.length)} ${t("จาก", "of")} ${num(rows.length)} ${t("รายการ", "records")}</span>
       <div class="row" style=${{gap:"6px"}}>
         <button class="pager-b" disabled=${pg<=1} onClick=${()=>setPage(pg-1)}>‹</button>
         ${Array.from({length:pages},(_,i)=>i+1).map(k=>html`<button key=${k}
@@ -643,26 +662,26 @@ export function Monitoring({defaultTab}={}){
   const custs=db.customers||[], pros=db.prospects||[], areas=db.areas||[];
   const v = useMemo(()=>calcView(custs,pros,areas,range), [custs,pros,areas,range]);
 
-  if(!db.customers) return html`<div class="page"><div class="emptybox">กำลังโหลดข้อมูลธุรกิจ…</div></div>`;
+  if(!db.customers) return html`<div class="page"><div class="emptybox">${t("กำลังโหลดข้อมูลธุรกิจ…", "Loading business data…")}</div></div>`;
   const dtab = _isMgmt ? "business" : tab;   // ผู้บริหารบังคับเป็นภาพรวมธุรกิจเสมอ
   // แอดมิน: แดชบอร์ด = "สภาพระบบ" อย่างเดียว (ไม่มีแถบแท็บสลับ) · ผู้บริหาร: "ภาพรวมธุรกิจ" อย่างเดียว
-  const DASH_TABS = _isMgmt ? [{value:"business",label:"ภาพรวมธุรกิจ"}]
-    : [{value:"health",label:"สภาพระบบ"}];
+  const DASH_TABS = _isMgmt ? [{value:"business",label:t("ภาพรวมธุรกิจ", "Business overview")}]
+    : [{value:"health",label:t("สภาพระบบ", "System health")}];
 
   // ── ส่งออกรายงานภาพรวมธุรกิจ (ใช้ป็อปอัพเดียวกับหน้ารายงาน · สิทธิ์ตามบทบาท) ──
-  const _role = (user&&user.role)||"Administrator", _uname=(user&&user.name)||"ผู้ดูแลระบบ";
-  const _ROLE_TH={Administrator:"ผู้ดูแลระบบ",Management:"ผู้บริหาร","Trade Coordinator":"ผู้ประสานงานการค้า"};
-  const exportScope = { areaName:"ทั้งประเทศ", areaLabel:"ทั้งประเทศ", segLabel:"ทั้งหมด",
-    dateLabel:(range==="all"?"ทั้งหมด":v.rangeText), counts:{existing:v.fCusts.length, prospect:v.fPros.length} };
+  const _role = (user&&user.role)||"Administrator", _uname=(user&&user.name)||t("ผู้ดูแลระบบ","System Administrator");
+  const _ROLE_TH={Administrator:t("ผู้ดูแลระบบ", "System Administrator"),Management:t("ผู้บริหาร", "Management"),"Trade Coordinator":t("ผู้ประสานงานการค้า", "Trade Coordinator")};
+  const exportScope = { areaName:t("ทั้งประเทศ", "Nationwide"), areaLabel:t("ทั้งประเทศ", "Nationwide"), segLabel:t("ทั้งหมด", "All"),
+    dateLabel:(range==="all"?t("ทั้งหมด", "All"):v.rangeText), counts:{existing:v.fCusts.length, prospect:v.fPros.length} };
   const buildExportRows = o=>{ const ds=o.dataSel||"both";
-    const rows=[["รายงานภาพรวมธุรกิจ (GeoIntel)"],["จัดทำเมื่อ", beD(v.ref)],[]];
-    rows.push(["ขอบเขตข้อมูลที่ส่งออก"]); rows.push(["พื้นที่","ทั้งประเทศ"]); rows.push(["ช่วงเวลา", range==="all"?"ทั้งหมด":v.rangeText]);
-    rows.push(["ข้อมูลที่ส่งออก", ds==="existing"?"ลูกค้าปัจจุบันอย่างเดียว":ds==="prospect"?"Lead อย่างเดียว":"ทั้งลูกค้าและ Lead"]); rows.push([]);
-    rows.push(["ตัวชี้วัด","ค่า"]);
-    if(ds!=="prospect") rows.push(["ลูกค้าปัจจุบัน", v.fCusts.length]);
+    const rows=[[t("รายงานภาพรวมธุรกิจ (GeoIntel)", "Business overview report (GeoIntel)")],[t("จัดทำเมื่อ", "Prepared on"), beD(v.ref)],[]];
+    rows.push([t("ขอบเขตข้อมูลที่ส่งออก", "Scope of the export")]); rows.push([t("พื้นที่", "Area"),t("ทั้งประเทศ", "Nationwide")]); rows.push([t("ช่วงเวลา", "Period"), range==="all"?t("ทั้งหมด", "All"):v.rangeText]);
+    rows.push([t("ข้อมูลที่ส่งออก", "Data exported"), ds==="existing"?t("ลูกค้าปัจจุบันอย่างเดียว", "Existing customers only"):ds==="prospect"?t("Lead อย่างเดียว", "Leads only"):t("ทั้งลูกค้าและ Lead", "Both customers and Leads")]); rows.push([]);
+    rows.push([t("ตัวชี้วัด", "Metric"),t("ค่า", "Value")]);
+    if(ds!=="prospect") rows.push([t("ลูกค้าปัจจุบัน", "Existing customers"), v.fCusts.length]);
     if(ds!=="existing") rows.push(["Lead", v.fPros.length]);
-    rows.push(["จังหวัดที่มีลูกค้า", v.provincesWithCust], ["ดัชนี Lead เฉลี่ย", v.avgOpp]);
-    rows.push([],["จังหวัดที่มีลูกค้าสูงสุด"]);
+    rows.push([t("จังหวัดที่มีลูกค้า", "Provinces with customers"), v.provincesWithCust], [t("ดัชนี Lead เฉลี่ย", "Average Lead index"), v.avgOpp]);
+    rows.push([],[t("จังหวัดที่มีลูกค้าสูงสุด", "Provinces with the most customers")]);
     (v.topByCust||[]).forEach(t=>rows.push([t.label, t.value]));
     return rows; };
   const doExport = ({format, filename, opts, dataSel, count, scope})=>{
@@ -670,13 +689,13 @@ export function Monitoring({defaultTab}={}){
     const fmtLabel={pdf:"PDF",excel:"Excel",csv:"CSV"}[format]||format;
     const scopeStr=`${scope.areaLabel} · ${scope.segLabel} · ${scope.dateLabel}`;
     if(!canExport(_role, format)){   // TODO(server): ต้องบังคับด่านนี้ที่เซิร์ฟเวอร์จริง — ฝั่ง client เป็นชั้นเสริม
-      pushAudit({user:_uname, action:"ส่งออกรายงานถูกปฏิเสธ", category:"ส่งออก", detail:`บทบาท ${_ROLE_TH[_role]||_role} ไม่มีสิทธิ์ส่งออก ${fmtLabel} · ${scopeStr} · ${num(count||0)} รายการ`});
-      toast(`บทบาทของคุณไม่มีสิทธิ์ส่งออกไฟล์ ${fmtLabel}`,"bad"); setExportOpen(false); return; }
+      pushAudit({user:_uname, action:t("ส่งออกรายงานถูกปฏิเสธ", "Report export refused"), category:"ส่งออก", detail:`${t("บทบาท", "Role")} ${_ROLE_TH[_role]||_role} ${t("ไม่มีสิทธิ์ส่งออก", "No export permission")} ${fmtLabel} · ${scopeStr} · ${num(count||0)} ${t("รายการ", "records")}`});
+      toast(`${t("บทบาทของคุณไม่มีสิทธิ์ส่งออกไฟล์", "Your role cannot export files")} ${fmtLabel}`,"bad"); setExportOpen(false); return; }
     const rows=buildExportRows({...opts, dataSel}); setExportOpen(false);
-    if(format==="csv"){ downloadCSV(name+".csv", rows); toast("ส่งออกไฟล์ CSV แล้ว","good"); }
-    else if(format==="excel"){ downloadXLS(name+".xls", rows); toast("ส่งออกไฟล์ Excel แล้ว","good"); }
-    else { toast("กำลังเตรียมไฟล์ PDF…","info"); setTimeout(()=>window.print(),350); }
-    pushAudit({user:_uname, action:"ส่งออกรายงาน", category:"ส่งออก", detail:`${fmtLabel} · ${name} · ${scopeStr} · ${num(count||0)} รายการ`});
+    if(format==="csv"){ downloadCSV(name+".csv", rows); toast(t("ส่งออกไฟล์ CSV แล้ว", "CSV file exported"),"good"); }
+    else if(format==="excel"){ downloadXLS(name+".xls", rows); toast(t("ส่งออกไฟล์ Excel แล้ว", "Excel file exported"),"good"); }
+    else { toast(t("กำลังเตรียมไฟล์ PDF…", "Preparing the PDF…"),"info"); setTimeout(()=>window.print(),350); }
+    pushAudit({user:_uname, action:t("ส่งออกรายงาน", "Export report"), category:"ส่งออก", detail:`${fmtLabel} · ${name} · ${scopeStr} · ${num(count||0)} ${t("รายการ", "records")}`});
   };
 
   // ═══════════ แดชบอร์ดผู้บริหาร (ออกแบบใหม่) — เน้นเปรียบเทียบระหว่างจังหวัด + สิ่งที่พบจากข้อมูล ═══════════
@@ -701,12 +720,12 @@ export function Monitoring({defaultTab}={}){
   const catCusts = custs.filter(_cat), catPros = pros.filter(_cat);          // กรองพื้นที่/หมวด (ไม่รวมเวลา) → กราฟอนุกรมเวลา
   const fCusts = catCusts.filter(_inWin), fPros = catPros.filter(_inWin);    // กรองครบทุกมิติ → KPI/สัดส่วน/ตาราง
   const rangeText = customDate
-    ? ((fFrom?beD(Date.parse(fFrom+"T00:00:00Z")):"เริ่มแรก")+" – "+(fTo?beD(Date.parse(fTo+"T00:00:00Z")):beD(REF)))
-    : (win ? beD(win.from)+" – "+beD(win.to) : "ข้อมูลทั้งหมดในระบบ · ล่าสุด "+beD(REF));
+    ? ((fFrom?beD(Date.parse(fFrom+"T00:00:00Z")):t("เริ่มแรก", "Start"))+" – "+(fTo?beD(Date.parse(fTo+"T00:00:00Z")):beD(REF)))
+    : (win ? beD(win.from)+" – "+beD(win.to) : t("ข้อมูลทั้งหมดในระบบ · ล่าสุด ", "All data in the system · latest ")+beD(REF));
   // ── ระดับการเจาะลึก (drill-down): ประเทศ → จังหวัด → อำเภอ ตามตัวกรอง fProv/fDist ──
   const level = fDist!=="all" ? "district" : fProv!=="all" ? "province" : "country";
   const unitKey  = level==="country" ? "province" : level==="province" ? "district" : "segment";
-  const unitNoun = level==="country" ? "จังหวัด"   : level==="province" ? "อำเภอ"     : "หมวดธุรกิจ";
+  const unitNoun = level==="country" ? t("จังหวัด", "Province")   : level==="province" ? t("อำเภอ", "District")     : t("หมวดธุรกิจ", "Business category");
   const unitLabelOf = u => unitKey==="province" ? provinceTH(u) : unitKey==="district" ? (DISTRICT_TH[u]||u) : segTH(u);
   const scopeTH = level==="country" ? "" : level==="district" ? (DISTRICT_TH[fDist]||fDist) : provinceTH(fProv);   // ชื่อขอบเขตที่เจาะอยู่
   // จัดกลุ่มตาม "หน่วยเปรียบเทียบ" ของระดับปัจจุบัน (แทน ranked เดิมที่เป็นรายจังหวัดเสมอ)
@@ -726,8 +745,8 @@ export function Monitoring({defaultTab}={}){
   const avgShare = provShare.length?Math.round(provShare.reduce((s,p)=>s+p.share,0)/provShare.length):0;
   const lowProv = provShare.length?provShare[provShare.length-1]:null;
   const shareTakeaway = lowProv && lowProv.share<avgShare
-    ? `${lowProv.label} สัดส่วนลูกค้า ${lowProv.share}% ต่ำกว่าค่าเฉลี่ย ${avgShare}% — เร่งเปลี่ยน Lead เป็นลูกค้าในพื้นที่นี้`
-    : `ทุก${unitNoun}มีสัดส่วนลูกค้าใกล้เคียงค่าเฉลี่ย`;
+    ? `${lowProv.label} ${t("สัดส่วนลูกค้า", "customer share")} ${lowProv.share}${t("% ต่ำกว่าค่าเฉลี่ย", "% is below the average")} ${avgShare}${t("% — เร่งเปลี่ยน Lead เป็นลูกค้าในพื้นที่นี้", "% — push to convert Leads into customers here")}`
+    : `${t("ทุก", "All ")}${unitNoun}${t("มีสัดส่วนลูกค้าใกล้เคียงค่าเฉลี่ย", " have a customer share close to the average")}`;
   const avgCustPerUnit = ranked.length ? Math.round(ranked.reduce((s,a)=>s+a.customerCount,0)/ranked.length) : 0;
 
   // ── breadcrumb (drill-down) · อันดับหน่วยปัจจุบันเทียบพี่น้องในขอบเขตแม่ + ค่าเฉลี่ยแม่ ──
@@ -745,10 +764,10 @@ export function Monitoring({defaultTab}={}){
   let bc = null;
   if(level==="province"){
     const r=_rankAmong(o=>o.province, fProv, o=>(fSeg==="all"||o.segment===fSeg)&&_inWin(o));
-    bc={ unitTH:provinceTH(fProv), parentTH:"ทั้งประเทศ", ...r, diff:r.share-r.avg };
+    bc={ unitTH:provinceTH(fProv), parentTH:t("ทั้งประเทศ", "Nationwide"), ...r, diff:r.share-r.avg };
   } else if(level==="district"){
     const r=_rankAmong(o=>o.district, fDist, o=>o.province===fProv&&(fSeg==="all"||o.segment===fSeg)&&_inWin(o));
-    bc={ unitTH:DISTRICT_TH[fDist]||fDist, parentTH:"จังหวัด"+provinceTH(fProv), ...r, diff:r.share-r.avg };
+    bc={ unitTH:DISTRICT_TH[fDist]||fDist, parentTH:t("จังหวัด", "Province")+provinceTH(fProv), ...r, diff:r.share-r.avg };
   }
 
   // แถว 2 ซ้าย · แนวโน้มการเพิ่มลูกค้า/Lead 6 เดือน (จากวันที่ในระเบียนจริง)
@@ -765,7 +784,7 @@ export function Monitoring({defaultTab}={}){
   const _kprev = {from: _kwin.from-(_kwin.to-_kwin.from+DAY), to: _kwin.from-DAY};
   const _cnt=(arr,w)=>arr.filter(o=>{const t=Date.parse(o.created_at); return t>=w.from&&t<=w.to;}).length;
   const _grow=arr=>{ const cur=_cnt(arr,_kwin), prv=_cnt(arr,_kprev);
-    if(!prv) return {plain:true, txt: cur>0?"ไม่มีช่วงก่อนให้เทียบ":"ไม่มีข้อมูลในช่วงนี้"};
+    if(!prv) return {plain:true, txt: cur>0?t("ไม่มีช่วงก่อนให้เทียบ", "No earlier period to compare"):t("ไม่มีข้อมูลในช่วงนี้", "No data in this period")};
     const g=(cur-prv)/prv*100; return {up:g>=0, txt:(g>=0?"+":"")+g.toFixed(1)+"%", plain:false}; };
   const custTrend=_grow(catCusts), leadTrend=_grow(catPros);
   // หมายเหตุ: ไม่แสดง "อัตราการเปลี่ยนเป็นลูกค้า" เป็นการเปลี่ยนแปลงเทียบช่วงก่อน เพราะค่าจะลดลงเมื่อนำเข้า Lead เพิ่ม
@@ -773,7 +792,7 @@ export function Monitoring({defaultTab}={}){
   // การ์ดแสดงแนวโน้ม ▲/▼ ใต้ตัวเลข KPI
   const kpiTrend = d => d.plain
     ? html`<div class="mg-kpi-d flat">— ${d.txt}</div>`
-    : html`<div class=${"mg-kpi-d "+(d.up?"up":"down")}>${d.up?"▲":"▼"} ${d.txt}<span>จากช่วงก่อน</span></div>`;
+    : html`<div class=${"mg-kpi-d "+(d.up?"up":"down")}>${d.up?"▲":"▼"} ${d.txt}<span>${t("จากช่วงก่อน", "vs. the previous period")}</span></div>`;
   // ── การ์ด KPI (อ่านจบใน 3 วิ): ตัวเลขหลัก + การเปลี่ยนแปลง(ลูกศร) + สี ──
   const _delta = arr => { const cur=_cnt(arr,_kwin), prv=_cnt(arr,_kprev); return (cur||prv) ? cur-prv : null; };  // การเปลี่ยนแปลงจำนวน · null=ไม่มีข้อมูลเทียบ
   const custDelta=_delta(catCusts), leadDelta=_delta(catPros);
@@ -819,23 +838,23 @@ export function Monitoring({defaultTab}={}){
     : [];
 
   // แถว 3 ขวา · สิ่งที่พบจากข้อมูล (rule-based · คำนวณจากข้อมูล ณ วันล่าสุด)
-  const asOf = "คำนวณจากข้อมูล ณ "+beD(REF);
+  const asOf = t("คำนวณจากข้อมูล ณ ", "Computed from data as at ")+beD(REF);
   const scopeGap = demandGap(fCusts, fPros, level==="district"?GAP_REF.district:level==="province"?GAP_REF.province:GAP_REF.country);
   const topGain = gainers[0], topLose = losers[0];
   // แต่ละประเด็นมีสีประจำ (ต่างชนิดงาน/ความสำคัญ): แดง=ปัญหาเร่งด่วน · อำพัน=โอกาสต้องรีบทำ · เขียว=เชิงบวก · ม่วง=ขาลงต้องตรวจสอบ · น้ำเงิน=โอกาสขยายฐาน
   const actions = [];
   if(lowProv && lowProv.share<avgShare) actions.push({icon:"gap",tone:"bad",color:"#e60023",
-    title:`${lowProv.label} · สัดส่วนลูกค้าต่ำกว่าค่าเฉลี่ย`,
-    body:`Lead ${num(lowProv.lead)} ราย เป็นลูกค้าแล้ว ${num(lowProv.cust)} ราย (${lowProv.share}%) — ต่ำกว่าค่าเฉลี่ย ${avgShare}%`});
+    title:`${lowProv.label} ${t("· สัดส่วนลูกค้าต่ำกว่าค่าเฉลี่ย", "· customer share below average")}`,
+    body:`Lead ${num(lowProv.lead)} ${t("ราย เป็นลูกค้าแล้ว", "businesses, of which")} ${num(lowProv.cust)} ${t("ราย (", "are customers (")}${lowProv.share}${t("%) — ต่ำกว่าค่าเฉลี่ย", "%) — below the average")} ${avgShare}%`});
   if(scopeGap.gapCount) actions.push({icon:"target",tone:"warn",color:"#f59e0b",
-    title:`Lead${GAP_TH[scopeGap.gapLevel]} · ดัชนี ${scopeGap.gapScore}`,
-    body:`ยังขาดสมาชิกเครือข่าย ${num(scopeGap.gapCount)} ราย ใน ${scopeGap.gapBreadth} หมวด — หมวดที่ขาดมากสุดคือ${scopeGap.topGapSegment?segTH(scopeGap.topGapSegment):"—"}`});
-  if(topGain) actions.push({icon:"trend",tone:"good",color:"#16a34a", title:`หมวด${topGain.label} กำลังเติบโต`,
-    body:`ลูกค้าใหม่ ${num(topGain.cur)} ราย ใน 90 วันล่าสุด (+${num(topGain.delta)} จากช่วงก่อน)`});
-  if(topLose) actions.push({icon:"trend",tone:"bad",color:"#7c3aed", title:`หมวด${topLose.label} ชะลอตัว`,
-    body:`ลูกค้าใหม่ลดลง ${num(Math.abs(topLose.delta))} ราย เทียบช่วง 90 วันก่อนหน้า — ตรวจสอบสาเหตุ`});
-  if(unpen.length) actions.push({icon:"bolt",tone:"info",color:"#3b82f6", title:`หมวด${unpen[0].label} ยังไม่ถูกเจาะ`,
-    body:`มี Lead ${num(unpen[0].value)} ราย แต่สัดส่วนที่เป็นลูกค้ายังต่ำ — โอกาสขยายฐาน`});
+    title:`Lead${gapTH(scopeGap.gapLevel)} ${t("· ดัชนี", "· index")} ${scopeGap.gapScore}`,
+    body:`${t("ยังขาดสมาชิกเครือข่าย", "Network still short by")} ${num(scopeGap.gapCount)} ${t("ราย ใน", "businesses across")} ${scopeGap.gapBreadth} ${t("หมวด — หมวดที่ขาดมากสุดคือ", "categories — the biggest gap is ")}${scopeGap.topGapSegment?segTH(scopeGap.topGapSegment):"—"}`});
+  if(topGain) actions.push({icon:"trend",tone:"good",color:"#16a34a", title:`${t("หมวด", "categories ")}${topGain.label} ${t("กำลังเติบโต", "is growing")}`,
+    body:`${t("ลูกค้าใหม่", "New customers")} ${num(topGain.cur)} ${t("ราย ใน 90 วันล่าสุด (+", "in the last 90 days (+")}${num(topGain.delta)} ${t("จากช่วงก่อน)", "vs. the previous period)")}`});
+  if(topLose) actions.push({icon:"trend",tone:"bad",color:"#7c3aed", title:`${t("หมวด", "categories ")}${topLose.label} ${t("ชะลอตัว", "is slowing")}`,
+    body:`${t("ลูกค้าใหม่ลดลง", "New customers down by")} ${num(Math.abs(topLose.delta))} ${t("ราย เทียบช่วง 90 วันก่อนหน้า — ตรวจสอบสาเหตุ", "vs. the previous 90 days — worth investigating")}`});
+  if(unpen.length) actions.push({icon:"bolt",tone:"info",color:"#3b82f6", title:`${t("หมวด", "categories ")}${unpen[0].label} ${t("ยังไม่ถูกเจาะ", "is untapped")}`,
+    body:`${t("มี Lead", "has")} ${num(unpen[0].value)} ${t("ราย แต่สัดส่วนที่เป็นลูกค้ายังต่ำ — โอกาสขยายฐาน", "Leads but a low customer share — room to grow")}`});
   const actionTone = t => t==="bad"?"var(--accent)":t==="warn"?"#f0a022":t==="good"?"#33d69f":"#2f7fe0";
 
   // ═══════════ แท็บ "สภาพระบบ" — สุขภาพข้อมูล/การใช้งาน (ทุกตัวเลขจากข้อมูลจริงในระบบ) ═══════════
@@ -845,19 +864,19 @@ export function Monitoring({defaultTab}={}){
   const pctOf = f => totRec? Math.round(RECS.filter(f).length/totRec*100):0;
   // ความสมบูรณ์รายฟิลด์ — วัดเฉพาะ 4 ฟิลด์จริงที่ลูกค้ามี (ชื่อธุรกิจ · หมวดหมู่ · ที่อยู่ · อีเมล) + พิกัด (ต่ำกว่า 70% = แดง)
   const fieldBars = [
-    {label:"พิกัด",        value:pctOf(okCoord),        color: pctOf(okCoord)<70?"#ff5a3c":"#33d69f"},
-    {label:"หมวดธุรกิจ",   value:pctOf(r=>!!r.segment), color: pctOf(r=>!!r.segment)<70?"#ff5a3c":"#33d69f"},
-    {label:"ชื่อธุรกิจ",   value:pctOf(r=>!!r.businessName), color:"#33d69f"},
-    {label:"ที่อยู่",       value:pctOf(r=>!!r.address), color: pctOf(r=>!!r.address)<70?"#ff5a3c":"#33d69f"},
-    {label:"อีเมล",        value:pctOf(r=>!!r.email), color: pctOf(r=>!!r.email)<70?"#ff5a3c":"#ffb02e"},
+    {label:t("พิกัด", "Coordinates"),        value:pctOf(okCoord),        color: pctOf(okCoord)<70?"#ff5a3c":"#33d69f"},
+    {label:t("หมวดธุรกิจ", "Business category"),   value:pctOf(r=>!!r.segment), color: pctOf(r=>!!r.segment)<70?"#ff5a3c":"#33d69f"},
+    {label:t("ชื่อธุรกิจ", "Business name"),   value:pctOf(r=>!!r.businessName), color:"#33d69f"},
+    {label:t("ที่อยู่", "Address"),       value:pctOf(r=>!!r.address), color: pctOf(r=>!!r.address)<70?"#ff5a3c":"#33d69f"},
+    {label:t("อีเมล", "Email"),        value:pctOf(r=>!!r.email), color: pctOf(r=>!!r.email)<70?"#ff5a3c":"#ffb02e"},
   ];
   // คุณภาพข้อมูล (donut): ครบถ้วน / ควรตรวจสอบ / ไม่ครบ
   const cComplete = RECS.filter(r=>isComplete(r) && !!r.email).length;
   const cReview   = RECS.filter(r=>isComplete(r) && !r.email).length;
   const cIncomp   = totRec - cComplete - cReview;
   const qualityDonut = [
-    {label:"ครบถ้วน", value:cComplete, color:"#33d69f"},
-    {label:"ควรตรวจสอบ", value:cReview+cIncomp, color:"#ffb02e"},
+    {label:t("ครบถ้วน", "Complete"), value:cComplete, color:"#33d69f"},
+    {label:t("ควรตรวจสอบ", "Needs review"), value:cReview+cIncomp, color:"#ffb02e"},
   ].filter(x=>x.value>0);
   const qualityPct = totRec? Math.round(cComplete/totRec*100):0;
   // สัดส่วนหมวดธุรกิจของทั้งชุดข้อมูล — โชว์ 5 หมวดใหญ่ ที่เหลือยุบเป็น "อื่น ๆ" ไม่ให้ legend ยาวเกิน
@@ -865,7 +884,7 @@ export function Monitoring({defaultTab}={}){
     .filter(x=>x.value>0).sort((a,b)=>b.value-a.value);
   const segTop = segCount.slice(0,5).map(x=>({label:segTH(x.sg), value:x.value}));
   const segRest = segCount.slice(5).reduce((a,x)=>a+x.value,0);
-  const segDonut = segRest>0 ? [...segTop, {label:"อื่น ๆ", value:segRest}] : segTop;
+  const segDonut = segRest>0 ? [...segTop, {label:t("อื่น ๆ", "Other"), value:segRest}] : segTop;
   // งานที่รอดำเนินการ (ซ่อนแถวที่นับได้ 0)
   const nIncomplete = RECS.filter(r=>!isComplete(r)).length;
   const nBadCoord   = RECS.filter(r=>!okCoord(r)).length;
@@ -873,10 +892,10 @@ export function Monitoring({defaultTab}={}){
   const nLeadReview = _leads.filter(l=>l.status==="review").length;
   const nLeadDup    = _leads.filter(l=>l.status==="dup").length;
   const healthTasks = [
-    {icon:"target",label:"Lead · รอตรวจสอบ",              count:nLeadReview, tone:"warn", goLeads:true},
-    {icon:"users", label:"ข้อมูลซ้ำ · รอจัดการ",           count:nLeadDup,    tone:"bad",  goLeads:true},
-    {icon:"edit",  label:"ข้อมูลไม่สมบูรณ์ · รอแก้ไข",       count:nIncomplete, tone:"warn"},
-    {icon:"pin",   label:"พิกัดไม่ถูกต้อง · รอตรวจสอบ",       count:nBadCoord,   tone:"bad"},
+    {icon:"target",label:t("Lead · รอตรวจสอบ", "Leads · awaiting review"),              count:nLeadReview, tone:"warn", goLeads:true},
+    {icon:"users", label:t("ข้อมูลซ้ำ · รอจัดการ", "Duplicates · awaiting action"),           count:nLeadDup,    tone:"bad",  goLeads:true},
+    {icon:"edit",  label:t("ข้อมูลไม่สมบูรณ์ · รอแก้ไข", "Incomplete records · awaiting fixes"),       count:nIncomplete, tone:"warn"},
+    {icon:"pin",   label:t("พิกัดไม่ถูกต้อง · รอตรวจสอบ", "Bad coordinates · awaiting review"),       count:nBadCoord,   tone:"bad"},
   ].filter(t=>t.count>0);
   // ปริมาณข้อมูลที่เพิ่มเข้าระบบรายเดือน (6 เดือน)
   const hAll = allMon.slice(-6);
@@ -888,9 +907,9 @@ export function Monitoring({defaultTab}={}){
 
   return html`<div class="page fade-in">
     <div class="page-head">
-      <div><h1>แดชบอร์ด</h1></div>
+      <div><h1>${t("แดชบอร์ด", "Dashboard")}</h1></div>
       <div class="ph-right" style=${{gap:"10px"}}>
-        ${dtab==="business" ? html`<${Btn} variant="outline" icon="download" onClick=${()=>setExportOpen(true)}>ส่งออกรายงาน</${Btn}>`:""}
+        ${dtab==="business" ? html`<${Btn} variant="outline" icon="download" onClick=${()=>setExportOpen(true)}>${t("ส่งออกรายงาน", "Export report")}</${Btn}>`:""}
       </div>
     </div>
     ${exportOpen && html`<${ExportDialog} scope=${exportScope} role=${_role}
@@ -904,76 +923,76 @@ export function Monitoring({defaultTab}={}){
     <div class="tf-bar">
       <!-- ตัวกรอง: จังหวัด · อำเภอ · หมวดธุรกิจ · ช่วงเวลาด่วน (dropdown แถวเดียวแบบ TC) · ปฏิทินเลือกวันเอง -->
       <div class="mgf-row">
-        <div class="mgf-f mgf-dd"><span>จังหวัด</span>
+        <div class="mgf-f mgf-dd"><span>${t("จังหวัด", "Province")}</span>
           <${Dropdown} value=${fProv} onChange=${v=>{ setFProv(v); setFDist("all"); }}
-            options=${[["all","ทุกจังหวัด"], ...provOpts.map(p=>[p, provinceTH(p)])]}/></div>
-        <div class="mgf-f mgf-dd"><span>อำเภอ</span>
+            options=${[["all",t("ทุกจังหวัด", "All provinces")], ...provOpts.map(p=>[p, provinceTH(p)])]}/></div>
+        <div class="mgf-f mgf-dd"><span>${t("อำเภอ", "District")}</span>
           <${Dropdown} value=${fDist} disabled=${fProv==="all"}
-            placeholder=${fProv==="all"?"เลือกจังหวัดก่อน":"ทุกอำเภอ"} onChange=${v=>setFDist(v)}
-            options=${[["all", fProv==="all"?"เลือกจังหวัดก่อน":"ทุกอำเภอ"], ...distOpts.map(d=>[d, DISTRICT_TH[d]||d])]}/></div>
-        <div class="mgf-f mgf-dd"><span>หมวดธุรกิจ</span>
+            placeholder=${fProv==="all"?t("เลือกจังหวัดก่อน", "Pick a province first"):t("ทุกอำเภอ", "All districts")} onChange=${v=>setFDist(v)}
+            options=${[["all", fProv==="all"?t("เลือกจังหวัดก่อน", "Pick a province first"):t("ทุกอำเภอ", "All districts")], ...distOpts.map(d=>[d, DISTRICT_TH[d]||d])]}/></div>
+        <div class="mgf-f mgf-dd"><span>${t("หมวดธุรกิจ", "Business category")}</span>
           <${Dropdown} value=${fSeg} onChange=${v=>setFSeg(v)}
-            options=${[["all","ทุกหมวด"], ...SEGMENTS.map(s=>[s, segTH(s)])]}/></div>
-        <div class="mgf-f mgf-dd"><span>ช่วงเวลาด่วน</span>
+            options=${[["all",t("ทุกหมวด", "All categories")], ...SEGMENTS.map(s=>[s, segTH(s)])]}/></div>
+        <div class="mgf-f mgf-dd"><span>${t("ช่วงเวลาด่วน", "Quick period")}</span>
           <${Dropdown} value=${customDate?"custom":range} onChange=${v=>{ if(v!=="custom"){ setRange(v); setFFrom(""); setFTo(""); } }}
-            options=${[...RANGES.map(r=>[r.id, r.label]), ["custom","กำหนดเอง"]]}/></div>
-        <label class="mgf-f"><span>ตั้งแต่วันที่</span>
+            options=${[...RANGES.map(r=>[r.id, r.label]), ["custom",t("กำหนดเอง", "Custom")]]}/></div>
+        <label class="mgf-f"><span>${t("ตั้งแต่วันที่", "From")}</span>
           <${DateField} value=${fFrom} max=${fTo||undefined} onChange=${setFFrom}/></label>
-        <label class="mgf-f"><span>ถึงวันที่</span>
+        <label class="mgf-f"><span>${t("ถึงวันที่", "To")}</span>
           <${DateField} value=${fTo} min=${fFrom||undefined} onChange=${setFTo}/></label>
-        ${(fProv!=="all"||fDist!=="all"||fSeg!=="all"||customDate) ? html`<button class="mgf-clear" onClick=${()=>{ setFProv("all"); setFDist("all"); setFSeg("all"); setFFrom(""); setFTo(""); setRange("all"); }}><${Icon} name="close" size=${13}/> ล้างตัวกรอง</button>`:""}
+        ${(fProv!=="all"||fDist!=="all"||fSeg!=="all"||customDate) ? html`<button class="mgf-clear" onClick=${()=>{ setFProv("all"); setFDist("all"); setFSeg("all"); setFFrom(""); setFTo(""); setRange("all"); }}><${Icon} name="close" size=${13}/> ${t("ล้างตัวกรอง", "Clear filters")}</button>`:""}
       </div>
     </div>
 
     <!-- (นำแถบ breadcrumb/แจ้งเตือนระดับพื้นที่ออกตามคำขอ — กลับไปทั้งประเทศได้ด้วยปุ่ม "ล้างตัวกรอง" ในแถบกรอง) -->
-    ${isEmpty ? html`<div class="mg-empty"><${Icon} name="info" size=${16} color="var(--accent)"/> ไม่พบข้อมูลตามเงื่อนไขที่เลือก — ลองปรับตัวกรอง หรือกด "ล้างตัวกรอง"</div>`:""}
+    ${isEmpty ? html`<div class="mg-empty"><${Icon} name="info" size=${16} color="var(--accent)"/> ${t("ไม่พบข้อมูลตามเงื่อนไขที่เลือก — ลองปรับตัวกรอง หรือกด \"ล้างตัวกรอง\"", "Nothing matches the current filters — adjust them, or press \"Clear filters\"")}</div>`:""}
 
     <!-- KPI 4 ใบ · ตัวเลขหลัก + การเปลี่ยนแปลง(ลูกศร) + สี · การ์ดอัตราเปลี่ยนเป็นลูกค้าเด่นที่สุด -->
     <div class="mg-kpis">
       <div class="mg-kpi">
-        <div class="mg-kpi-hd"><div class="mg-kpi-l">${level==="country"?"ลูกค้าทั้งหมด":"ลูกค้าใน"+scopeTH}</div><span class="mg-kpi-ic"><${Icon} name="users" size=${18}/></span></div>
+        <div class="mg-kpi-hd"><div class="mg-kpi-l">${level==="country"?t("ลูกค้าทั้งหมด", "All customers"):t("ลูกค้าใน", "Customers in")+scopeTH}</div><span class="mg-kpi-ic"><${Icon} name="users" size=${18}/></span></div>
         <div class="mg-kpi-v">${num(fCusts.length)}</div>
-        ${deltaLine(custDelta,"จากเดือนก่อน")}</div>
+        ${deltaLine(custDelta,t("จากเดือนก่อน", "vs. last month"))}</div>
       <div class="mg-kpi">
-        <div class="mg-kpi-hd"><div class="mg-kpi-l">${level==="country"?"Lead ทั้งหมด":"Lead ใน"+scopeTH}</div><span class="mg-kpi-ic"><${Icon} name="target" size=${18}/></span></div>
+        <div class="mg-kpi-hd"><div class="mg-kpi-l">${level==="country"?t("Lead ทั้งหมด", "All Leads"):t("Lead ใน", "Leads in")+scopeTH}</div><span class="mg-kpi-ic"><${Icon} name="target" size=${18}/></span></div>
         <div class="mg-kpi-v">${num(fPros.length)}</div>
-        ${deltaLine(leadDelta,"จากเดือนก่อน")}</div>
+        ${deltaLine(leadDelta,t("จากเดือนก่อน", "vs. last month"))}</div>
       <div class=${"mg-kpi mg-kpi-hero "+heroTone}>
-        <div class="mg-kpi-hd"><div class="mg-kpi-l">อัตราการเปลี่ยนเป็นลูกค้า</div><span class="mg-kpi-ic"><${Icon} name="trend" size=${18}/></span></div>
+        <div class="mg-kpi-hd"><div class="mg-kpi-l">${t("อัตราการเปลี่ยนเป็นลูกค้า", "Conversion rate")}</div><span class="mg-kpi-ic"><${Icon} name="trend" size=${18}/></span></div>
         <div class="mg-kpi-v">${curShare}%</div>
         ${shareDiff===0
-          ? html`<div class="mg-kpi-d flat">— เทียบค่าเฉลี่ยประเทศ ${natShare}%</div>`
-          : html`<div class=${"mg-kpi-d "+(shareDiff>0?"up":"down")}>${shareDiff>0?"▲ สูงกว่า":"▼ ต่ำกว่า"}ค่าเฉลี่ยประเทศ ${natShare}%</div>`}</div>
+          ? html`<div class="mg-kpi-d flat">${t("— เทียบค่าเฉลี่ยประเทศ", "— vs. the national average")} ${natShare}%</div>`
+          : html`<div class=${"mg-kpi-d "+(shareDiff>0?"up":"down")}>${shareDiff>0?t("▲ สูงกว่า", "▲ above"):t("▼ ต่ำกว่า", "▼ below ")}${t("ค่าเฉลี่ยประเทศ", "the national average")} ${natShare}%</div>`}</div>
       <div class="mg-kpi">
-        <div class="mg-kpi-hd"><div class="mg-kpi-l">ความครอบคลุมพื้นที่</div><span class="mg-kpi-ic"><${Icon} name="map" size=${18}/></span></div>
+        <div class="mg-kpi-hd"><div class="mg-kpi-l">${t("ความครอบคลุมพื้นที่", "Area coverage")}</div><span class="mg-kpi-ic"><${Icon} name="map" size=${18}/></span></div>
         <div class="mg-kpi-v">${cov ? cov.pct+"%" : "—"}</div>
         <div class="mg-kpi-d flat">${cov
-          ? `ครอบคลุม ${num(cov.covered)} จาก ${num(cov.total)} ${cov.unitTH}`
-          : "ไม่มีข้อมูลพื้นที่"}</div></div>
+          ? `${t("ครอบคลุม", "covered")} ${num(cov.covered)} ${t("จาก", "of")} ${num(cov.total)} ${cov.unitTH}`
+          : t("ไม่มีข้อมูลพื้นที่", "No area data")}</div></div>
     </div>
     <div class="mg-rows">
       <!-- ═══ แถวบน · แนวโน้ม (5) | Performance & Value (7) ═══ -->
       <div class="mg-row r-top">
-          <${Card} title="แนวโน้มการเพิ่มลูกค้าและ Lead" sub=${"ลูกค้าใหม่และ Lead ใหม่รายเดือน · นับจากวันที่เพิ่มเข้าระบบ · 6 เดือนล่าสุด"+(last6.length?" · "+monLabel(last6[0])+"–"+monLabel(last6[last6.length-1]):"")}>
+          <${Card} title=${t("แนวโน้มการเพิ่มลูกค้าและ Lead", "Customer and Lead growth trend")} sub=${t("ลูกค้าใหม่และ Lead ใหม่รายเดือน · นับจากวันที่เพิ่มเข้าระบบ · 6 เดือนล่าสุด", "New customers and Leads per month · by the date added · last 6 months")+(last6.length?" · "+monLabel(last6[0])+"–"+monLabel(last6[last6.length-1]):"")}>
             ${lineTot>0 && last6.length>=2 ? html`<div>
-              <div class="mg-legend"><span><i style=${{background:"#e60023"}}></i>ลูกค้าใหม่ <b style=${{color:"var(--txt)"}}>${num(lineCust.reduce((a,b)=>a+b,0))}</b></span>
-                <span><i style=${{background:"#ff9aa8"}}></i>Lead ใหม่ <b style=${{color:"var(--txt)"}}>${num(linePros.reduce((a,b)=>a+b,0))}</b></span></div>
+              <div class="mg-legend"><span><i style=${{background:"#e60023"}}></i>${t("ลูกค้าใหม่", "New customers")} <b style=${{color:"var(--txt)"}}>${num(lineCust.reduce((a,b)=>a+b,0))}</b></span>
+                <span><i style=${{background:"#ff9aa8"}}></i>${t("Lead ใหม่", "New Leads")} <b style=${{color:"var(--txt)"}}>${num(linePros.reduce((a,b)=>a+b,0))}</b></span></div>
               <${LineChart} key=${"mgln-"+animSig} labels=${last6.map(monLabel)} series=${[
-                {label:"ลูกค้าใหม่", color:"#e60023", points:lineCust},
-                {label:"Lead ใหม่",  color:"#ff9aa8", points:linePros}
+                {label:t("ลูกค้าใหม่", "New customers"), color:"#e60023", points:lineCust},
+                {label:t("Lead ใหม่", "New Leads"),  color:"#ff9aa8", points:linePros}
               ]} height=${130} format=${num}/>
-            </div>` : html`<div class="emptybox">ยังไม่มีข้อมูลเพียงพอสำหรับแสดงกราฟนี้</div>`}
+            </div>` : html`<div class="emptybox">${t("ยังไม่มีข้อมูลเพียงพอสำหรับแสดงกราฟนี้", "Not enough data to draw this chart yet")}</div>`}
           </${Card}>
         <!-- Lead มาก แต่สัดส่วนต่ำ (โดนัท + legend) — ย้ายขึ้นมาข้างกราฟเส้นแทนการ์ดอัตราการเปลี่ยนเป็นลูกค้าเดิม -->
-        <${Card} title="Lead มาก แต่สัดส่วนต่ำ" sub="หมวดที่ยังไม่ถูกเจาะ · Lead สูง แต่สัดส่วนลูกค้าต่ำ">
+        <${Card} title=${t("Lead มาก แต่สัดส่วนต่ำ", "Many Leads, low share")} sub=${t("หมวดที่ยังไม่ถูกเจาะ · Lead สูง แต่สัดส่วนลูกค้าต่ำ", "Untapped categories · high Lead demand, low customer share")}>
           ${unpen.length ? html`<${Donut} key=${"mgdn-"+animSig} data=${unpen} center=${{value:num(unpen.reduce((a,x)=>a+x.value,0)), label:"Lead"}}/>`
-            : html`<div class="emptybox">ยังไม่มีข้อมูลเพียงพอ</div>`}
+            : html`<div class="emptybox">${t("ยังไม่มีข้อมูลเพียงพอ", "Not enough data yet")}</div>`}
         </${Card}>
       </div>
 
       <!-- ═══ แถวกลาง · สัดส่วน (แคบลง 15%) | สิ่งที่พบจากข้อมูล (กว้างขึ้น 15%) ═══ -->
       <div class="mg-row r-mid">
-          <${Card} title=${"อัตราการเปลี่ยนเป็นลูกค้าราย"+unitNoun} sub=${"สัดส่วนลูกค้าต่อธุรกิจที่รู้จักในพื้นที่ ณ ปัจจุบัน · "+(convFull.length>5?unitNoun+"ที่สัดส่วนต่ำสุด (ต้องให้ความสนใจ)":"เทียบระหว่าง"+unitNoun)+" · แถบเทา = ต่ำกว่าค่าเฉลี่ย"}>
+          <${Card} title=${t("อัตราการเปลี่ยนเป็นลูกค้าราย", "Conversion rate by")+unitNoun} sub=${t("สัดส่วนลูกค้าต่อธุรกิจที่รู้จักในพื้นที่ ณ ปัจจุบัน · ", "Customers as a share of known businesses in the area right now · ")+(convFull.length>5?unitNoun+t("ที่สัดส่วนต่ำสุด (ต้องให้ความสนใจ)", "with the lowest share (needs attention)"):t("เทียบระหว่าง", "comparing")+unitNoun)+t(" · แถบเทา = ต่ำกว่าค่าเฉลี่ย", " · grey bars are below average")}>
             ${convFull.length ? html`<div>
               <div class=${"mg-hbars"+(expConv?" mg-scroll":"")}>
               ${(expConv?convFull:convFull.slice(0,5)).map(d=>html`<div key=${d.label} class="mg-hbar">
@@ -982,18 +1001,18 @@ export function Monitoring({defaultTab}={}){
                 <div class="mg-hbar-v">${d.value}%</div>
               </div>`)}
               </div>
-              ${convFull.length>5?html`<div class="mg-more"><button class="mg-more-btn" onClick=${()=>setExpConv(e=>!e)}>${expConv?"ย่อกลับ (5 อันดับ)":`ดูทั้งหมด (${convFull.length} ${unitNoun})`}</button></div>`:""}
-            </div>` : html`<div class="emptybox">ยังไม่มีข้อมูลเพียงพอ</div>`}
+              ${convFull.length>5?html`<div class="mg-more"><button class="mg-more-btn" onClick=${()=>setExpConv(e=>!e)}>${expConv?t("ย่อกลับ (5 อันดับ)", "Show fewer (top 5)"):`${t("ดูทั้งหมด (", "Show all (")}${convFull.length} ${unitNoun})`}</button></div>`:""}
+            </div>` : html`<div class="emptybox">${t("ยังไม่มีข้อมูลเพียงพอ", "Not enough data yet")}</div>`}
           </${Card}>
         <!-- สิ่งที่พบจากข้อมูล · การ์ด 5 ใบ -->
-        <${Card} title="สิ่งที่พบจากข้อมูล" sub=${asOf}>
+        <${Card} title=${t("สิ่งที่พบจากข้อมูล", "What the data shows")} sub=${asOf}>
           ${actions.length ? html`<div class="mg-insights">
             ${actions.slice(0,5).map((a,i)=>{ const c=a.color||"#94a3b8"; return html`<div key=${i} class="mg-insight" style=${{background:c+"12",borderColor:c+"3a"}}>
               <div class="mg-insight-ic" style=${{background:c}}><${Icon} name=${a.icon} size=${15} color="#fff"/></div>
               <div class="mg-insight-t">${a.title}</div>
               <div class="mg-insight-b">${a.body}</div>
             </div>`; })}
-          </div>` : html`<div class="emptybox">ยังไม่มีประเด็นจากข้อมูล</div>`}
+          </div>` : html`<div class="emptybox">${t("ยังไม่มีประเด็นจากข้อมูล", "Nothing notable in the data yet")}</div>`}
         </${Card}>
       </div>
 
@@ -1002,9 +1021,9 @@ export function Monitoring({defaultTab}={}){
         <!-- 2 คอลัมน์ · สรุปรายจังหวัด (กินพื้นที่ที่โดนัทเคยอยู่) | หมวดธุรกิจที่เติบโตและลดลง -->
         <div class="mg-2col mg-bot2">
         <!-- สรุปรายหน่วยของระดับที่เจาะ -->
-        <${Card} title=${"สรุปราย"+unitNoun} sub=${(level==="country"?"เรียงตามจำนวนลูกค้า":"เรียงสัดส่วนจากน้อย→มาก (ที่ตามหลังอยู่บน)")+" · คลิกแถวเพื่อเจาะลึก"} pad0=${true}>
+        <${Card} title=${t("สรุปราย", "Summary by")+unitNoun} sub=${(level==="country"?t("เรียงตามจำนวนลูกค้า", "sorted by customer count"):t("เรียงสัดส่วนจากน้อย→มาก (ที่ตามหลังอยู่บน)", "sorted by share, lowest first (laggards on top)"))+t(" · คลิกแถวเพื่อเจาะลึก", " · click a row to drill in")} pad0=${true}>
           ${provRows.length ? html`<div class=${"mg-tblwrap"+(expTbl?" mg-scroll":"")}><table class="tc-table mg-tbl">
-            <thead><tr><th>${unitNoun}</th><th class="rt">ลูกค้า</th><th class="rt">Lead</th><th class="rt">สัดส่วน</th><th class="rt">ลูกค้าใหม่</th></tr></thead>
+            <thead><tr><th>${unitNoun}</th><th class="rt">${t("ลูกค้า", "Customers")}</th><th class="rt">Lead</th><th class="rt">${t("สัดส่วน", "Share")}</th><th class="rt">${t("ลูกค้าใหม่", "New customers")}</th></tr></thead>
             <tbody>${(expTbl?provRows:provRows.slice(0,5)).map(r=>{
               return html`<tr key=${r.unit} style=${{cursor:"pointer"}} onClick=${()=>{ if(level==="country"){setFProv(r.unit);setFDist("all");} else if(level==="province") setFDist(r.unit); else setFSeg(r.unit); }}>
               <td><b>${r.label}</b></td><td class="rt">${num(r.cust)}</td><td class="rt">${num(r.lead)}</td>
@@ -1012,22 +1031,22 @@ export function Monitoring({defaultTab}={}){
               <td class="rt">${r.new90>0?html`<span style=${{color:"#0f7a3d"}}>▲ +${num(r.new90)}</span>`:html`<span style=${{color:"var(--dim)"}}>0</span>`}</td>
             </tr>`;})}</tbody>
           </table>
-          ${provRows.length>5?html`<div class="mg-more" style=${{padding:"0 14px 12px"}}><button class="mg-more-btn" onClick=${()=>setExpTbl(e=>!e)}>${expTbl?"ย่อกลับ (5 อันดับ)":`ดูทั้งหมด (${provRows.length} ${unitNoun})`}</button></div>`:""}</div>` : html`<div class="emptybox" style=${{margin:"18px"}}>ยังไม่มีข้อมูลรายจังหวัด</div>`}
+          ${provRows.length>5?html`<div class="mg-more" style=${{padding:"0 14px 12px"}}><button class="mg-more-btn" onClick=${()=>setExpTbl(e=>!e)}>${expTbl?t("ย่อกลับ (5 อันดับ)", "Show fewer (top 5)"):`${t("ดูทั้งหมด (", "Show all (")}${provRows.length} ${unitNoun})`}</button></div>`:""}</div>` : html`<div class="emptybox" style=${{margin:"18px"}}>${t("ยังไม่มีข้อมูลรายจังหวัด", "No per-province data yet")}</div>`}
         </${Card}>
         <!-- หมวดธุรกิจที่เติบโตและลดลง -->
-        <${Card} title="หมวดธุรกิจที่เติบโตและลดลง" sub="ลูกค้าใหม่ 90 วันล่าสุด เทียบ 90 วันก่อนหน้า">
+        <${Card} title=${t("หมวดธุรกิจที่เติบโตและลดลง", "Growing and declining categories")} sub=${t("ลูกค้าใหม่ 90 วันล่าสุด เทียบ 90 วันก่อนหน้า", "New customers in the last 90 days vs. the 90 before")}>
           <div class="mg-2col">
             <div>
-              <div class="mg-seg-head up">เติบโต</div>
+              <div class="mg-seg-head up">${t("เติบโต", "Growing")}</div>
               ${gainers.length ? gainers.map(g=>html`<div key=${g.s} class="mg-seg-row">
-                <span class="mg-seg-l">${g.label}</span><span class="mg-seg-n up">▲ +${num(g.delta)} ราย</span></div>`)
-                : html`<div class="dim" style=${{fontSize:"12px",padding:"8px 0"}}>ยังไม่มีหมวดที่เติบโตชัดเจน</div>`}
+                <span class="mg-seg-l">${g.label}</span><span class="mg-seg-n up">▲ +${num(g.delta)} ${t("ราย", "businesses")}</span></div>`)
+                : html`<div class="dim" style=${{fontSize:"12px",padding:"8px 0"}}>${t("ยังไม่มีหมวดที่เติบโตชัดเจน", "No category is clearly growing yet")}</div>`}
             </div>
             <div>
-              <div class="mg-seg-head down">ชะลอตัว</div>
+              <div class="mg-seg-head down">${t("ชะลอตัว", "is slowing")}</div>
               ${losers.length ? losers.map(g=>html`<div key=${g.s} class="mg-seg-row">
-                <span class="mg-seg-l">${g.label}</span><span class="mg-seg-n down">▼ ${num(g.delta)} ราย</span></div>`)
-                : html`<div class="dim" style=${{fontSize:"12px",padding:"8px 0"}}>ไม่มีหมวดที่ลดลง</div>`}
+                <span class="mg-seg-l">${g.label}</span><span class="mg-seg-n down">▼ ${num(g.delta)} ${t("ราย", "businesses")}</span></div>`)
+                : html`<div class="dim" style=${{fontSize:"12px",padding:"8px 0"}}>${t("ไม่มีหมวดที่ลดลง", "No category is declining")}</div>`}
             </div>
           </div>
         </${Card}></div>
@@ -1036,15 +1055,15 @@ export function Monitoring({defaultTab}={}){
       ${level==="district" ? html`
       <!-- ═══ ระดับอำเภอ · Lead ในหมวดที่ยังขาด (เต็มความกว้าง) ═══ -->
       <div class="mg-row r-full">
-        <${Card} title=${"Lead ในหมวดที่"+scopeTH+"ยังขาด"} sub="เรียงตามขนาดช่องว่างของหมวดธุรกิจจากมากไปน้อย · แสดงสูงสุด 15 ราย · ข้อมูลสำหรับผู้ดูแลพื้นที่ (ผู้บริหารดูอย่างเดียว ไม่มีปุ่มเข้าพบ)" pad0=${true}>
+        <${Card} title=${t("Lead ในหมวดที่", "Leads in categories")+scopeTH+t("ยังขาด", "still short")} sub=${t("เรียงตามขนาดช่องว่างของหมวดธุรกิจจากมากไปน้อย · แสดงสูงสุด 15 ราย · ข้อมูลสำหรับผู้ดูแลพื้นที่ (ผู้บริหารดูอย่างเดียว ไม่มีปุ่มเข้าพบ)", "Sorted by category gap, largest first · up to 15 shown · for area owners (management is read-only, no visit button)")} pad0=${true}>
           ${leadAList.length ? html`<div class="mg-tblwrap mg-leadA"><table class="tc-table mg-tbl">
-            <thead><tr><th>ชื่อธุรกิจ</th><th>หมวดธุรกิจ</th><th class="rt">หมวดนี้ยังขาด</th><th>สถานะ</th></tr></thead>
+            <thead><tr><th>${t("ชื่อธุรกิจ", "Business name")}</th><th>${t("หมวดธุรกิจ", "Business category")}</th><th class="rt">${t("หมวดนี้ยังขาด", "this category is short by")}</th><th>${t("สถานะ", "Status")}</th></tr></thead>
             <tbody>${leadAList.map(p=>html`<tr key=${p.id}>
               <td><b>${p.businessName}</b></td><td>${segTH(p.segment)}</td>
-              <td class="rt"><b>${num(p._gap||0)}</b> ราย</td>
-              <td>${p._visited?html`<span style=${{color:"#0f7a3d"}}>เข้าพบแล้ว</span>`:html`<span style=${{color:"#c2410c"}}>ยังไม่เข้าพบ</span>`}</td>
+              <td class="rt"><b>${num(p._gap||0)}</b> ${t("ราย", "businesses")}</td>
+              <td>${p._visited?html`<span style=${{color:"#0f7a3d"}}>${t("เข้าพบแล้ว", "Visited")}</span>`:html`<span style=${{color:"#c2410c"}}>${t("ยังไม่เข้าพบ", "Not visited yet")}</span>`}</td>
             </tr>`)}</tbody>
-          </table></div>` : html`<div class="emptybox" style=${{margin:"18px"}}>ไม่มีหมวดธุรกิจที่ยังขาดใน${scopeTH}</div>`}
+          </table></div>` : html`<div class="emptybox" style=${{margin:"18px"}}>${t("ไม่มีหมวดธุรกิจที่ยังขาดใน", "No category is short in ")}${scopeTH}</div>`}
         </${Card}>
       </div>`:""}
     </div>
@@ -1052,44 +1071,44 @@ export function Monitoring({defaultTab}={}){
     <!-- แท็บสภาพระบบ · สุขภาพข้อมูลและการใช้งาน (grid 12 คอลัมน์ · จัดวางตามเทมเพลต) -->
     <div class="exd-grid">
       <!-- แถว 1 · งานที่รอดำเนินการ | ภาพรวมระบบข้อมูล -->
-      <div class="hzc hzc-tasks" style=${{gridColumn:"span 5"}}><${Card} title="งานที่รอดำเนินการ" sub="สิ่งที่ผู้ดูแลระบบควรจัดการก่อน (ซ่อนรายการที่ไม่มีงานค้าง)">
+      <div class="hzc hzc-tasks" style=${{gridColumn:"span 5"}}><${Card} title=${t("งานที่รอดำเนินการ", "Outstanding work")} sub=${t("สิ่งที่ผู้ดูแลระบบควรจัดการก่อน (ซ่อนรายการที่ไม่มีงานค้าง)", "What an administrator should handle first (items with nothing pending are hidden)")}>
         ${healthTasks.length ? html`<div class="hz-tasks">
           ${healthTasks.map((t,i)=>html`<div key=${i} class="hz-task">
             <div class="hz-task-n" style=${{background:actionTone(t.tone)}}>${num(t.count)}</div>
             <div class="hz-task-l">${t.label}</div>
-            ${t.goLeads ? html`<button class="hz-task-btn" onClick=${()=>nav&&nav("data-management")}>ไปจัดการ</button>` : ""}
+            ${t.goLeads ? html`<button class="hz-task-btn" onClick=${()=>nav&&nav("data-management")}>${t("ไปจัดการ", "Handle it")}</button>` : ""}
           </div>`)}
         </div>` : html`<div class="exd-empty"><${Icon} name="check" size=${24} color="#33d69f"/>
-          <div><b>ไม่มีงานค้าง</b><div class="dim" style=${{fontSize:"12px"}}>ข้อมูลในระบบอยู่ในสภาพเรียบร้อย</div></div></div>`}
+          <div><b>${t("ไม่มีงานค้าง", "Nothing outstanding")}</b><div class="dim" style=${{fontSize:"12px"}}>${t("ข้อมูลในระบบอยู่ในสภาพเรียบร้อย", "The data in the system is in good shape")}</div></div></div>`}
       </${Card}></div>
 
-      <div class="hzc hzc-sys" style=${{gridColumn:"span 7"}}><${Card} title="ภาพรวมระบบข้อมูล" right=${html`<span class="hz-updated">อัปเดตล่าสุด ${beD(v.ref)}</span>`}>
+      <div class="hzc hzc-sys" style=${{gridColumn:"span 7"}}><${Card} title=${t("ภาพรวมระบบข้อมูล", "Data system overview")} right=${html`<span class="hz-updated">${t("อัปเดตล่าสุด", "Last updated")} ${beD(v.ref)}</span>`}>
         <div class="hz-sysov">
-          <div class="hz-total"><span class="hz-total-l">Total</span><b class="hz-total-n">${num(totRec)}</b><span class="hz-total-u">รายการ</span></div>
+          <div class="hz-total"><span class="hz-total-l">Total</span><b class="hz-total-n">${num(totRec)}</b><span class="hz-total-u">${t("รายการ", "records")}</span></div>
           <div class="hz-stack">
             <div class="hz-stack-seg" style=${{width:(totRec?custs.length/totRec*100:0)+"%",background:"#33d69f"}}></div>
             <div class="hz-stack-seg" style=${{width:(totRec?pros.length/totRec*100:0)+"%",background:"#cbd5e1"}}></div>
           </div>
           <div class="hz-legend">
-            <span><i style=${{background:"#33d69f"}}></i>ลูกค้าปัจจุบัน <b>${num(custs.length)}</b></span>
+            <span><i style=${{background:"#33d69f"}}></i>${t("ลูกค้าปัจจุบัน", "Existing customers")} <b>${num(custs.length)}</b></span>
             <span><i style=${{background:"#cbd5e1"}}></i>Lead <b>${num(pros.length)}</b></span>
           </div>
         </div>
       </${Card}></div>
 
       <!-- แถว 2 · คุณภาพข้อมูล (3) | สัดส่วนหมวดธุรกิจ (3) | ความสมบูรณ์ของข้อมูล (6) -->
-      <div class="hzc hzc-2" style=${{gridColumn:"span 3"}}><${Card} title="คุณภาพข้อมูล" sub="สัดส่วนความครบถ้วนของทั้งชุด">
-        ${qualityDonut.length ? html`<${Donut} data=${qualityDonut} size=${120} center=${{value:qualityPct, label:"ครบถ้วน", format:x=>x+"%"}}/>`
-          : html`<div class="emptybox">ยังไม่มีข้อมูลเพียงพอ</div>`}
+      <div class="hzc hzc-2" style=${{gridColumn:"span 3"}}><${Card} title=${t("คุณภาพข้อมูล", "Data quality")} sub=${t("สัดส่วนความครบถ้วนของทั้งชุด", "Completeness across the whole dataset")}>
+        ${qualityDonut.length ? html`<${Donut} data=${qualityDonut} size=${120} center=${{value:qualityPct, label:t("ครบถ้วน", "Complete"), format:x=>x+"%"}}/>`
+          : html`<div class="emptybox">${t("ยังไม่มีข้อมูลเพียงพอ", "Not enough data yet")}</div>`}
       </${Card}></div>
 
-      <div class="hzc hzc-2" style=${{gridColumn:"span 3"}}><${Card} title="สัดส่วนหมวดธุรกิจ" sub=${`${segCount.length} หมวดที่มีข้อมูล · 5 อันดับแรก`}>
+      <div class="hzc hzc-2" style=${{gridColumn:"span 3"}}><${Card} title=${t("สัดส่วนหมวดธุรกิจ", "Category mix")} sub=${`${segCount.length} ${t("หมวดที่มีข้อมูล · 5 อันดับแรก", "categories with data · top 5")}`}>
         ${segDonut.length ? html`<${Donut} data=${segDonut} size=${120}
-            center=${{value:segCount.length, label:"หมวด"}}/>`
-          : html`<div class="emptybox">ยังไม่มีข้อมูลเพียงพอ</div>`}
+            center=${{value:segCount.length, label:t("หมวด", "categories")}}/>`
+          : html`<div class="emptybox">${t("ยังไม่มีข้อมูลเพียงพอ", "Not enough data yet")}</div>`}
       </${Card}></div>
 
-      <div class="hzc hzc-2" style=${{gridColumn:"span 6"}}><${Card} title="ความสมบูรณ์ของข้อมูล" sub="สัดส่วนที่มีค่าในแต่ละฟิลด์ · ต่ำกว่า 70% = ควรตรวจสอบ">
+      <div class="hzc hzc-2" style=${{gridColumn:"span 6"}}><${Card} title=${t("ความสมบูรณ์ของข้อมูล", "Field completeness")} sub=${t("สัดส่วนที่มีค่าในแต่ละฟิลด์ · ต่ำกว่า 70% = ควรตรวจสอบ", "Share of records with a value per field · under 70% needs review")}>
         <div class="exd-bars">
           ${fieldBars.map(b=>html`<div key=${b.label} class="exd-vrow">
             <div class="exd-vrow-h"><span>${b.label}</span><b style=${{color:b.value<70?"#c2410c":"var(--txt)"}}>${b.value}%</b></div>
@@ -1099,14 +1118,14 @@ export function Monitoring({defaultTab}={}){
       </${Card}></div>
 
       <!-- แถว 3 · ปริมาณข้อมูลที่เพิ่มเข้าระบบ | กิจกรรมการเปลี่ยนแปลงล่าสุด -->
-      <div class="hzc hzc-line" style=${{gridColumn:"span 8"}}><${Card} title=${"ปริมาณข้อมูลที่เพิ่มเข้าระบบ"+(hAll.length>=2?" ("+monLabel(hAll[0])+" - "+monLabel(hAll[hAll.length-1])+")":"")} sub="นับจากวันที่ในระเบียนจริง · 6 เดือนล่าสุด">
+      <div class="hzc hzc-line" style=${{gridColumn:"span 8"}}><${Card} title=${t("ปริมาณข้อมูลที่เพิ่มเข้าระบบ", "Volume of data added")+(hAll.length>=2?" ("+monLabel(hAll[0])+" - "+monLabel(hAll[hAll.length-1])+")":"")} sub=${t("นับจากวันที่ในระเบียนจริง · 6 เดือนล่าสุด", "By the date on the actual record · last 6 months")}>
         ${hTotal>0 && hAll.length>=2 ? html`<${LineChart} labels=${hAll.map(monLabel)} series=${[
-            {label:"รายการใหม่", color:"#2f7fe0", points:hLine}
+            {label:t("รายการใหม่", "New records"), color:"#2f7fe0", points:hLine}
           ]} height=${210} format=${num}/>`
-          : html`<div class="emptybox">ยังไม่มีข้อมูลเพียงพอสำหรับแสดงกราฟนี้</div>`}
+          : html`<div class="emptybox">${t("ยังไม่มีข้อมูลเพียงพอสำหรับแสดงกราฟนี้", "Not enough data to draw this chart yet")}</div>`}
       </${Card}></div>
 
-      <div class="hzc hzc-act" style=${{gridColumn:"span 4"}}><${Card} title="กิจกรรมการเปลี่ยนแปลงล่าสุด" sub="การกระทำที่มีผลกับข้อมูลในระบบ" pad0=${true}>
+      <div class="hzc hzc-act" style=${{gridColumn:"span 4"}}><${Card} title=${t("กิจกรรมการเปลี่ยนแปลงล่าสุด", "Recent change activity")} sub=${t("การกระทำที่มีผลกับข้อมูลในระบบ", "Actions that changed data in the system")} pad0=${true}>
         ${auditRecent.length ? html`<div class="hz-acts">
           ${auditRecent.slice(0,7).map(a=>html`<div key=${a.id} class="hz-act">
             <div class="hz-act-d" style=${{background:actionTone(catTone(a.category||""))}}></div>
@@ -1115,8 +1134,8 @@ export function Monitoring({defaultTab}={}){
           </div>`)}
         </div>` : html`<div class="hz-actempty">
           <div class="hz-actempty-ic"><${Icon} name="audit" size=${26} color="var(--muted)"/></div>
-          <div class="hz-actempty-t">ยังไม่มีกิจกรรมในระบบช่วงนี้</div>
-          <div class="hz-actempty-s">การกระทำที่เปลี่ยนข้อมูลจะปรากฏที่นี่</div>
+          <div class="hz-actempty-t">${t("ยังไม่มีกิจกรรมในระบบช่วงนี้", "No activity in the system for this period")}</div>
+          <div class="hz-actempty-s">${t("การกระทำที่เปลี่ยนข้อมูลจะปรากฏที่นี่", "Actions that change data will show up here")}</div>
         </div>`}
       </${Card}></div>
     </div>

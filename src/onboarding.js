@@ -1,4 +1,5 @@
 import {html, brandMark} from "./lib.js";
+import {t} from "./i18n.js";   // สลับภาษา TH/EN — ดู src/i18n.js
 
 // ── First-login onboarding status (persisted per user) ───────────────────────
 const KEY = "geointel.onboarded";
@@ -14,20 +15,20 @@ export function markOnboarded(email){
 // rounded enterprise card, soft shadow. "เริ่มแนะนำ" → product tour · "ข้าม" → dismiss.
 export function WelcomeDialog({onStart, onSkip}){
   return html`<div class="ob-backdrop" onMouseDown=${e=>{ if(e.target.classList.contains("ob-backdrop")) onSkip(); }}>
-    <div class="ob-card" role="dialog" aria-modal="true" aria-label="ยินดีต้อนรับ">
+    <div class="ob-card" role="dialog" aria-modal="true" aria-label=${t("ยินดีต้อนรับ", "Welcome")}>
       <div class="ob-glow"></div>
       <div class="ob-mark">${brandMark()}</div>
-      <h2 class="ob-title">ยินดีต้อนรับสู่ Geo Intelligence Platform</h2>
+      <h2 class="ob-title">${t("ยินดีต้อนรับสู่ Geo Intelligence Platform", "Welcome to the Geo Intelligence Platform")}</h2>
       <p class="ob-desc">
-        ระบบนี้ช่วยวิเคราะห์ข้อมูลลูกค้า<br/>
-        ค้นหาพื้นที่ที่มี Lead สูง<br/>
-        และวางแผนการเข้าพบลูกค้าบนแผนที่แบบโต้ตอบ
+        ${t("ระบบนี้ช่วยวิเคราะห์ข้อมูลลูกค้า", "Analyse your customer data,")}<br/>
+        ${t("ค้นหาพื้นที่ที่มี Lead สูง", "find areas with high Lead demand,")}<br/>
+        ${t("และวางแผนการเข้าพบลูกค้าบนแผนที่แบบโต้ตอบ", "and plan customer visits on an interactive map.")}
       </p>
-      <p class="ob-q">คุณต้องการชมการแนะนำการใช้งานหรือไม่</p>
+      <p class="ob-q">${t("คุณต้องการชมการแนะนำการใช้งานหรือไม่", "Would you like a quick tour?")}</p>
       <div class="ob-actions">
-        <button class="ob-btn ob-ghost" onClick=${onSkip}>ข้าม</button>
+        <button class="ob-btn ob-ghost" onClick=${onSkip}>${t("ข้าม", "Skip")}</button>
         <button class="ob-btn ob-primary" onClick=${onStart}>
-          <span>เริ่มแนะนำ</span><span class="ob-arrow">→</span>
+          <span>${t("เริ่มแนะนำ", "Start tour")}</span><span class="ob-arrow">→</span>
         </button>
       </div>
     </div>

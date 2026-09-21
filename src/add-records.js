@@ -1,10 +1,11 @@
+import {t} from "./i18n.js";   // สลับภาษา TH/EN — ดู src/i18n.js
 // ── ฟอร์มเพิ่มลูกค้า/Lead ──
 // ลูกค้า: ฟิลด์ตรงกับไฟล์ข้อมูลจริงจาก Barter — รหัสลูกค้า · ชื่อธุรกิจ · หมวดธุรกิจ · ที่อยู่ · จังหวัด/อำเภอ (จากพิกัด)
 //        · พิกัด · โทรศัพท์ · เว็บไซต์ · เฟซบุ๊ก · วันที่เริ่มเป็นลูกค้า  (ไม่มีคอลัมน์ "สถานะ" และไม่มียอดขาย)
 // Lead : ยังเป็นข้อมูลจำลอง จึงเก็บอีเมลไว้เหมือนเดิม
 // ผู้ใช้กรอกพิกัดเอง (ใช้วางหมุด/หาอำเภอ) · ทุกรายการติดแท็ก แหล่งที่มา = "ผู้ใช้เพิ่มเอง"
 // ไม่มีการให้คะแนนศักยภาพ/เกรด A-B-C และไม่เก็บข้อมูลรีวิวอีกต่อไป — ระบบใช้ "Lead สูง" ระดับพื้นที่แทน
-import {html, useState, useEffect, useRef, Icon, SegmentIcon, SEGMENTS, segTH, provinceTH} from "./lib.js";
+import {html, useState, useEffect, useRef, Icon, SegmentIcon, SEGMENTS, segTH, provinceTH, useLang, gapTH} from "./lib.js";
 import {basemap} from "./basemap.js";
 import {createPortal} from "react-dom";
 import {Dropdown} from "./select.js";
@@ -52,6 +53,7 @@ function buildRecord(r, i, db, keepId){
   if(isCust){ rec.accountNo=r.clientId.trim(); rec.clientId=r.clientId.trim();
     rec.phone=r.phone.trim()||null; rec.website=r.website.trim()||null; rec.facebook=r.facebook.trim()||null;
     rec.dateJoin=r.dateJoin||todayISO(); rec.created_at=rec.dateJoin; delete rec.email; }
+  // ⚠ "ยังไม่เข้าพบ" เป็นค่าข้อมูลที่เก็บลงเรกคอร์ด ไม่ใช่ข้อความบนหน้าจอ — ห้ามแปล (ที่อื่นเทียบค่านี้ตรง ๆ)
   else { rec.visit_status="ยังไม่เข้าพบ"; }
   return rec;
 }
@@ -108,24 +110,29 @@ function tableToRows(matrix, prospectOnly){
       facebook:get(r,"facebook"), dateJoin:get(r,"dateJoin")||todayISO()}); }
   return {rows:out, total:out.length};
 }
-const TEMPLATE_CSV = "ประเภท,ชื่อธุรกิจ,หมวดหมู่,ที่อยู่,อีเมล,ละติจูด,ลองจิจูด\n"
-  + "Lead,ตัวอย่าง โรงแรมสวนสน,โรงแรมและที่พัก,123 ถ.สุขุมวิท กรุงเทพฯ,contact@suansonhotel.co.th,13.7563,100.5018\n";
+// ⚠ ต้องเป็นฟังก์ชัน ไม่ใช่ const — ถ้าคิดตอนโหลดโมดูล เทมเพลตจะค้างเป็นภาษาแรกที่โหลดตลอด
+// หัวคอลัมน์ภาษาอังกฤษที่ใช้ตรงกับคีย์ใน IMPORT_HEADERS อยู่แล้ว ไฟล์ที่โหลดไปจึงนำเข้ากลับได้ทั้งสองภาษา
+const templateCSV = () =>
+  t("ประเภท,ชื่อธุรกิจ,หมวดหมู่,ที่อยู่,อีเมล,ละติจูด,ลองจิจูด\n", "type,name,segment,address,email,lat,lng\n")
+  + t("Lead,ตัวอย่าง โรงแรมสวนสน,โรงแรมและที่พัก,123 ถ.สุขุมวิท กรุงเทพฯ,contact@suansonhotel.co.th,13.7563,100.5018\n",
+      "Lead,Suan Son Hotel (example),Hospitality,123 Sukhumvit Rd Bangkok,contact@suansonhotel.co.th,13.7563,100.5018\n");
 function downloadTemplate(){
-  const blob=new Blob(["﻿"+TEMPLATE_CSV],{type:"text/csv;charset=utf-8"});   // BOM ให้ Excel อ่านภาษาไทยถูก
+  const blob=new Blob(["﻿"+templateCSV()],{type:"text/csv;charset=utf-8"});   // BOM ให้ Excel อ่านภาษาไทยถูก
   const url=URL.createObjectURL(blob); const a=document.createElement("a");
-  a.href=url; a.download="เทมเพลตเพิ่มลูกค้า-Lead.csv"; a.click(); URL.revokeObjectURL(url);
+  a.href=url; a.download=t("เทมเพลตเพิ่มลูกค้า-Lead.csv", "customer-lead-template.csv"); a.click(); URL.revokeObjectURL(url);
 }
 
 // แผนที่ย่อแสดงหมุด (Leaflet) — โผล่เมื่อพิกัดถูกต้องและอยู่ในพื้นที่ให้บริการ
 function MiniMap({lat,lng}){
   const ref=useRef(null), mapRef=useRef(null), mkRef=useRef(null);
+  const lang=useLang();   // สลับภาษา → สร้างแผนที่ย่อใหม่ (ป้ายชื่อสถานที่เปลี่ยนตาม)
   useEffect(()=>{ const L=window.L; if(!L||!ref.current) return;
     const m=L.map(ref.current,{zoomControl:false,attributionControl:false,scrollWheelZoom:false}).setView([lat,lng],13);
-    basemap(m, "th");
+    basemap(m);
     mkRef.current=L.marker([lat,lng]).addTo(m); mapRef.current=m;
     setTimeout(()=>m.invalidateSize(),60);
     return ()=>m.remove();
-  },[]);
+  },[lang]);
   useEffect(()=>{ if(mapRef.current&&mkRef.current){ mkRef.current.setLatLng([lat,lng]); mapRef.current.setView([lat,lng]); } },[lat,lng]);
   return html`<div class="ar-map" ref=${ref}></div>`;
 }
@@ -145,15 +152,15 @@ export function AddRecordsForm({onClose, onSave, editRecord, db={}, prospectOnly
     const reader = new FileReader();
     reader.onload = ev => {
       const text = String(ev.target.result||"");
-      if(text.slice(0,2)==="PK"){ setImportMsg({bad:true, text:"ไฟล์ .xlsx อ่านโดยตรงไม่ได้ — เปิดใน Excel แล้ว “บันทึกเป็น” ชนิด CSV UTF-8 จากนั้นอัปโหลดใหม่ (กดดาวน์โหลดเทมเพลตเพื่อดูรูปแบบ)"}); return; }
+      if(text.slice(0,2)==="PK"){ setImportMsg({bad:true, text:t("ไฟล์ .xlsx อ่านโดยตรงไม่ได้ — เปิดใน Excel แล้ว “บันทึกเป็น” ชนิด CSV UTF-8 จากนั้นอัปโหลดใหม่ (กดดาวน์โหลดเทมเพลตเพื่อดูรูปแบบ)", "We can't read .xlsx directly — open it in Excel, \"Save as\" CSV UTF-8, then upload again (download the template to see the format)")}); return; }
       const matrix = /<table/i.test(text) ? parseHtmlTable(text) : parseCSV(text);
       const {rows:parsed, total} = tableToRows(matrix, prospectOnly);
-      if(!total){ setImportMsg({bad:true, text:"ไม่พบข้อมูลในไฟล์ — ต้องมีหัวคอลัมน์ (เช่น ชื่อธุรกิจ, ละติจูด, ลองจิจูด) · กดดาวน์โหลดเทมเพลตเพื่อดูรูปแบบ"}); return; }
+      if(!total){ setImportMsg({bad:true, text:t("ไม่พบข้อมูลในไฟล์ — ต้องมีหัวคอลัมน์ (เช่น ชื่อธุรกิจ, ละติจูด, ลองจิจูด) · กดดาวน์โหลดเทมเพลตเพื่อดูรูปแบบ", "No data found in the file — it needs a header row (e.g. name, lat, lng) · download the template to see the format")}); return; }
       const take = parsed.slice(0, MAX_ROWS);
       setRows(take); setShowErr(false);
       setImportMsg({ ok:take.length, text: total>MAX_ROWS
-        ? `นำเข้า ${take.length} แถวแรกจากไฟล์ (มีทั้งหมด ${total} แถว) — ตรวจสอบแล้วกดบันทึก · ส่วนที่เหลืออัปโหลดเป็นรอบถัดไป`
-        : `นำเข้า ${take.length} รายการจากไฟล์แล้ว — ตรวจสอบข้อมูลแล้วกดบันทึกทั้งหมด` });
+        ? `${t("นำเข้า", "Imported")} ${take.length} ${t("แถวแรกจากไฟล์ (มีทั้งหมด", "first rows from the file (of")} ${total} ${t("แถว) — ตรวจสอบแล้วกดบันทึก · ส่วนที่เหลืออัปโหลดเป็นรอบถัดไป", "rows) — review then save · upload the rest in a later batch")}`
+        : `${t("นำเข้า", "Imported")} ${take.length} ${t("รายการจากไฟล์แล้ว — ตรวจสอบข้อมูลแล้วกดบันทึกทั้งหมด", "records from the file — review them, then save all")}` });
     };
     reader.readAsText(file, "utf-8");
   };
@@ -169,13 +176,13 @@ export function AddRecordsForm({onClose, onSave, editRecord, db={}, prospectOnly
   const rowErrors = r => {
     const e=[]; const la=+r.lat, ln=+r.lng;
     const numOk = r.lat!=="" && r.lng!=="" && !isNaN(la) && !isNaN(ln);
-    if(!r.name.trim()) e.push("ชื่อธุรกิจ");
-    if(!r.address.trim()) e.push("ที่อยู่");
-    if(r.lat===""||isNaN(la)) e.push("ละติจูด");
-    if(r.lng===""||isNaN(ln)) e.push("ลองจิจูด");
-    if(numOk && !provinceOf(la,ln)) e.push("พิกัดอยู่นอกพื้นที่ให้บริการ");
-    if(r.type==="Existing" && !r.clientId.trim()) e.push("รหัสลูกค้า");
-    if(r.email.trim() && !isEmail(r.email)) e.push("รูปแบบอีเมลไม่ถูกต้อง");
+    if(!r.name.trim()) e.push(t("ชื่อธุรกิจ", "Business name"));
+    if(!r.address.trim()) e.push(t("ที่อยู่", "Address"));
+    if(r.lat===""||isNaN(la)) e.push(t("ละติจูด", "Latitude"));
+    if(r.lng===""||isNaN(ln)) e.push(t("ลองจิจูด", "Longitude"));
+    if(numOk && !provinceOf(la,ln)) e.push(t("พิกัดอยู่นอกพื้นที่ให้บริการ", "The coordinates are outside the service area"));
+    if(r.type==="Existing" && !r.clientId.trim()) e.push(t("รหัสลูกค้า", "Customer ID"));
+    if(r.email.trim() && !isEmail(r.email)) e.push(t("รูปแบบอีเมลไม่ถูกต้อง", "That email address is not valid"));
     return e;
   };
   const errsByRow = rows.map(rowErrors);
@@ -197,19 +204,19 @@ export function AddRecordsForm({onClose, onSave, editRecord, db={}, prospectOnly
     <div class="ar-card" role="dialog" aria-modal="true">
       <div class="ar-head">
         <div style=${{minWidth:0}}>
-          <h2 class="ar-title">${isEdit?"แก้ไขรายการ":(prospectOnly?"เพิ่มLead":"เพิ่มลูกค้า/Lead")}</h2>
-          <div class="ar-desc">${isEdit?"แก้ไขข้อมูลรายการที่คุณเพิ่มไว้":"กรอกได้สูงสุด 10 รายการต่อครั้ง · ข้อมูลที่เก็บมี 4 ฟิลด์: ชื่อธุรกิจ · หมวดหมู่ · ที่อยู่ · อีเมล"}</div>
+          <h2 class="ar-title">${isEdit?t("แก้ไขรายการ", "Edit record"):(prospectOnly?t("เพิ่มLead", "Add a Lead"):t("เพิ่มลูกค้า/Lead", "Add a customer / Lead"))}</h2>
+          <div class="ar-desc">${isEdit?t("แก้ไขข้อมูลรายการที่คุณเพิ่มไว้", "Edit a record you added"):t("กรอกได้สูงสุด 10 รายการต่อครั้ง · ข้อมูลที่เก็บมี 4 ฟิลด์: ชื่อธุรกิจ · หมวดหมู่ · ที่อยู่ · อีเมล", "Up to 10 records at a time · four fields are stored: business name · category · address · email")}</div>
         </div>
-        <button class="ar-x" onClick=${onClose} aria-label="ปิด"><${Icon} name="close" size=${16}/></button>
+        <button class="ar-x" onClick=${onClose} aria-label=${t("ปิด", "Close")}><${Icon} name="close" size=${16}/></button>
       </div>
 
-      <div class="ar-hint"><${Icon} name="pin" size=${14} color="#ff3b5c"/> กรอกพิกัดจากแหล่งข้อมูลของท่าน (ละติจูด, ลองจิจูด) — ต้องอยู่ในพื้นที่ให้บริการ 4 จังหวัด</div>
+      <div class="ar-hint"><${Icon} name="pin" size=${14} color="#ff3b5c"/> ${t("กรอกพิกัดจากแหล่งข้อมูลของท่าน (ละติจูด, ลองจิจูด) — ต้องอยู่ในพื้นที่ให้บริการ 4 จังหวัด", "Enter coordinates from your own source (latitude, longitude) — they must fall inside the four served provinces")}</div>
 
       ${!isEdit && allowImport ? html`<div class="ar-import">
         <label class="ar-imp-btn"><input type="file" accept=".csv,.xls,.xlsx,text/csv" style=${{display:"none"}} onChange=${onImportFile}/>
-          <${Icon} name="upload" size=${15}/> อัปโหลด Excel/CSV</label>
-        <button class="ar-imp-tpl" onClick=${downloadTemplate}><${Icon} name="download" size=${14}/> ดาวน์โหลดเทมเพลต</button>
-        <span class="ar-imp-hint">อัปโหลดครั้งเดียวได้หลายรายการ · รองรับ .csv (ใน Excel เลือก “บันทึกเป็น” CSV UTF-8)</span>
+          <${Icon} name="upload" size=${15}/> ${t("อัปโหลด Excel/CSV", "Upload Excel/CSV")}</label>
+        <button class="ar-imp-tpl" onClick=${downloadTemplate}><${Icon} name="download" size=${14}/> ${t("ดาวน์โหลดเทมเพลต", "Download template")}</button>
+        <span class="ar-imp-hint">${t("อัปโหลดครั้งเดียวได้หลายรายการ · รองรับ .csv (ใน Excel เลือก “บันทึกเป็น” CSV UTF-8)", "Upload many records at once · .csv only (in Excel choose \"Save as\" CSV UTF-8)")}</span>
       </div>
       ${importMsg ? html`<div class=${"ar-impmsg "+(importMsg.bad?"bad":"ok")}><${Icon} name=${importMsg.bad?"info":"check"} size=${14}/> ${importMsg.text}</div>`:""}`:""}
 
@@ -219,68 +226,68 @@ export function AddRecordsForm({onClose, onSave, editRecord, db={}, prospectOnly
           const showRowErr = showErr && errs.length>0;
           return html`<div key=${i} class=${"ar-row"+(showRowErr?" ar-err":"")+(d.outOfService?" ar-warn":"")}>
           <div class="ar-rowhead">
-            <span class="ar-rowno">รายการที่ ${i+1}</span>
-            ${(rows.length>1 && !isEdit) ? html`<button class="ar-del" onClick=${()=>removeRow(i)} title="ลบแถวนี้" aria-label="ลบแถวนี้"><${Icon} name="trash" size=${14}/></button>`:""}
+            <span class="ar-rowno">${t("รายการที่", "Record")} ${i+1}</span>
+            ${(rows.length>1 && !isEdit) ? html`<button class="ar-del" onClick=${()=>removeRow(i)} title=${t("ลบแถวนี้", "Delete this row")} aria-label=${t("ลบแถวนี้", "Delete this row")}><${Icon} name="trash" size=${14}/></button>`:""}
           </div>
           <div class="ar-grid">
-            ${!prospectOnly ? html`<label class="ar-f">ประเภท
+            ${!prospectOnly ? html`<label class="ar-f">${t("ประเภท", "Type")}
               <select value=${r.type} onChange=${e=>setField(i,"type",e.target.value)}>
-                <option value="Existing">ลูกค้าปัจจุบัน</option>
+                <option value="Existing">${t("ลูกค้าปัจจุบัน", "Existing customers")}</option>
                 <option value="Prospect">Lead</option></select></label>`:""}
-            <label class="ar-f ar-wide">ชื่อธุรกิจ *
-              <input class=${showRowErr&&!r.name.trim()?"ar-bad":""} value=${r.name} onInput=${e=>setField(i,"name",e.target.value)} placeholder="เช่น โรงแรมสวนสน"/></label>
-            <label class="ar-f ar-wide">หมวดหมู่ธุรกิจ
+            <label class="ar-f ar-wide">${t("ชื่อธุรกิจ *", "Business name *")}
+              <input class=${showRowErr&&!r.name.trim()?"ar-bad":""} value=${r.name} onInput=${e=>setField(i,"name",e.target.value)} placeholder=${t("เช่น โรงแรมสวนสน", "e.g. Suan Son Hotel")}/></label>
+            <label class="ar-f ar-wide">${t("หมวดหมู่ธุรกิจ", "Business category")}
               <${Dropdown} value=${r.segment} onChange=${v=>setField(i,"segment",v)}
                 options=${SEGMENTS.map(s=>[s, html`<span style=${{display:"inline-flex",alignItems:"center",gap:"8px"}}><${SegmentIcon} seg=${s} size=${18} color="var(--muted)"/>${segTH(s)}</span>`])}/></label>
-            <label class="ar-f ar-wide">ที่อยู่ *
-              <input class=${showRowErr&&!r.address.trim()?"ar-bad":""} value=${r.address} onInput=${e=>setField(i,"address",e.target.value)} placeholder="บ้านเลขที่ ถนน แขวง/ตำบล เขต/อำเภอ"/></label>
-            <label class="ar-f ar-wide">อีเมล
+            <label class="ar-f ar-wide">${t("ที่อยู่ *", "Address *")}
+              <input class=${showRowErr&&!r.address.trim()?"ar-bad":""} value=${r.address} onInput=${e=>setField(i,"address",e.target.value)} placeholder=${t("บ้านเลขที่ ถนน แขวง/ตำบล เขต/อำเภอ", "House no., road, sub-district, district")}/></label>
+            <label class="ar-f ar-wide">${t("อีเมล", "Email")}
               <input class=${showRowErr&&r.email.trim()&&!isEmail(r.email)?"ar-bad":""} value=${r.email} onInput=${e=>setField(i,"email",e.target.value)} inputmode="email" placeholder="contact@example.co.th"/></label>
-            <label class="ar-f">ละติจูด *
+            <label class="ar-f">${t("ละติจูด *", "Latitude *")}
               <input class=${showRowErr&&(r.lat===""||isNaN(+r.lat))?"ar-bad":""} value=${r.lat} onInput=${e=>setField(i,"lat",e.target.value)} inputmode="decimal" placeholder="13.7563"/></label>
-            <label class="ar-f">ลองจิจูด *
+            <label class="ar-f">${t("ลองจิจูด *", "Longitude *")}
               <input class=${showRowErr&&(r.lng===""||isNaN(+r.lng))?"ar-bad":""} value=${r.lng} onInput=${e=>setField(i,"lng",e.target.value)} inputmode="decimal" placeholder="100.5018"/></label>
           </div>
 
-          ${d.outOfService ? html`<div class="ar-zone out"><${Icon} name="pin" size=${13}/> พิกัดอยู่นอกพื้นที่ให้บริการ (รองรับเฉพาะ กรุงเทพฯ · พัทยา · ภูเก็ต · เชียงใหม่)</div>`
+          ${d.outOfService ? html`<div class="ar-zone out"><${Icon} name="pin" size=${13}/> ${t("พิกัดอยู่นอกพื้นที่ให้บริการ (รองรับเฉพาะ กรุงเทพฯ · พัทยา · ภูเก็ต · เชียงใหม่)", "Coordinates outside the service area (only Bangkok · Pattaya · Phuket · Chiang Mai are supported)")}</div>`
             : d.hasCoord ? html`<div class="ar-zone"><span>${provinceTH(d.province)}${d.zone&&d.zone.district?" · "+d.zone.district:""}</span>
-              ${d.zoneGap ? html`<span class=${"gaplv g-"+d.zoneGap}>Lead${GAP_TH[d.zoneGap]}</span>`:""}</div>`:""}
+              ${d.zoneGap ? html`<span class=${"gaplv g-"+d.zoneGap}>Lead${gapTH(d.zoneGap)}</span>`:""}</div>`:""}
 
           ${d.hasCoord && !d.outOfService ? html`<${MiniMap} lat=${+r.lat} lng=${+r.lng}/>`:""}
 
           ${isP ? ""
           : html`
-            <div class="ar-sub">ข้อมูลลูกค้าปัจจุบัน (ตามไฟล์ข้อมูลลูกค้าจริง)</div>
+            <div class="ar-sub">${t("ข้อมูลลูกค้าปัจจุบัน (ตามไฟล์ข้อมูลลูกค้าจริง)", "Existing-customer fields (matching the real customer file)")}</div>
             <div class="ar-grid">
-              <label class="ar-f">รหัสลูกค้า (AccountNo) *
-                <input class=${showRowErr&&!r.clientId.trim()?"ar-bad":""} value=${r.clientId} onInput=${e=>setField(i,"clientId",e.target.value)} placeholder="เช่น 01180420"/></label>
-              <label class="ar-f">เบอร์โทรศัพท์
+              <label class="ar-f">${t("รหัสลูกค้า (AccountNo) *", "Customer ID (AccountNo) *")}
+                <input class=${showRowErr&&!r.clientId.trim()?"ar-bad":""} value=${r.clientId} onInput=${e=>setField(i,"clientId",e.target.value)} placeholder=${t("เช่น 01180420", "e.g. 01180420")}/></label>
+              <label class="ar-f">${t("เบอร์โทรศัพท์", "Phone")}
                 <input value=${r.phone} onInput=${e=>setField(i,"phone",e.target.value)} placeholder="081 234 5678"/></label>
-              <label class="ar-f">วันที่เริ่มเป็นลูกค้า
+              <label class="ar-f">${t("วันที่เริ่มเป็นลูกค้า", "Customer since")}
                 <${DateField} value=${r.dateJoin} onChange=${v=>setField(i,"dateJoin",v)}/></label>
-              <label class="ar-f">เว็บไซต์
+              <label class="ar-f">${t("เว็บไซต์", "Website")}
                 <input value=${r.website} onInput=${e=>setField(i,"website",e.target.value)} placeholder="www.example.com"/></label>
-              <label class="ar-f">เฟซบุ๊ก
+              <label class="ar-f">${t("เฟซบุ๊ก", "Facebook")}
                 <input value=${r.facebook} onInput=${e=>setField(i,"facebook",e.target.value)} placeholder="https://facebook.com/…"/></label>
             </div>`}
 
-          ${dupWarn[i] ? html`<div class="ar-dup">อาจซ้ำกับรายการที่มีอยู่: <b>${dupWarn[i]}</b></div>`:""}
+          ${dupWarn[i] ? html`<div class="ar-dup">${t("อาจซ้ำกับรายการที่มีอยู่:", "May duplicate an existing record:")} <b>${dupWarn[i]}</b></div>`:""}
         </div>`;})}
 
         ${!isEdit ? (rows.length<MAX_ROWS
-          ? html`<button class="ar-addrow" onClick=${addRow}><${Icon} name="plus" size=${15}/> เพิ่มอีกรายการ</button>`
-          : html`<div class="ar-max">กรอกได้สูงสุด 10 รายการต่อครั้ง</div>`) : ""}
+          ? html`<button class="ar-addrow" onClick=${addRow}><${Icon} name="plus" size=${15}/> ${t("เพิ่มอีกรายการ", "Add another record")}</button>`
+          : html`<div class="ar-max">${t("กรอกได้สูงสุด 10 รายการต่อครั้ง", "Up to 10 records at a time")}</div>`) : ""}
       </div>
 
       <div class="ar-msgs">
-        ${showErr && !canSave ? html`<div class="ar-m ar-m-err">มี ${badRows} รายการที่ยังกรอกไม่ครบ/ไม่ถูกต้อง — แก้ไขให้ครบก่อนบันทึก</div>`:""}
+        ${showErr && !canSave ? html`<div class="ar-m ar-m-err">${t("มี", "There are")} ${badRows} ${t("รายการที่ยังกรอกไม่ครบ/ไม่ถูกต้อง — แก้ไขให้ครบก่อนบันทึก", "records that are incomplete or invalid — fix them before saving")}</div>`:""}
       </div>
 
       <div class="ar-foot">
-        <button class="ar-btn ghost" onClick=${onClose}>ยกเลิก</button>
+        <button class="ar-btn ghost" onClick=${onClose}>${t("ยกเลิก", "Cancel")}</button>
         <!-- ปุ่มบันทึกกดได้เสมอ · ถ้ากรอกไม่ครบ กดแล้วจะไฮไลต์ช่องที่ยังขาด (ไม่ปิดปุ่มจนกดไม่ได้) -->
         <button class="ar-btn primary" onClick=${save}>
-          <${Icon} name="check" size=${15} color="#fff"/>${isEdit?"บันทึกการแก้ไข":`บันทึกทั้งหมด (${rows.length} รายการ)`}</button>
+          <${Icon} name="check" size=${15} color="#fff"/>${isEdit?t("บันทึกการแก้ไข", "Save changes"):`${t("บันทึกทั้งหมด (", "Save all (")}${rows.length} ${t("รายการ)", "records)")}`}</button>
       </div>
       <style>${AR_CSS}</style>
     </div>

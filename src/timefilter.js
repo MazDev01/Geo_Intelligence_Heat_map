@@ -1,5 +1,6 @@
 import {segTH, SEG_COLOR, SEGMENTS, provinceTH} from "./lib.js";
 import {demandGap, GAP_REF} from "./mock/geoData.js";
+import {t} from "./i18n.js";
 
 /* ---------------- ตัวกรองช่วงเวลาของแดชบอร์ดผู้บริหาร ----------------
    กรองจากฟิลด์ created_at (วันที่เพิ่มเข้าระบบ) ที่ gen.mjs ใส่ไว้ให้ทุกรายการ
@@ -9,10 +10,10 @@ import {demandGap, GAP_REF} from "./mock/geoData.js";
 const DAY = 864e5;
 
 export const RANGES = [
-  {id:"7d",  label:"7 วันล่าสุด",  cmp:"เทียบกับ 7 วันก่อนหน้า"},
-  {id:"30d", label:"30 วันล่าสุด", cmp:"เทียบกับ 30 วันก่อนหน้า"},
-  {id:"q",   label:"ไตรมาสนี้",    cmp:"เทียบกับช่วงยาวเท่ากันก่อนหน้า"},
-  {id:"all", label:"ทั้งหมด",      cmp:"จากเดือนก่อน"},
+  {id:"7d",  get label(){ return t("7 วันล่าสุด","Last 7 days"); },  get cmp(){ return t("เทียบกับ 7 วันก่อนหน้า","vs. previous 7 days"); }},
+  {id:"30d", get label(){ return t("30 วันล่าสุด","Last 30 days"); }, get cmp(){ return t("เทียบกับ 30 วันก่อนหน้า","vs. previous 30 days"); }},
+  {id:"q",   get label(){ return t("ไตรมาสนี้","This quarter"); },    get cmp(){ return t("เทียบกับช่วงยาวเท่ากันก่อนหน้า","vs. equal preceding period"); }},
+  {id:"all", get label(){ return t("ทั้งหมด","All time"); },          get cmp(){ return t("จากเดือนก่อน","vs. last month"); }},
 ];
 
 import {thDate} from "./lib.js";   // ตัวแปลงวันที่กลางของระบบ (เวลาไทย · ปี พ.ศ.)
@@ -36,7 +37,7 @@ function growth(arr, w){
   const p=prevOf(w); let cur=0, prv=0;
   for(const o of arr){ const t=Date.parse(o.created_at);
     if(t>=w.from&&t<=w.to) cur++; else if(t>=p.from&&t<=p.to) prv++; }
-  if(!prv) return {up:cur>0, txt: cur>0 ? "ไม่มีข้อมูลช่วงก่อนหน้าให้เทียบ" : "ยังไม่มีข้อมูลในช่วงนี้", plain:true};
+  if(!prv) return {up:cur>0, txt: cur>0 ? t("ไม่มีข้อมูลช่วงก่อนหน้าให้เทียบ", "No earlier period to compare against") : t("ยังไม่มีข้อมูลในช่วงนี้", "No data in this period yet"), plain:true};
   const g=(cur-prv)/prv*100;
   return {up:g>=0, txt:(g>=0?"+":"")+g.toFixed(1)+"%", plain:false};
 }
@@ -98,6 +99,6 @@ export function calcView(custs, pros, areas, rangeId){
     dCust: growth(custs,tw), dPros: growth(pros,tw),
     sCust: sparkOf(custs,tw), sPros: sparkOf(pros,tw),
     rangeText: win ? thDate(win.from)+" – "+thDate(win.to)
-                   : "ข้อมูลทั้งหมดในระบบ · ล่าสุด "+thDate(ref),
+                   : t("ข้อมูลทั้งหมดในระบบ · ล่าสุด ", "All data in the system · latest ")+thDate(ref),
   };
 }

@@ -1,5 +1,7 @@
 import {html, useState, Icon, brandMark, roleTH} from "../lib.js";
 import {Globe} from "../globe.js";
+import {LangToggle} from "../ui.js";
+import {t} from "../i18n.js";   // สลับภาษา TH/EN — ดู src/i18n.js
 
 export function Login({db, onLogin}){
   const [role, setRole] = useState("Administrator");
@@ -28,42 +30,44 @@ export function Login({db, onLogin}){
         <${Globe} countries=${db.countries} world=${db.world} small=${true}/>
       </div>
       <div class="lg-cap">
-        <h2>มองเห็นทั้งตลาดของคุณ<br/>บนแผนที่อัจฉริยะเพียงหน้าเดียว</h2>
-        <p>ระบบข่าวกรองเชิงพื้นที่ระดับองค์กร สำหรับวิเคราะห์การกระจายตัวของลูกค้า ค้นหาโอกาส
-           และวางแผนความครอบคลุม — ขับเคลื่อนด้วยการทำเหมืองข้อมูลเชิงสถิติทั่ว ${db.countries.length} ตลาด</p>
+        <h2>${t("มองเห็นทั้งตลาดของคุณ", "See your entire market")}<br/>${t("บนแผนที่อัจฉริยะเพียงหน้าเดียว", "on a single intelligent map")}</h2>
+        <p>${t("ระบบข่าวกรองเชิงพื้นที่ระดับองค์กร สำหรับวิเคราะห์การกระจายตัวของลูกค้า ค้นหาโอกาส", "Enterprise geo-intelligence for analysing customer distribution, spotting opportunities")}
+           ${t("และวางแผนความครอบคลุม — ขับเคลื่อนด้วยการทำเหมืองข้อมูลเชิงสถิติทั่ว", "and planning coverage — powered by statistical data mining across the")} ${db.countries.length} ${t("ตลาด", "market")}</p>
         <div class="lg-tags">
-          <span class="t">วิเคราะห์แผนที่ความร้อน</span><span class="t">วิเคราะห์ช่องว่าง</span>
-          <span class="t">วางแผนความครอบคลุม</span><span class="t">เพิ่มประสิทธิภาพเส้นทาง</span>
+          <span class="t">${t("วิเคราะห์แผนที่ความร้อน", "Heatmap analysis")}</span><span class="t">${t("วิเคราะห์ช่องว่าง", "Gap analysis")}</span>
+          <span class="t">${t("วางแผนความครอบคลุม", "Coverage planning")}</span><span class="t">${t("เพิ่มประสิทธิภาพเส้นทาง", "Route optimisation")}</span>
         </div>
       </div>
     </div>
 
     <div class="lg-form">
+      <!-- หน้าเข้าสู่ระบบไม่มี topbar — วางปุ่มสลับภาษาไว้มุมขวาบนของฟอร์ม ไม่งั้นสลับก่อนล็อกอินไม่ได้เลย -->
+      <div style=${{position:"absolute",top:"18px",right:"20px",zIndex:2}}><${LangToggle}/></div>
       <form class="lg-card" onSubmit=${submit}>
         <div class="mk">${brandMark(24)}</div>
-        <h1>ยินดีต้อนรับกลับ</h1>
-        <p class="lgp">เข้าสู่ระบบแพลตฟอร์ม GeoIntel</p>
+        <h1>${t("ยินดีต้อนรับกลับ", "Welcome back")}</h1>
+        <p class="lgp">${t("เข้าสู่ระบบแพลตฟอร์ม GeoIntel", "Sign in to the GeoIntel platform")}</p>
 
-        <div class="field"><label>ชื่อผู้ใช้ / อีเมล</label>
+        <div class="field"><label>${t("ชื่อผู้ใช้ / อีเมล", "Username / email")}</label>
           <input class="input" placeholder=${defaults[role]} value=${user}
             onInput=${e=>setUser(e.target.value)}/>
-          <div class="lg-hint">บัญชีตัวอย่าง: ${defaults[role]}</div></div>
-        <div class="field"><label>รหัสผ่าน</label>
+          <div class="lg-hint">${t("บัญชีตัวอย่าง:", "Demo account:")} ${defaults[role]}</div></div>
+        <div class="field"><label>${t("รหัสผ่าน", "Password")}</label>
           <input class="input" type="password" placeholder="••••••••••" value=${pass}
             onInput=${e=>setPass(e.target.value)}/></div>
 
         <div class="lg-remember">
           <label onClick=${()=>setRemember(!remember)}>
             <span class=${"checkbox"+(remember?" on":"")}>${remember&&html`<${Icon} name="check" size=${12} color="#fff"/>`}</span>
-            จดจำฉัน</label>
-          <span class="link">ลืมรหัสผ่าน?</span>
+            ${t("จดจำฉัน", "Remember me")}</label>
+          <span class="link">${t("ลืมรหัสผ่าน?", "Forgot password?")}</span>
         </div>
 
         <button class="btn primary" style=${{width:"100%"}} type="submit" disabled=${busy}>
-          ${busy?"กำลังเข้าสู่ระบบ…":"เข้าสู่ระบบ"} ${!busy&&html`<${Icon} name="chevronR" size=${16}/>`}</button>
+          ${busy?t("กำลังเข้าสู่ระบบ…", "Signing in…"):t("เข้าสู่ระบบ", "Sign in")} ${!busy&&html`<${Icon} name="chevronR" size=${16}/>`}</button>
 
         <div class="lg-roles">
-          <div class="rl">เข้าสู่ระบบตัวอย่าง — เลือกบทบาท</div>
+          <div class="rl">${t("เข้าสู่ระบบตัวอย่าง — เลือกบทบาท", "Demo sign-in — pick a role")}</div>
           <div class="rr">
             ${["Administrator","Management","Trade Coordinator"].map(r=>html`<button key=${r} type="button"
               class=${role===r?"on":""} onClick=${()=>setRole(r)}>${roleTH(r)}</button>`)}

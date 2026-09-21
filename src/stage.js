@@ -1,18 +1,19 @@
-import {html, useState, useEffect, useRef, useMemo, Icon, num, SEGMENTS, SEG_COLOR, SEG_ICON, STATUS_COLOR, segTH, countryTH, provinceTH} from "./lib.js";
+import {html, useState, useEffect, useRef, useMemo, Icon, num, SEGMENTS, SEG_COLOR, SEG_ICON, STATUS_COLOR, segTH, countryTH, provinceTH, getLang} from "./lib.js";
 import {Btn, Toggle, Badge} from "./ui.js";
 import {Dropdown} from "./select.js";
 import {Globe} from "./globe.js";
 import {LeafletMap} from "./lmap.js";
 import {filterData} from "./data.js";
-import {CategoryChips} from "./category-chips.js";
+import {CategoryDropdown} from "./category-chips.js";
+import {t} from "./i18n.js";
 
 // Post-login globe picker: a FIXED shortlist of four featured provinces.
 // "Pattaya" ใช้ key นี้ทั้งระบบ โดยอิงขอบเขต/พิกัดของพื้นที่ชายฝั่งตะวันออกเดิม
 const FEATURED_PROVINCES = [
-  {province:"Bangkok Metropolis", label:"กรุงเทพมหานคร"},
-  {province:"Chiang Mai",         label:"เชียงใหม่"},
-  {province:"Phuket",             label:"ภูเก็ต"},
-  {province:"Pattaya",            label:"พัทยา"},
+  {province:"Bangkok Metropolis", get label(){ return t("กรุงเทพมหานคร","Bangkok"); }},
+  {province:"Chiang Mai",         get label(){ return t("เชียงใหม่","Chiang Mai"); }},
+  {province:"Phuket",             get label(){ return t("ภูเก็ต","Phuket"); }},
+  {province:"Pattaya",            get label(){ return t("พัทยา","Pattaya"); }},
 ];
 const CALLOUT_CSS = `
 /* ── หน้าเลือกจังหวัด: 3 คอลัมน์ 30/40/30 — การ์ดคงที่ซ้าย-ขวา ลูกโลกอยู่ตรงกลาง ──
@@ -65,7 +66,7 @@ const CALLOUT_CSS = `
 `;
 
 export function GeoStage({db, mode, activeCountry, flyTarget, globeUnder, onArriveCountry, onSelectCountry, onSelectProvince,
-    filters, setFilters, layers, setLayers, onPickProvince, onPickCustomer, onOpenReports, focusProvince, highlightCustomer, onBackToGlobe, tourPanel, tourFocus, visitPlan, visitRoute, office, planRoutes,
+    filters, setFilters, layers, setLayers, onPickProvince, onPickCustomer, onOpenReports, focusProvince, highlightCustomer, onBackToGlobe, tourPanel, tourFocus, visitPlan, visitRoute, office, planRoutes, lockZones, zoneMode,
     gsearch, setGsearch, searchResults, onPickProvinceZoom, onPickCustomerNav, lockProvince}){
   const areaByProvince = db.areaByProvince||{};
   const [layersOpen, setLayersOpen] = useState(true);    // แผงเลเยอร์เปิดอยู่เป็นค่าเริ่มต้น · กดไอคอนเลเยอร์เพื่อย่อ/ขยาย
@@ -92,9 +93,9 @@ export function GeoStage({db, mode, activeCountry, flyTarget, globeUnder, onArri
   useEffect(()=>{ if(mode!=="globe"){ setHoverId(null); setClicking(null); } },[mode]);
   useEffect(()=>{ if(flyTarget) setHoverId(null); },[flyTarget]);
   // ตัวเลือกของตัวกรองจังหวัดบนแถบเหนือแผนที่ — เฉพาะจังหวัดที่มีข้อมูลในระบบ
-  const provinceOpts = useMemo(()=>[["All","ทุกจังหวัด"],
+  const provinceOpts = useMemo(()=>[["All",t("ทุกจังหวัด", "All provinces")],
     ...Object.keys(db.areaByProvince||{}).sort((a,b)=>provinceTH(a).localeCompare(provinceTH(b),"th"))
-      .map(k=>[k, provinceTH(k)])], [db.areaByProvince]);
+      .map(k=>[k, provinceTH(k)])], [db.areaByProvince, getLang()]);
 
   // หมุด 4 จังหวัด (พิกัดจริง) — area.center = [lng,lat] จึง lat=center[1], lng=center[0]
   const pins = useMemo(()=> featuredCards.filter(f=>f.area&&f.area.center)
@@ -113,29 +114,29 @@ export function GeoStage({db, mode, activeCountry, flyTarget, globeUnder, onArri
       <span class="pick-name">${f.label}</span>
     </div>
     ${f.area ? html`<div class="pick-body">
-      <div class="pick-metric"><span class="pick-num">${num(f.area.customerCount)}</span><span class="pick-lab">ลูกค้า</span></div>
+      <div class="pick-metric"><span class="pick-num">${num(f.area.customerCount)}</span><span class="pick-lab">${t("ลูกค้า", "Customers")}</span></div>
       <div class="pick-metric"><span class="pick-num p">${num(f.area.prospectCount)}</span><span class="pick-lab">Lead</span></div>
-    </div>` : html`<div style=${{fontSize:"11.5px",color:"var(--muted)",marginBottom:"11px"}}>กำลังโหลด…</div>`}
-    <div class="pick-cta">ดูแผนที่วิเคราะห์ <${Icon} name="chevronR" size=${11}/></div>
+    </div>` : html`<div style=${{fontSize:"11.5px",color:"var(--muted)",marginBottom:"11px"}}>${t("กำลังโหลด…", "Loading…")}</div>`}
+    <div class="pick-cta">${t("ดูแผนที่วิเคราะห์", "Open analysis map")} <${Icon} name="chevronR" size=${11}/></div>
   </div>`;
 
   const inCountry = !!activeCountry;
   const {customers, prospects} = mode==="map" && db.customers ? filterData(db, filters, activeCountry||"Thailand") : {customers:[],prospects:[]};
 
-  // business-category visibility (filters markers) — driven by the category pills on the search bar
+  // business-category visibility (filters markers) — driven by the category dropdown at the bottom of the layer panel
   const setSeg = s => setFilters(f=>({...f, segments:{...f.segments,[s]:!f.segments[s]}}));
 
   return html`<div class="globe-stage" ref=${stageRef}>
     ${(mode==="globe"||globeUnder) && html`<${Globe} countries=${db.countries} world=${db.world} flyTo=${flyTarget} onArrive=${onArriveCountry}
       pins=${pins} hover=${hoverId} apiRef=${globeApi}/>`}
     ${mode==="globe" && html`
-      <button class="globe-reset" onClick=${()=>globeApi.current&&globeApi.current.resetView()} title="กลับมุมมองเริ่มต้น (เห็นครบทั้ง 4 จังหวัด)">
-        <${Icon} name="refresh" size=${14}/> รีเซ็ตมุมมอง</button>
+      <button class="globe-reset" onClick=${()=>globeApi.current&&globeApi.current.resetView()} title=${t("กลับมุมมองเริ่มต้น (เห็นครบทั้ง 4 จังหวัด)", "Back to the default view (all 4 provinces)")}>
+        <${Icon} name="refresh" size=${14}/> ${t("รีเซ็ตมุมมอง", "Reset view")}</button>
       ${!flyTarget && html`
         <!-- สรุปหัวข้อบนสุด (ลอยบนลูกโลกมืด จึงใช้สีขาวชัดเจน ไม่ใช้ var(--txt) ที่เป็นสีเข้ม) -->
         <div class="pick-head" data-tour="country">
-          <div class="pick-title">เริ่มต้นการวิเคราะห์ตลาดเชิงพื้นที่ (GEO Intelligence)</div>
-          <div class="pick-sub">ชี้ที่การ์ดเพื่อหมุนโลกไปยังจังหวัดนั้น · คลิกเพื่อเข้าสู่หน้าแผนที่วิเคราะห์</div>
+          <div class="pick-title">${t("เริ่มต้นการวิเคราะห์ตลาดเชิงพื้นที่ (GEO Intelligence)", "Start your spatial market analysis (GEO Intelligence)")}</div>
+          <div class="pick-sub">${t("ชี้ที่การ์ดเพื่อหมุนโลกไปยังจังหวัดนั้น · คลิกเพื่อเข้าสู่หน้าแผนที่วิเคราะห์", "Hover a card to spin the globe to that province · click to open the analysis map")}</div>
         </div>
         <!-- 3 คอลัมน์ 30/40/30 — การ์ดคงที่ซ้าย 2 ใบ / ลูกโลกกลาง / การ์ดคงที่ขวา 2 ใบ
              การ์ดอยู่นิ่งตลอด ไม่ผูกกับพิกัดฉายของหมุดบนลูกโลกอีกต่อไป -->
@@ -145,39 +146,33 @@ export function GeoStage({db, mode, activeCountry, flyTarget, globeUnder, onArri
           <div class="pick-col right">${featuredCards.slice(2,4).map(f=>provinceCard(f))}</div>
         </div>
         <!-- คำแนะนำ ย้ายมาเป็น floating tooltip มุมขวาล่างของลูกโลก -->
-        <div class="globe-hint"><span>ลากเพื่อหมุน</span><span>·</span><span>เลื่อนเพื่อซูม</span><span>·</span><span>เลือกจังหวัดเพื่อเข้าชม</span></div>
+        <div class="globe-hint"><span>${t("ลากเพื่อหมุน", "Drag to rotate")}</span><span>·</span><span>${t("เลื่อนเพื่อซูม", "Scroll to zoom")}</span><span>·</span><span>${t("เลือกจังหวัดเพื่อเข้าชม", "Pick a province to explore")}</span></div>
       `}
       <style>${CALLOUT_CSS}</style>`}
     ${mode==="map" && html`
       <${LeafletMap} db=${db} filters=${filters} layers=${layers} country=${activeCountry||"Thailand"} dark=${mapDark}
         focusProvince=${focusProvince} highlight=${highlightCustomer} focusPoint=${tourFocus} onPickArea=${onPickProvince} onPickCustomer=${onPickCustomer}
-        onMapMode=${setMapMode} plan=${visitPlan} route=${visitRoute} office=${office} planRoutes=${planRoutes} lockProvince=${lockProvince}/>
+        onMapMode=${setMapMode} plan=${visitPlan} route=${visitRoute} office=${office} planRoutes=${planRoutes} lockProvince=${lockProvince} lockZones=${lockZones} zoneMode=${zoneMode}/>
 
-      <!-- แถบนำทางกระชับแถวเดียว: [ค้นหา] [หมวดหมู่ธุรกิจ] ───ดันขวา─── [เพิ่มลูกค้า] [รายงาน]
+      <!-- แถบนำทางกระชับแถวเดียว: [ค้นหา] (หมวดหมู่ธุรกิจย้ายไปเป็น dropdown ท้ายแผงเลเยอร์แล้ว)
            หลักการ: ตัวกรอง (หมวดหมู่) อยู่ซ้าย/กลาง · ปุ่ม Action (เพิ่มข้อมูล/รายงาน) แยกไปอยู่ขวาสุด -->
       <div class="map-nav" style=${{position:"absolute",top:"16px",left:"56px",right:"16px",zIndex:500,display:"flex",alignItems:"center",gap:"10px"}}>
       <div data-tour="search" style=${{position:"relative",width:"300px",maxWidth:"100%",flex:"none"}}>
         <div class="searchbox map-fx" style=${{width:"100%",position:"relative",background:"var(--panel)",
           border:"1px solid var(--stroke2)",backdropFilter:"blur(14px)",boxShadow:"var(--shadow)"}}>
           <${Icon} name="search" size=${15}/>
-          <input placeholder="ค้นหาลูกค้า, จังหวัด, ที่อยู่…" value=${gsearch} onInput=${e=>setGsearch(e.target.value)}/>
+          <input placeholder=${t("ค้นหาลูกค้า, จังหวัด, ที่อยู่…", "Search customers, provinces, addresses…")} value=${gsearch} onInput=${e=>setGsearch(e.target.value)}/>
         </div>
         ${((searchResults?.areas?.length>0)||(searchResults?.people?.length>0)) && html`<div class="dropdown" style=${{position:"absolute",top:"calc(100% + 8px)",left:0,width:"100%",maxHeight:"380px",overflowY:"auto",zIndex:30}}>
-          ${searchResults.areas.length>0 && html`<div class="dd-label">จังหวัด</div>`}
+          ${searchResults.areas.length>0 && html`<div class="dd-label">${t("จังหวัด", "provinces")}</div>`}
           ${searchResults.areas.map((a,i)=>html`<div key=${"a"+i} class="dd-item" onClick=${()=>{onPickProvinceZoom(a.province);setGsearch("");}}>
             <${Icon} name="area" size=${15}/><div><div style=${{fontSize:"12.5px",fontWeight:600}}>${a.title}</div>
             <div class="dim" style=${{fontSize:"12.5px"}}>${a.sub}</div></div></div>`)}
-          ${searchResults.people.length>0 && html`<div class="dd-label">ลูกค้า / Lead</div>`}
+          ${searchResults.people.length>0 && html`<div class="dd-label">${t("ลูกค้า / Lead", "Customers / Leads")}</div>`}
           ${searchResults.people.map((p,i)=>html`<div key=${"p"+i} class="dd-item" onClick=${()=>{onPickCustomerNav(p);setGsearch("");}}>
             <${Icon} name="building" size=${15}/><div><div style=${{fontSize:"12.5px",fontWeight:600}}>${p.title}</div>
             <div class="dim" style=${{fontSize:"12.5px"}}>${p.sub}</div></div></div>`)}
         </div>`}
-      </div>
-
-      <!-- ตัวกรองหมวดหมู่ธุรกิจ 12 หมวด — แถวเดียว เลื่อนแนวนอนได้ (data-tour="segments") -->
-      <div data-tour="segments" style=${{flex:"1",minWidth:0,display:"flex"}}>
-        <${CategoryChips} active=${filters.segments} onToggle=${setSeg}
-          onSetAll=${v=>setFilters(f=>({...f, segments:Object.fromEntries(SEGMENTS.map(s=>[s,v]))}))}/>
       </div>
 
       <!-- ไม่มีปุ่ม Action บนแถบนี้แล้ว — "เพิ่ม Lead" ถูกถอดออก (เพิ่มรายการใหม่ทำผ่านแอดมินเท่านั้น)
@@ -195,12 +190,12 @@ export function GeoStage({db, mode, activeCountry, flyTarget, globeUnder, onArri
       <div class="layers-widget" data-tour="layers"
         style=${{position:"absolute",top:"82px",left:"10px",zIndex:700}}>
         <!-- ปุ่มสลับโทนสี (/): อยู่ใต้ปุ่มซูมทันที (บนสุดของกลุ่มไอคอน) -->
-        <button class="layers-fab" title=${mapDark?"สลับเป็นโหมดสว่าง":"สลับเป็นโหมดมืด"}
-          aria-label=${mapDark?"สลับเป็นโหมดสว่าง":"สลับเป็นโหมดมืด"} onClick=${toggleMapDark}
+        <button class="layers-fab" title=${mapDark?t("สลับเป็นโหมดสว่าง", "Switch to light mode"):t("สลับเป็นโหมดมืด", "Switch to dark mode")}
+          aria-label=${mapDark?t("สลับเป็นโหมดสว่าง", "Switch to light mode"):t("สลับเป็นโหมดมืด", "Switch to dark mode")} onClick=${toggleMapDark}
           style=${{position:"absolute",top:0,left:0}}>
           <${Icon} name=${mapDark?"sun":"moon"} size=${19}/></button>
         <!-- ไอคอนเลเยอร์: อยู่ "ใต้" ปุ่มสลับโทน (แนวตั้ง ห่าง 54px) · เมื่อแผงเปิด แผงงอกออกด้านขวา -->
-        ${!layersOpen && html`<button class="layers-fab" title="เลเยอร์แผนที่" aria-label="เลเยอร์แผนที่" onClick=${()=>setLayersOpen(true)}
+        ${!layersOpen && html`<button class="layers-fab" title=${t("เลเยอร์แผนที่", "Map layers")} aria-label=${t("เลเยอร์แผนที่", "Map layers")} onClick=${()=>setLayersOpen(true)}
           style=${{position:"absolute",top:"54px",left:0}}>
           <${Icon} name="layers" size=${20}/>
         </button>`}
@@ -210,30 +205,27 @@ export function GeoStage({db, mode, activeCountry, flyTarget, globeUnder, onArri
         <!-- หัวแผง + ปุ่มย่อแผง — ใช้ "ไอคอนเลเยอร์" ตัวเดียวกับตอนเปิด จึงเป็นปุ่มสลับชุดเดียวกัน
              (กดที่ไอคอนนี้ = ย่อกลับเป็นไอคอน · กดไอคอนอีกทีก็กางแผงกลับมา) -->
         <div class="row between" style=${{marginBottom:"10px",paddingBottom:"9px",borderBottom:"1px solid var(--stroke)"}}>
-          <b style=${{fontSize:"12.5px"}}>เลเยอร์แผนที่</b>
-          <button class="layers-close" title="ย่อแผงเลเยอร์" aria-label="ย่อแผงเลเยอร์" onClick=${()=>setLayersOpen(false)}>
+          <b style=${{fontSize:"12.5px"}}>${t("เลเยอร์แผนที่", "Map layers")}</b>
+          <button class="layers-close" title=${t("ย่อแผงเลเยอร์", "Collapse layer panel")} aria-label=${t("ย่อแผงเลเยอร์", "Collapse layer panel")} onClick=${()=>setLayersOpen(false)}>
             <${Icon} name="layers" size=${15}/>
           </button>
         </div>
 
         <!-- Heat = "Lead สูง" (High-Demand Gap) แสดงอัตโนมัติตามระดับซูม (ซูมออก=Heat / กลาง=Cluster / ใกล้=Marker)
              จึงตัด toggle/ทึบแสง/รัศมี ของ Heat ออกจากแผงนี้ · ค่ารัศมี(18)/ทึบแสง(80%) ย้ายเป็นค่าคงที่ใน lmap.js -->
-        <!-- แสดง/ซ่อน marker ตามสถานะลูกค้า (ทำงานร่วมกับโหมด Cluster/Marker) แต่ละอันปรับความทึบได้ -->
+        <!-- ⚠ ความทึบไม่ให้ปรับตรงนี้แล้ว — ตั้งที่ "ตั้งค่าระบบ › การจัดการเลเยอร์" (แอดมิน) ที่เดียว
+             TC/ผู้บริหารเข้ามาก็เห็น ลูกค้า=ทึบ · Lead=จาง ตามที่แอดมินตั้งไว้ทันที
+             แสดง/ซ่อน marker ตามสถานะลูกค้า (ทำงานร่วมกับโหมด Cluster/Marker) แต่ละอันปรับความทึบได้ -->
         <div>
-          <div class="dim" style=${{fontSize:"11.5px",marginBottom:"6px"}}>สถานะ marker</div>
-          ${[{k:"existing",name:"ลูกค้า (หมุดทึบ)",c:"#475569",swOp:1,opDef:90},
-             {k:"prospect",name:"Lead (หมุดจาง)",c:"#475569",swOp:.4,opDef:40}].map(r=>html`<div key=${r.k} style=${{paddingTop:"6px"}}>
+          <div class="dim" style=${{fontSize:"11.5px",marginBottom:"6px"}}>${t("สถานะ marker", "Marker status")}</div>
+          ${[{k:"existing",name:t("ลูกค้าปัจจุบัน", "Current customers"),c:"#475569",swOp:1},
+             {k:"prospect",name:"Lead",c:"#475569",swOp:.4}].map(r=>html`<div key=${r.k} style=${{paddingTop:"6px"}}>
             <div class="row between">
               <div class="row" style=${{gap:"9px",opacity:layers[r.k]!==false?1:.45,transition:"opacity .15s"}}>
                 <span class="dotc" style=${{background:r.c,opacity:r.swOp,width:"11px",height:"11px",borderRadius:"3px"}}></span>
                 <span style=${{fontSize:"12px",fontWeight:layers[r.k]!==false?600:400}}>${r.name}</span></div>
               <${Toggle} on=${layers[r.k]!==false} onChange=${()=>setLayers(x=>({...x,[r.k]:x[r.k]===false}))}/>
             </div>
-            <div class="row" style=${{gap:"8px",marginTop:"6px",opacity:layers[r.k]!==false?1:.45,transition:"opacity .15s"}}>
-              <span class="dim" style=${{fontSize:"11.5px",width:"42px",flex:"none"}}>ทึบแสง</span>
-              <input type="range" min="10" max="100" value=${(layers.op&&layers.op[r.k])??r.opDef}
-                onInput=${e=>setLayers(x=>({...x,op:{...x.op,[r.k]:+e.target.value}}))} style=${{flex:1}}/>
-              <span class="mono" style=${{fontSize:"11.5px",width:"30px",textAlign:"right",flex:"none"}}>${(layers.op&&layers.op[r.k])??r.opDef}%</span></div>
           </div>`)}
         </div>
 
@@ -242,9 +234,17 @@ export function GeoStage({db, mode, activeCountry, flyTarget, globeUnder, onArri
           <div class="row between">
             <div class="row" style=${{gap:"9px",opacity:layers.route!==false?1:.45,transition:"opacity .15s"}}>
               <span class="dotc" style=${{background:"repeating-linear-gradient(90deg,#8a7bff 0 5px,transparent 5px 9px)",width:"14px",height:"3px",borderRadius:"2px"}}></span>
-              <span style=${{fontSize:"12px",fontWeight:layers.route!==false?600:400,color:"var(--txt)"}}>เส้นทางดำเนินการ</span></div>
+              <span style=${{fontSize:"12px",fontWeight:layers.route!==false?600:400,color:"var(--txt)"}}>${t("เส้นทางดำเนินการ", "Planned routes")}</span></div>
             <${Toggle} on=${layers.route!==false} onChange=${()=>setLayers(x=>({...x,route:x.route===false}))}/></div>
         </div>`}
+
+        <!-- หมวดหมู่ธุรกิจ — ย้ายจากแถวชิปบนแถบนำทางมาเป็น dropdown ท้ายแผงเลเยอร์
+             เลือกได้หลายหมวดเหมือนเดิม (filters.segments เป็น map เปิด/ปิดรายหมวด) · data-tour ย้ายตามมาด้วย -->
+        <div data-tour="segments" style=${{paddingTop:"10px",borderTop:"1px solid var(--stroke)",marginTop:"10px"}}>
+          <div class="dim" style=${{fontSize:"11.5px",marginBottom:"6px"}}>${t("หมวดหมู่ธุรกิจ", "Business categories")}</div>
+          <${CategoryDropdown} active=${filters.segments} onToggle=${setSeg}
+            onSetAll=${v=>setFilters(f=>({...f, segments:Object.fromEntries(SEGMENTS.map(s=>[s,v]))}))}/>
+        </div>
 
         <!-- เลเยอร์ "พื้นที่จังหวัด (เจาะจง)" ถูกถอดออกจากแผงแล้ว (ทุกบทบาท)
              layers.province ยังอยู่ในสเตต ตั้งต้น false → choropleth ปิดถาวร · จังหวัดยังคลิกเลือกได้ตามปกติ -->
@@ -254,11 +254,11 @@ export function GeoStage({db, mode, activeCountry, flyTarget, globeUnder, onArri
       <!-- คำอธิบาย Lead สูง (มุมซ้ายล่าง) — โผล่เฉพาะตอนแผนที่อยู่โหมด Heat (ซูมออก) ตามที่แจ้งผ่าน onMapMode -->
       ${mapMode==="heat" && html`<div class="map-panel map-fx" style=${{position:"absolute",bottom:"16px",left:"16px",zIndex:500,
         padding:"10px 14px",display:"flex",flexDirection:"column",gap:"6px"}}>
-        <div style=${{fontSize:"11px",color:"var(--dim)",textTransform:"uppercase",letterSpacing:".6px"}}>ความหนาแน่นของธุรกิจ</div>
+        <div style=${{fontSize:"11px",color:"var(--dim)",textTransform:"uppercase",letterSpacing:".6px"}}>${t("ความหนาแน่นของธุรกิจ", "Business density")}</div>
         <div style=${{width:"160px",height:"8px",borderRadius:"4px",
           background:"linear-gradient(90deg,#1a4bd8,#1ec7e6,#26e07a,#c8e622,#ffc233,#ff6a1a,#d81e1e)"}}></div>
         <div class="row between" style=${{fontSize:"10.5px",color:"var(--dim)"}}>
-          <span>ต่ำ</span><span>ปานกลาง</span><span>สูง</span><span>สูงมาก</span>
+          <span>${t("ต่ำ", "Low")}</span><span>${t("ปานกลาง", "Medium")}</span><span>${t("สูง", "High")}</span><span>${t("สูงมาก", "Very high")}</span>
         </div>
       </div>`}
 
@@ -267,13 +267,13 @@ export function GeoStage({db, mode, activeCountry, flyTarget, globeUnder, onArri
         <div class="map-panel map-fx" style=${{padding:"6px 11px",display:"flex",alignItems:"center",gap:"10px",flexWrap:"wrap",flex:"none"}}>
           ${lockProvince
             ? html`<span style=${{display:"inline-flex",alignItems:"center",gap:"6px",fontSize:"12.5px",fontWeight:700,color:"var(--accent2)"}}>
-                <${Icon} name="pin" size=${14}/> เขตที่รับผิดชอบ: ${provinceTH(lockProvince)}</span>`
+                <${Icon} name="pin" size=${14}/> ${t("เขตที่รับผิดชอบ:", "Territory:")} ${provinceTH(lockProvince)}</span>`
             : html`<div style=${{width:"190px",flex:"none"}}>
-                <${Dropdown} value=${filters.province||"All"} placeholder="ทุกจังหวัด" options=${provinceOpts}
+                <${Dropdown} value=${filters.province||"All"} placeholder=${t("ทุกจังหวัด", "All provinces")} options=${provinceOpts}
                   onChange=${v=>setFilters(f=>({...f, province:v}))}/></div>
           <span style=${{width:"1px",height:"15px",background:"var(--stroke2)",flex:"none"}}></span>
           <span style=${{fontSize:"12.5px",fontWeight:700}}>${filters.province&&filters.province!=="All"?provinceTH(filters.province):countryTH(activeCountry||"Thailand")}</span>`}
-          <span style=${{fontSize:"12px",color:"var(--muted)"}}>${num(customers.length)} ลูกค้า · ${num(prospects.length)} Lead</span>
+          <span style=${{fontSize:"12px",color:"var(--muted)"}}>${num(customers.length)} ${t("ลูกค้า ·", "Customers ·")} ${num(prospects.length)} Lead</span>
         </div>
       </div>`}
   </div>`;

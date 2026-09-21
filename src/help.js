@@ -1,4 +1,5 @@
 import {html, useState, useEffect, useRef, Icon} from "./lib.js";
+import {t} from "./i18n.js";
 
 // ── Contextual help — small one-time tips shown the first time a user touches a feature ──
 // Persisted per user; each tip appears at most once and is dismissible.
@@ -9,12 +10,12 @@ function markTip(email,k){ try{ localStorage.setItem(`${KEY}.${email||"guest"}.$
 // Each feature → the selector that identifies it + the tip text. Order = priority
 // (more specific first, so the heat row wins over the whole layer panel).
 const TIPS = [
-  { key:"heat",    sel:'[data-help="heat"]',   text:"แสดง Lead สูง — หมวดธุรกิจที่ยังขาดในพื้นที่" },
-  { key:"layer",   sel:'[data-tour="layers"]', text:"ใช้เปิดหรือปิดข้อมูลบนแผนที่" },
-  { key:"opp",     sel:'[data-help="opp"]',    text:"ดัชนี Lead สูงที่ระบบใช้จัดลำดับพื้นที่" },
-  { key:"route",   sel:'[data-help="route"]',  text:"ใช้วางแผนการเดินทาง" },
-  { key:"cluster", sel:'.geo-cluster',         text:"รวม Marker ที่อยู่ใกล้กัน" },
-  { key:"marker",  sel:'.geo-mk',              text:"คลิกเพื่อดูรายละเอียดลูกค้า" },
+  { key:"heat",    sel:'[data-help="heat"]',   get text(){ return t("แสดง Lead สูง — หมวดธุรกิจที่ยังขาดในพื้นที่","Shows high Lead demand — business categories still missing in the area"); } },
+  { key:"layer",   sel:'[data-tour="layers"]', get text(){ return t("ใช้เปิดหรือปิดข้อมูลบนแผนที่","Turn map data layers on or off"); } },
+  { key:"opp",     sel:'[data-help="opp"]',    get text(){ return t("ดัชนี Lead สูงที่ระบบใช้จัดลำดับพื้นที่","The Lead index used to rank areas"); } },
+  { key:"route",   sel:'[data-help="route"]',  get text(){ return t("ใช้วางแผนการเดินทาง","Use this to plan your route"); } },
+  { key:"cluster", sel:'.geo-cluster',         get text(){ return t("รวม Marker ที่อยู่ใกล้กัน","Groups markers that sit close together"); } },
+  { key:"marker",  sel:'.geo-mk',              get text(){ return t("คลิกเพื่อดูรายละเอียดลูกค้า","Click to see customer details"); } },
 ];
 
 export function HelpTips({user, disabled}){
@@ -46,7 +47,7 @@ export function HelpTips({user, disabled}){
   return html`<div class=${"help-tip help-"+tip.place} style=${{left:tip.x+"px",top:tip.y+"px"}} role="status">
     <span class="help-ic"><${Icon} name="info" size=${13} color="#e60023"/></span>
     <span class="help-txt">${tip.text}</span>
-    <button class="help-x" onClick=${dismiss} aria-label="ปิด">✕</button>
+    <button class="help-x" onClick=${dismiss} aria-label=${t("ปิด", "Close")}>✕</button>
     <style>${CSS}</style>
   </div>`;
 }

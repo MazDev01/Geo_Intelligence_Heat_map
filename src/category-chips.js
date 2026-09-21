@@ -1,3 +1,4 @@
+import {t} from "./i18n.js";   // สลับภาษา TH/EN — ดู src/i18n.js
 // ═══════════════════════════════════════════════════════════════════════════
 // src/category-chips.js — แถบชิปหมวดหมู่ธุรกิจ 12 หมวด "แถวเดียว เลื่อนแนวนอน" (ดีไซน์ v2)
 // v2: ลบชิป "ทั้งหมด" → ใช้ปุ่มเบา "ล้างตัวกรอง ×" ปักซ้าย (โผล่เมื่อกรองบางส่วน) · ลดกล่องกรอบ
@@ -65,6 +66,27 @@ if(typeof document!=="undefined" && !document.getElementById("cc-css")){
 .cc-lnk{background:none;border:none;color:var(--accent2);font-family:var(--font);font-size:12.5px;font-weight:700;cursor:pointer}
 .cc-apply{border:none;border-radius:10px;padding:8px 16px;background:var(--accent);color:#fff;font-family:var(--font);font-size:12.5px;font-weight:700;cursor:pointer}
 .cc-sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+/* dropdown หมวดหมู่ท้ายแผงเลเยอร์ — กางรายการ "ในแผง" (แผงเป็น overflow:auto popup ลอยจะโดนตัดขอบ) */
+.cd-wrap{position:relative}
+.cd-btn{width:100%;height:34px;display:flex;align-items:center;gap:8px;padding:0 10px;border-radius:9px;
+  border:1px solid var(--stroke2);background:var(--surface);color:var(--txt);cursor:pointer;
+  font-family:var(--font);font-size:12.5px;font-weight:600;text-align:left}
+.cd-btn:hover,.cd-btn.open{border-color:var(--accent)}
+.cd-btn:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.cd-dots{display:inline-flex;flex:none}
+.cd-dots i{width:9px;height:9px;border-radius:999px;border:1.5px solid var(--surface);margin-left:-3px}
+.cd-dots i:first-child{margin-left:0}
+.cd-lb{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cd-car{flex:none;color:var(--muted);transition:transform .15s}
+.cd-btn.open .cd-car{transform:rotate(180deg)}
+.cd-list{margin-top:6px;padding:4px;border-radius:10px;border:1px solid var(--stroke);background:var(--surface)}
+.cd-acts{display:flex;justify-content:space-between;padding:4px 6px 6px;border-bottom:1px solid var(--stroke);margin-bottom:3px}
+.cd-item{display:flex;align-items:center;gap:8px;padding:6px;border-radius:7px;cursor:pointer;font-size:12px;color:var(--txt)}
+.cd-item:hover{background:var(--panel)}
+.cd-item input{margin:0;flex:none;width:14px;height:14px;cursor:pointer}
+.cd-item .cc-ic{color:var(--seg);flex:none}
+.cd-item:not(.on) .cd-name{color:var(--muted)}
+.cd-name{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 @media(max-width:1023px){.cc-more{display:none}}
 /* มือถือ: แถบนำทางแยกเป็น 2 บรรทัด — ชิปหมวดหมู่เต็มความกว้างบรรทัดล่าง · เป้ากดใหญ่ขึ้น */
 @media(max-width:767px){
@@ -110,9 +132,9 @@ export function CategoryChips({ segments=SEGMENTS, active={}, onToggle, onSetAll
     else if(e.key==="End") n=chips.length-1;
     if(n>=0){ e.preventDefault(); chips[n].focus(); chips[n].scrollIntoView({inline:"nearest",block:"nearest"}); } };
 
-  return html`<div class="cc-wrap" role="group" aria-label="กรองตามหมวดหมู่ธุรกิจ">
+  return html`<div class="cc-wrap" role="group" aria-label=${t("กรองตามหมวดหมู่ธุรกิจ", "Filter by business category")}>
     <div class="cc-area">
-      ${edges.l?html`<button class="cc-arrow l" aria-label="เลื่อนไปทางซ้าย" onClick=${()=>scrollByDir(-1)}>‹</button>`:""}
+      ${edges.l?html`<button class="cc-arrow l" aria-label=${t("เลื่อนไปทางซ้าย", "Scroll left")} onClick=${()=>scrollByDir(-1)}>‹</button>`:""}
       <div class=${"cc-fade l"+(edges.l?" on":"")} aria-hidden="true"></div>
       <div class="cc-strip" ref=${ref} onMouseDown=${onDown} onMouseMove=${onMove} onMouseUp=${onUp} onMouseLeave=${onUp}
         onClickCapture=${onClickCap} onWheel=${onWheel} onKeyDown=${onKey}>
@@ -124,9 +146,44 @@ export function CategoryChips({ segments=SEGMENTS, active={}, onToggle, onSetAll
             <span class="cc-lb">${segTH(s)}</span></button>`; })}
       </div>
       <div class=${"cc-fade r"+(edges.r?" on":"")} aria-hidden="true"></div>
-      ${edges.r?html`<button class="cc-arrow r" aria-label="เลื่อนไปทางขวา" onClick=${()=>scrollByDir(1)}>›</button>`:""}
+      ${edges.r?html`<button class="cc-arrow r" aria-label=${t("เลื่อนไปทางขวา", "Scroll right")} onClick=${()=>scrollByDir(1)}>›</button>`:""}
     </div>
 
-    <span class="cc-sr" role="status" aria-live="polite">เลือก ${selN} จาก ${segments.length} หมวด</span>
+    <span class="cc-sr" role="status" aria-live="polite">${t("เลือก", "Selected")} ${selN} ${t("จาก", "of")} ${segments.length} ${t("หมวด", "categories")}</span>
+  </div>`;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// CategoryDropdown — ตัวกรองหมวดหมู่แบบ dropdown (ท้ายแผงเลเยอร์แผนที่)
+// แทนแถวชิปบนแถบนำทาง · props ชุดเดียวกับ CategoryChips จึงสลับกันได้ทันที
+// เลือกได้หลายหมวด (filters.segments = map เปิด/ปิดรายหมวด) ตรรกะการกรองไม่เปลี่ยน
+// ═══════════════════════════════════════════════════════════════════════════
+export function CategoryDropdown({ segments=SEGMENTS, active={}, onToggle, onSetAll }){
+  const [open,setOpen]=useState(false);
+  const sel = segments.filter(s=>active[s]);
+  const label = sel.length===segments.length ? t("ทุกหมวด", "All categories")
+    : sel.length===0 ? t("ยังไม่ได้เลือกหมวด", "No category selected")
+    : sel.length===1 ? segTH(sel[0])
+    : `${t("เลือก", "Selected")} ${sel.length}/${segments.length} ${t("หมวด", "categories")}`;
+
+  return html`<div class="cd-wrap">
+    <button type="button" class=${"cd-btn"+(open?" open":"")} aria-expanded=${open} onClick=${()=>setOpen(o=>!o)}>
+      <span class="cd-dots" aria-hidden="true">${sel.slice(0,5).map(s=>html`<i key=${s} style=${{background:SEG_COLOR[s]}}></i>`)}</span>
+      <span class="cd-lb">${label}</span>
+      <svg class="cd-car" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"
+        stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
+    </button>
+    ${open && html`<div class="cd-list" role="group" aria-label=${t("กรองตามหมวดหมู่ธุรกิจ", "Filter by business category")}>
+      <div class="cd-acts">
+        <button type="button" class="cc-lnk" onClick=${()=>onSetAll&&onSetAll(true)}>${t("เลือกทั้งหมด", "Select all")}</button>
+        <button type="button" class="cc-lnk" onClick=${()=>onSetAll&&onSetAll(false)}>${t("ล้าง", "Clear")}</button>
+      </div>
+      ${segments.map(s=>{ const on=!!active[s];
+        return html`<label key=${s} class=${"cd-item"+(on?" on":"")} style=${{"--seg":SEG_COLOR[s]}}>
+          <input type="checkbox" checked=${on} onChange=${()=>onToggle&&onToggle(s)} style=${{accentColor:SEG_COLOR[s]}}/>
+          <${CatIcon} seg=${s} size=${15}/>
+          <span class="cd-name">${segTH(s)}</span></label>`; })}
+    </div>`}
+    <span class="cc-sr" role="status" aria-live="polite">${t("เลือก", "Selected")} ${sel.length} ${t("จาก", "of")} ${segments.length} ${t("หมวด", "categories")}</span>
   </div>`;
 }

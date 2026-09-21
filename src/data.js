@@ -1,5 +1,6 @@
 import {SEGMENTS} from "./lib.js";
 import {segZero, segAllTrue} from "./mock/geoData.js";
+import {t} from "./i18n.js";   // สลับภาษา TH/EN — ดู src/i18n.js
 
 /* ---------------- PROGRESSIVE / STAGED LOADING ----------------
    The payload is split into stages so the UI can paint the globe skeleton and a
@@ -174,7 +175,7 @@ export function areaCoverage(customers=[], prospects=[], province="all"){
     const withCust = new Set(customers.filter(c=>c.province===province && c.district).map(c=>c.district));
     const covered = all.filter(d=>withCust.has(d)).length;
     if(!all.length) return null;
-    return {covered, total:all.length, pct:Math.round(covered/all.length*100), unit:"district", unitTH:"อำเภอ"};
+    return {covered, total:all.length, pct:Math.round(covered/all.length*100), unit:"district", unitTH:t("อำเภอ", "districts")};
   }
 
   // ระดับจังหวัด — พื้นที่ที่ "มีข้อมูลในระบบ" คือมีลูกค้าหรือ Lead อย่างน้อย 1 ราย
@@ -182,7 +183,7 @@ export function areaCoverage(customers=[], prospects=[], province="all"){
   if(!known.size) return null;                                   // ไม่มีพื้นที่เลย → กันหารด้วยศูนย์
   const withCust = new Set(customers.map(c=>c.province).filter(Boolean));
   const covered = [...known].filter(pv=>withCust.has(pv)).length;
-  return {covered, total:known.size, pct:Math.round(covered/known.size*100), unit:"province", unitTH:"จังหวัด"};
+  return {covered, total:known.size, pct:Math.round(covered/known.size*100), unit:"province", unitTH:t("จังหวัด", "provinces")};
 }
 
 /* Lead ที่ควรเข้าถึงก่อนในพื้นที่หนึ่ง = Lead ที่อยู่ในหมวดซึ่งพื้นที่นั้น "ขาด" มากที่สุด

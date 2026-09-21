@@ -1,4 +1,5 @@
 import {html, useState, useEffect, useRef} from "./lib.js";
+import {t} from "./i18n.js";
 
 // ═══════════════════════════════════════════════════════════════════════════
 //  PRODUCT TOUR — reusable guided-tour framework (engine only, content-agnostic)
@@ -85,18 +86,18 @@ export function ProductTour({open, steps, onFinish, onSkip, onChange}){
     <div class=${"tour-pos arw-"+pos.place} style=${{left:pos.left+"px",top:pos.top+"px",transform:pos.transform}}>
       ${pos.place!=="center" && html`<span class="tour-arrow" style=${pos.arrowStyle}></span>`}
       <div class="tour-card" key=${i}>
-        <button class="tour-x" onClick=${onSkip} aria-label="ข้าม">✕</button>
+        <button class="tour-x" onClick=${onSkip} aria-label=${t("ข้าม", "Skip")}>✕</button>
         <div class="tour-count">${i+1} / ${list.length}</div>
         ${step.title && html`<h3 class="tour-title">${step.title}</h3>`}
         ${step.body && html`<div class="tour-body">${step.body}</div>`}
         <div class="tour-foot">
           <div class="tour-dots">${list.map((_,k)=>html`<span key=${k} class=${"tour-dot"+(k===i?" on":"")} onClick=${()=>go(k)}></span>`)}</div>
           <div class="tour-btns">
-            ${!step.final && html`<button class="tour-link" onClick=${onSkip}>ข้าม</button>`}
-            ${!first && !step.final && html`<button class="tour-btn ghost" onClick=${prev}>ย้อนกลับ</button>`}
+            ${!step.final && html`<button class="tour-link" onClick=${onSkip}>${t("ข้าม", "Skip")}</button>`}
+            ${!first && !step.final && html`<button class="tour-btn ghost" onClick=${prev}>${t("ย้อนกลับ", "Back")}</button>`}
             ${last
-              ? html`<button class="tour-btn primary" onClick=${()=>onFinish&&onFinish()}>${step.finishLabel||"เสร็จสิ้น"}</button>`
-              : html`<button class="tour-btn primary" onClick=${next}>ถัดไป</button>`}
+              ? html`<button class="tour-btn primary" onClick=${()=>onFinish&&onFinish()}>${step.finishLabel||t("เสร็จสิ้น", "Done")}</button>`
+              : html`<button class="tour-btn primary" onClick=${next}>${t("ถัดไป", "Next")}</button>`}
           </div>
         </div>
       </div>
@@ -185,6 +186,8 @@ const CSS = `
 // Placeholder step so the framework is testable before the real content is authored.
 // The actual multi-screen tour steps are added in a later task.
 export const PLACEHOLDER_STEPS = [
-  { placement:"center", title:"ระบบแนะนำการใช้งานพร้อมทำงาน",
-    body:"นี่คือโครงของทัวร์แนะนำการใช้งาน เนื้อหาของแต่ละขั้นตอนจะถูกเพิ่มในลำดับถัดไป" }
+  { placement:"center",
+    get title(){ return t("ระบบแนะนำการใช้งานพร้อมทำงาน","Product tour is ready"); },
+    get body(){ return t("นี่คือโครงของทัวร์แนะนำการใช้งาน เนื้อหาของแต่ละขั้นตอนจะถูกเพิ่มในลำดับถัดไป",
+      "This is the tour framework — the content for each step will be added later."); } }
 ];

@@ -7,6 +7,7 @@
 
 // ── ค่าตัวเลือกในรอบ (ใช้ทั้งฟอร์มและ mock) ──
 import {thDate, thDateTime} from "./lib.js";   // ตัวแปลงวันที่กลางของระบบ
+import {t, isEN} from "./i18n.js";
 
 export const INTEREST = ["สนใจมาก","สนใจ","ขอคิดดู","ไม่สนใจ"];          // ระดับความสนใจ
 export const OUTCOME  = ["ต้องติดตามต่อ","พร้อมปิดดีล","ปิดการขาย"];      // ผลลัพธ์รอบ (เมื่อเข้าพบเสร็จ)
@@ -15,13 +16,26 @@ export const CANCEL_REASONS = ["ไม่สะดวกช่วงนี้","
 
 // ── สถานะLeadที่ derive ได้จากรอบการเข้าพบ ──
 export const VSTATUS = {
-  waiting:     { key:"waiting",     label:"รอเข้าพบ",           color:"#64748b", tone:"neutral", icon:"target" },
-  appointment: { key:"appointment", label:"นัดหมายแล้ว",        color:"#2563eb", tone:"info",    icon:"calendar" },
-  followup:    { key:"followup",    label:"รอเข้าพบรอบถัดไป",   color:"#7c3aed", tone:"info",    icon:"refresh" },
-  hot:         { key:"hot",         label:"ใกล้ปิดการขาย",       color:"#e60023", tone:"bad",     icon:"target" },
-  closed:      { key:"closed",      label:"ปิดการขายแล้ว",       color:"#0d9488", tone:"good",    icon:"check" },
-  lost:        { key:"lost",        label:"ปิดโอกาส (ไม่สนใจ)",   color:"#78716c", tone:"neutral", icon:"close" },
+  waiting:     { key:"waiting",     get label(){ return t("รอเข้าพบ","Awaiting visit"); },          color:"#64748b", tone:"neutral", icon:"target" },
+  appointment: { key:"appointment", get label(){ return t("นัดหมายแล้ว","Appointment set"); },       color:"#2563eb", tone:"info",    icon:"calendar" },
+  followup:    { key:"followup",    get label(){ return t("รอเข้าพบรอบถัดไป","Awaiting next visit"); }, color:"#7c3aed", tone:"info",  icon:"refresh" },
+  hot:         { key:"hot",         get label(){ return t("ใกล้ปิดการขาย","Close to closing"); },     color:"#e60023", tone:"bad",     icon:"target" },
+  closed:      { key:"closed",      get label(){ return t("ปิดการขายแล้ว","Deal closed"); },          color:"#0d9488", tone:"good",    icon:"check" },
+  lost:        { key:"lost",        get label(){ return t("ปิดโอกาส (ไม่สนใจ)","Lost (not interested)"); }, color:"#78716c", tone:"neutral", icon:"close" },
 };
+
+// ── ค่าดิบ (INTEREST/OUTCOME/ROUND_STATUS/CANCEL_REASONS) เป็น "ข้อมูล" ไม่ใช่ข้อความบนหน้าจอ ──
+// ค่าพวกนี้ถูกเก็บลงเรกคอร์ดและถูกเทียบตรง ๆ ทั้งด้วย === และ regex (เช่น /ปิดการขาย|พร้อมปิดดีล/)
+// จึงต้องคงเป็นไทยเสมอ · โหมด EN แปลเฉพาะ "ตอนแสดงผล" ผ่านตารางด้านล่าง
+const ROUND_EN = {
+  "สนใจมาก":"Very interested", "สนใจ":"Interested", "ขอคิดดู":"Considering", "ไม่สนใจ":"Not interested",
+  "ต้องติดตามต่อ":"Needs follow-up", "พร้อมปิดดีล":"Ready to close", "ปิดการขาย":"Deal closed",
+  "นัดแล้ว":"Scheduled", "เสร็จสิ้น":"Completed", "ยกเลิก":"Cancelled",
+  "ไม่สะดวกช่วงนี้":"Not available now", "ราคาไม่ตรง":"Price mismatch", "ติดคู่แข่ง":"With a competitor",
+  "ปิดกิจการ":"Business closed", "ติดต่อไม่ได้":"Unreachable", "อื่น ๆ":"Other",
+};
+/* ป้ายที่แสดงผลของค่าดิบข้างต้น — ใช้ทุกที่ที่เอาค่าไปโชว์ (ตัวค่าที่บันทึกยังเป็นไทย) */
+export const roundLabel = v => isEN() ? (ROUND_EN[v] || v) : v;
 
 // ── derive สถานะจากรอบล่าสุด ──
 export function deriveStatus(rounds){
@@ -54,10 +68,10 @@ export function urgencyOf(dateStr, now=ANCHOR){
   if(!dateStr) return null;
   const d = Math.round((Date.parse(dateStr) - now)/864e5);
   if(isNaN(d)) return null;
-  if(d < 0)  return { label:`เลยกำหนด ${Math.abs(d)} วัน`, tone:"bad" };
-  if(d === 0) return { label:"วันนี้", tone:"warn" };
-  if(d <= 3)  return { label:`อีก ${d} วัน`, tone:"warn" };
-  return { label:`อีก ${d} วัน`, tone:"info" };
+  if(d < 0)  return { label:t(`เลยกำหนด ${Math.abs(d)} วัน`, `${Math.abs(d)} days overdue`), tone:"bad" };
+  if(d === 0) return { label:t("วันนี้","Today"), tone:"warn" };
+  if(d <= 3)  return { label:t(`อีก ${d} วัน`, `in ${d} days`), tone:"warn" };
+  return { label:t(`อีก ${d} วัน`, `in ${d} days`), tone:"info" };
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -68,7 +82,8 @@ export function urgencyOf(dateStr, now=ANCHOR){
 // ═══════════════════════════════════════════════════════════════════════════
 export const PLAN_TODAY = "2026-07-13";   // "วันนี้" ของเดโม (ผูกกับ ANCHOR เดียวกับ urgencyOf)
 export const REPLAN_WARN_THRESHOLD = 3;   // เตือนเมื่อวางแผนซ้ำแล้วพลาด ≥ 3 ครั้ง
-export const REPLAN_WARN_MSG = "วางแผนมาแล้ว 3 ครั้ง → พิจารณานัดหมายล่วงหน้าหรือติดต่อยืนยันก่อนเข้าพบ";
+export const replanWarnMsg = () => t("วางแผนมาแล้ว 3 ครั้ง → พิจารณานัดหมายล่วงหน้าหรือติดต่อยืนยันก่อนเข้าพบ",
+  "Planned 3 times already → consider booking an appointment or confirming before the visit.");
 
 // วันที่ "วันนี้" ตามโซนไทย UTC+7 (ระบบจริง) — เดโมส่ง PLAN_TODAY เข้ามาแทนเพื่อให้ตรงกับ mock ที่ผูกวันไว้
 export function planTodayKey(){ const d=new Date(Date.now()+7*3600e3); return d.toISOString().slice(0,10); }

@@ -8,6 +8,14 @@
 // ── 12 หมวดธุรกิจ (Parent Segment) — ชุดเดียวกับไฟล์ข้อมูลจริงของ Barter ──
 // ทั้งระบบใช้ชุดนี้: ลูกค้าจริงมากับหมวดนี้อยู่แล้ว · Lead จำลองถูกสร้างด้วยหมวดชุดเดียวกัน
 // เพื่อให้โมเดล Lead (อุปสงค์จาก Lead − อุปทานจากลูกค้า) เทียบกันได้ต่อหมวด
+// ⚠ i18n.js ต้องไม่ import อะไรเลย ไฟล์นี้จึงยัง import จาก gen.mjs (Node) ได้เหมือนเดิม
+import {isEN} from "../i18n.js";
+
+// ค่า "ยังไม่มีผู้รับผิดชอบ" ของฟิลด์ tc_owner — เป็น "ค่าข้อมูล" ที่ gen.mjs เขียนลงไฟล์
+// และถูกเทียบตรง ๆ ที่ visit-rounds.js จึงต้องเป็นไทยเสมอ · แปลเฉพาะตอนแสดงผลด้วย tcLabel()
+export const UNASSIGNED = "ยังไม่มอบหมาย";
+export const tcLabel = v => (v === UNASSIGNED && isEN()) ? "Unassigned" : (v || "");
+
 export const SEGMENTS = ["Manufacturing","HomeLiving","FoodBeverage","HealthBeauty","Retail","ProfessionalServices",
   "AutoTransport","Hospitality","Technology","PetAnimal","ArtsCulture","RealEstate"];
 export const SEG_TH = {
@@ -18,6 +26,16 @@ export const SEG_TH = {
   Technology:"เทคโนโลยีและการสื่อสาร", PetAnimal:"สัตว์เลี้ยงและสัตว์",
   ArtsCulture:"ศิลปะ วัฒนธรรม และบริการเฉพาะทาง", RealEstate:"อสังหาริมทรัพย์",
   Other:"ไม่ระบุหมวด" };
+// ชื่อหมวดภาษาอังกฤษ — คีย์ของ SEGMENTS เป็น camelCase (HomeLiving) จึงเอาไปแสดงผลตรง ๆ ไม่ได้
+// segTH() ใน lib.js เลือกจาก SEG_TH / SEG_EN ตามภาษาปัจจุบัน
+export const SEG_EN = {
+  Manufacturing:"Manufacturing & Industrial Materials", HomeLiving:"Home, Building & Living",
+  FoodBeverage:"Food & Beverage", HealthBeauty:"Health, Beauty & Wellness",
+  Retail:"Retail & Consumer Goods", ProfessionalServices:"Professional & Marketing Services",
+  AutoTransport:"Automotive & Transport", Hospitality:"Hospitality & Recreation",
+  Technology:"Technology & Communications", PetAnimal:"Pets & Animals",
+  ArtsCulture:"Arts, Culture & Specialty Services", RealEstate:"Real Estate",
+  Other:"Uncategorised" };
 export const SEG_COLOR = {
   Manufacturing:"#33d69f", HomeLiving:"#c98500", FoodBeverage:"#ff5a3c", HealthBeauty:"#e87ba4",
   Retail:"#ffb02e", ProfessionalServices:"#8a7bff", AutoTransport:"#3987e5", Hospitality:"#34e0d0",
@@ -148,6 +166,38 @@ export const DISTRICT_META = {
     ["Galyani Vadhana","กัลยาณิวัฒนา",2,19.070,98.290],
   ],
 };
+
+// ── โซนขอบเขตการขายของกรุงเทพฯ (3 โซน) ─────────────────────────────────────
+// มาจากแผนที่ขอบเขตที่ลูกค้าส่งมา — กรุงเทพฯ ใหญ่เกินกว่าจะเป็นพื้นที่ของ TC คนเดียว
+// จึงเป็นจังหวัดเดียวในระบบที่ซอยย่อยลงไปอีกชั้น (จังหวัดอื่นยังเป็นหน่วยเดียวทั้งจังหวัด)
+//
+//   SL สีลม      แกนกลาง-ตะวันตก · จตุจักร → ราชเทวี → ปทุมวัน → บางรัก → สาทร (ยาวลงฝั่งธนฯ)
+//   LP ลาดพร้าว  ตะวันออกเฉียงเหนือ · ห้วยขวาง (ต่อเนื่องลาดพร้าว/วังทองหลาง/บางกะปิ)
+//   TL ทองหล่อ   ตะวันออกเฉียงใต้ · วัฒนา → คลองเตย (ต่อลงพระโขนง/บางนา)
+//
+// ⚠ แหล่งความจริงของ "เขตไหนอยู่โซนไหน" คือ zones.csv (27 เขต) ตัวเดียวกับที่ใช้สร้าง data/zones.geojson
+//   ตารางนี้ต้องตรงกับไฟล์นั้นเสมอ — แก้ zones.csv แล้วต้องแก้ตรงนี้ด้วย ไม่งั้นรูปบนแมพกับการแบ่งงาน TC จะคนละชุด
+//   (เคยผิดมาแล้ว: ตารางนี้เป็นชุดเดา 8 เขต ขณะที่แมพวาดจาก 27 เขต → ลูกค้าบางกะปิถูกมองว่าไม่อยู่โซนไหนเลย)
+export const BKK = "Bangkok Metropolis";
+export const BKK_ZONES = [
+  {key:"SL", th:"สีลม",     en:"Silom",     districts:[
+    "Phra Nakhon","Dusit","Pom Prap Sattru Phai","Samphanthawong","Bang Rak","Sathon","Yan Nawa",
+    "Bang Kho Laem","Pathum Wan","Ratchathewi","Phaya Thai","Bang Sue","Chatuchak"]},
+  {key:"LP", th:"ลาดพร้าว", en:"Lat Phrao", districts:[
+    "Lat Phrao","Wang Thonglang","Bang Kapi","Huai Khwang","Bueng Kum","Din Daeng","Khan Na Yao"]},
+  {key:"TL", th:"ทองหล่อ",  en:"Thonglor",  districts:[
+    "Vadhana","Khlong Toei","Phra Khanong","Suan Luang","Bang Na","Prawet","Saphan Sung"]},
+];
+/* ข้อมูลจริงจาก Barter สะกดชื่อเขตหลายแบบ — เทียบโดยตัดช่องว่าง/ตัวพิมพ์ก่อน
+   ("Wang Thong Lang" = "Wang Thonglang" จัดการได้ด้วยการตัดช่องว่าง)
+   เหลืออีก 3 ตัวที่เป็นคนละระบบถอดเสียง ไม่ใช่พิมพ์ผิด จึงต้องแม็ปตรง ๆ */
+const _norm = s => String(s ?? "").toLowerCase().replace(/[^a-z]/g, "");
+const _ALIAS = {watthana:"vadhana", bangsu:"bangsue", bungkum:"buengkum"};
+const _ZONE_BY_DISTRICT = Object.fromEntries(BKK_ZONES.flatMap(z=>z.districts.map(d=>[_norm(d), z.key])));
+/* เขตในกรุงเทพฯ → คีย์โซน (SL/LP/TL) · null ถ้าเขตนั้นยังไม่ได้อยู่ในโซนไหน (อีก 23 เขตที่เหลือ) */
+export const bkkZoneOf = district => { const n = _norm(district); return _ZONE_BY_DISTRICT[_ALIAS[n] ?? n] || null; };
+/* ชื่อโซนตามภาษาปัจจุบัน — คีย์ (SL/LP/TL) เป็นค่าข้อมูล ไม่แปล */
+export const zoneName = key => { const z = BKK_ZONES.find(x=>x.key===key); return z ? (isEN()?z.en:z.th) : key; };
 
 // แผนที่ช่วย (derive จาก DISTRICT_META — ให้ lib.js/data.js อ้างที่เดียว)
 /* ชื่อไทยของอำเภอ/เขตที่พบในข้อมูลจริงจาก Barter แต่อยู่นอก 4 จังหวัดนำร่อง
@@ -345,7 +395,7 @@ const TC_SEEDS = [
   {tc:"ปิยะนุช วงศ์สกุล",     lat:7.90,  lng:98.40},
 ];
 export function assignTC(lat,lng){
-  if(lat==null||lng==null||isNaN(lat)||isNaN(lng)) return "ยังไม่มอบหมาย";
+  if(lat==null||lng==null||isNaN(lat)||isNaN(lng)) return UNASSIGNED;
   let best=TC_SEEDS[0], bd=Infinity;
   for(const s of TC_SEEDS){ const d=(lat-s.lat)**2+(lng-s.lng)**2; if(d<bd){bd=d;best=s;} }
   return best.tc;

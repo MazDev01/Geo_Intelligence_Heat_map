@@ -1,13 +1,16 @@
 import {React, html, useState, useEffect, useMemo, createRoot, AppCtx, Icon, brandMark, num, roleTH, countryTH, provinceTH} from "./lib.js";
+import {t, useLang, getLang, setLang} from "./lib.js";   // สลับภาษา TH/EN — ดู src/i18n.js
+import {getLayerOpacity, subscribeLayerOpacity} from "./layer-opacity.js";   // ความทึบ = ตั้งที่แอดมินที่เดียว
 import {loadCountries, loadWorld, loadAreas, loadProvincesGeo, loadDetail, loadCountry, loadDistricts, defaultFilters} from "./data.js";
-import {LoadingScreen, ToastHost, Badge, Btn, toast} from "./ui.js";
+import {LoadingScreen, ToastHost, Badge, Btn, toast, LangToggle} from "./ui.js";
 import {Login} from "./pages/login.js";
 import {GeoStage} from "./stage.js";
 import {Dashboard} from "./pages/dashboard.js";
 import {AreaPanel, CustomerPanel} from "./panels.js";
 import {Reports} from "./pages/reports.js";
 import {Profile} from "./pages/profile.js";
-import {Users, Config, Audit, Monitoring} from "./pages/admin.js";
+import {Users, Config, Audit, Monitoring, SEED_USERS} from "./pages/admin.js";
+import {loadTerritory} from "./territory-store.js";   // การมอบหมาย TC ↔ จังหวัด/โซน ที่แอดมินบันทึกไว้
 import {MasterData} from "./pages/master-data.js";
 import {DataManagement, DataImport, DataFiles, DataLeads, TerritoryManager} from "./pages/data-management.js";
 import {VisitPlanReport} from "./pages/visit-plan-report.js";
@@ -22,36 +25,71 @@ import {buildNotifs} from "./notifications.js";   // กระดิ่ง: ก�
 import {deriveVisitStatus, planTodayKey} from "./visit-rounds.js";
 
 // Country / Area / Customer are NOT nav items — they are interaction states of the one map.
-const NAV = [
-  {group:"การดูแลระบบ", admin:true, items:[
-    {id:"monitoring", label:"แดชบอร์ด", icon:"monitor"},
-    {id:"users", label:"จัดการผู้ใช้", icon:"users"},
-    {id:"data-management", label:"จัดการข้อมูล", icon:"layers", sub:[
-      {id:"data-import", label:"นำเข้าข้อมูล"},
-      {id:"data-files",  label:"จัดการไฟล์นำเข้า"},
-      {id:"data-leads",  label:"จัดการ Lead"},
+// ⚠ ต้องเป็น "ฟังก์ชัน" ไม่ใช่ค่าคงที่ระดับโมดูล — label ผ่าน t() ซึ่งอ่านภาษาปัจจุบัน ณ เวลาที่เรียก
+// ถ้าประกาศเป็น const array ตอนโหลดโมดูล ป้ายเมนูจะถูกล็อกเป็นภาษาแรกที่โหลดและไม่เปลี่ยนตอนสลับภาษา
+const NAV = () => [
+  {group:t("การดูแลระบบ","Administration"), admin:true, items:[
+    {id:"monitoring", label:t("แดชบอร์ด","Dashboard"), icon:"monitor"},
+    {id:"users", label:t("จัดการผู้ใช้","User Management"), icon:"users"},
+    {id:"data-management", label:t("จัดการข้อมูล","Data Management"), icon:"layers", sub:[
+      {id:"data-import", label:t("นำเข้าข้อมูล","Data Import")},
+      {id:"data-files",  label:t("จัดการไฟล์นำเข้า","Import Files")},
+      {id:"data-leads",  label:t("จัดการ Lead","Lead Management")},
     ]},
-    {id:"territory", label:"จัดการขอบเขตพื้นที่การขาย", icon:"map"},
-    {id:"config", label:"ตั้งค่าระบบ", icon:"config", sub:[
-      {id:"master-data", label:"ข้อมูลหลัก"},
+    {id:"territory", label:t("จัดการขอบเขตพื้นที่การขาย","Sales Territory Management"), icon:"map"},
+    {id:"config", label:t("ตั้งค่าระบบ","System Settings"), icon:"config", sub:[
+      {id:"master-data", label:t("ข้อมูลหลัก","Master Data")},
     ]},
-    {id:"audit", label:"บันทึกการตรวจสอบ", icon:"audit"},
+    {id:"audit", label:t("บันทึกการตรวจสอบ","Audit Log"), icon:"audit"},
   ]},
 ];
 const ADMIN = new Set(["users","data-management","data-import","data-files","data-leads","territory","config","master-data","audit","monitoring"]);
 const MODALS = {reports:Reports, "visit-plans":VisitPlanReport, profile:Profile, users:Users, "data-management":DataManagement, "data-import":DataImport, "data-files":DataFiles, "data-leads":DataLeads, territory:TerritoryManager, config:Config, "master-data":MasterData, audit:Audit, monitoring:Monitoring};
 // workspace/reports are no longer sidebar items, but other code (report breadcrumb, view state) still
 // looks up these labels via TITLES, so keep them here explicitly.
-const TITLES = {...Object.fromEntries(NAV.flatMap(g=>g.items).flatMap(i=>[[i.id,i.label], ...(i.sub||[]).map(sb=>[sb.id,sb.label])])), workspace:"แผนที่วิเคราะห์", reports:"รายงาน", "visit-plans":"รายงานแผนการเข้าพบ", profile:"โปรไฟล์"};
+const TITLES = () => ({...Object.fromEntries(NAV().flatMap(g=>g.items).flatMap(i=>[[i.id,i.label], ...(i.sub||[]).map(sb=>[sb.id,sb.label])])),
+  workspace:t("แผนที่วิเคราะห์","Analysis Map"), reports:t("รายงาน","Reports"),
+  "visit-plans":t("รายงานแผนการเข้าพบ","Visit Plan Report"), profile:t("โปรไฟล์","Profile")});
 const THAILAND_CENTER = [13.2, 101];   // hardcoded fly-in target for the post-login intro (no search/query)
 const INTRO_KEY = "geointel_intro";    // sessionStorage flag — the globe intro plays once per session
 
 function App(){
   // Seed an EMPTY-but-shaped db so the app paints the globe skeleton on frame 1
   // (no null-gate, no dark loading screen). Each stage fills a slice progressively.
+  // ภาษาปัจจุบัน (th|en) — hook เดียวของทั้งแอป: สลับภาษาแล้ว App re-render ทั้งต้นไม้
+  // ทุก t() ในทุกไฟล์อ่านค่าใหม่พร้อมกัน · ส่งต่อทาง ctx ให้แผนที่ใช้เป็น dep ของ useEffect ด้วย
+  const lang = useLang();
   const [db,setDb] = useState({countries:[], world:null, areas:[], areaByProvince:{}, districts:[], customers:[], prospects:[], provincesGeo:null});
   const [user,setUser] = useState(null);
   const [tcDenied,setTcDenied] = useState(null);   // หน้า 403 ของ TC เมื่อพยายามเข้าถึงข้อมูลนอกพื้นที่รับผิดชอบ
+  const [territory,setTerritory] = useState(null);  // { คีย์หน่วย: id ของ TC } จากเซิร์ฟเวอร์ · null = ยังไม่เคยตั้ง
+  // โหลดการมอบหมายหลังล็อกอิน — โหลดไม่ได้/ยังไม่เคยตั้ง = null แล้วแมพทำงานแบบเดิมทุกประการ
+  useEffect(()=>{ if(!user){ setTerritory(null); return; }
+    let alive=true;
+    loadTerritory().then(r=>{ if(alive) setTerritory(r ? r.assign : null); });
+    return ()=>{ alive=false; }; },[user]);
+
+  // ── โซนที่ TC คนนี้ถือ (กทม. แบ่งเป็น SL/LP/TL) ─────────────────────────────
+  // ⚠ ต้องอยู่เหนือ early return ทุกตัวของคอมโพเนนต์นี้ — ถ้าไปประกาศไว้ล่างกว่านั้น
+  //   จำนวน hook ต่อรอบ render จะไม่เท่ากัน แล้ว React โยน error #310 หน้าขาวทั้งแอป
+  // ตาราง assign เก็บเจ้าของเป็น "id" แต่ user ที่ล็อกอินมีแค่ email → จับคู่ผ่าน SEED_USERS
+  // (บัญชีสาธิต tc@geointel.io ไม่มีใน SEED_USERS จึง fallback ไปเทียบ role + จังหวัด)
+  const tcId = useMemo(()=>{
+    if(!user || user.role!=="Trade Coordinator") return null;
+    const byEmail = SEED_USERS.find(u=>u.email===user.email);
+    if(byEmail) return byEmail.id;
+    const byProv = SEED_USERS.find(u=>u.role==="Trade Coordinator" && u.province===user.province);
+    return byProv ? byProv.id : null;
+  },[user]);
+  // null = ไม่จำกัดระดับโซน (เห็นทั้งจังหวัดเหมือนเดิม) — ทั้งตอนยังไม่เคยมอบหมาย
+  // และตอน TC ถือครบทุกโซนในจังหวัด ซึ่งไม่ต่างอะไรกับดูทั้งจังหวัด
+  const lockZones = useMemo(()=>{
+    if(!territory || tcId==null || !user || !user.province) return null;
+    const pre = user.province + "/";
+    const all  = Object.keys(territory).filter(k=>k.startsWith(pre));
+    const mine = all.filter(k=>territory[k]===tcId).map(k=>k.slice(pre.length));
+    return (!mine.length || mine.length===all.length) ? null : mine;
+  },[territory, tcId, user]);
   const [view,setView] = useState("dashboard");        // dashboard (business overview) | workspace (globe/map)
   const [mode,setMode] = useState("globe");            // globe | map (within workspace)
   const [activeCountry,setActiveCountry] = useState(null);
@@ -64,7 +102,9 @@ function App(){
   // zoomModes:true = เปิดโหมดแสดงผลตามระดับซูม 3 ขั้น (ซูมออก=Heat / กลาง=Cluster / ใกล้=Marker) เฉพาะแผนที่หลัก
   // existing/prospect เริ่มต้นเปิด เพราะเมื่อซูมเข้าถึงชั้น Cluster/Marker ต้องมีหมุดให้เห็น (ไม่งั้นซูมเข้าแล้วว่างเปล่า)
   const [layers,setLayers] = useState({heat:true,cluster:false,existing:true,prospect:true,province:false,zoomModes:true,route:true,
-    op:{existing:90,prospect:40,heat:80,province:100}});   // ลูกค้า 90% (ทึบชัด) · Lead 40% (จาง) — แยกลูกค้า/Lead ด้วยความทึบ · route = เลเยอร์เส้นทาง
+    op:getLayerOpacity()});   // ความทึบมาจาก "ตั้งค่าระบบ › การจัดการเลเยอร์" (แอดมิน) — ผู้ใช้ปรับเองไม่ได้แล้ว
+  // แอดมินกดบันทึกที่หน้าตั้งค่า → แผนที่ปรับความทึบทันที ไม่ต้องรีเฟรช
+  useEffect(()=>subscribeLayerOpacity(op=>setLayers(x=>({...x, op}))), []);
   const [selectedProvince,setSelectedProvince] = useState(null);
   const [selectedCustomer,setSelectedCustomer] = useState(null);
   const [collapsed,setCollapsed] = useState(false);
@@ -80,7 +120,7 @@ function App(){
   const [globeUnder,setGlobeUnder] = useState(false);    // keep the globe rendered beneath the map during the arrival fade
   const [introPlaying,setIntroPlaying] = useState(false); // post-login globe intro animation in progress (shows the Skip button)
   // Customer Visit Planning — รองรับหลายแผน แต่ละแผนมี id/ชื่อ/รายชื่อลูกค้า/เส้นทาง/สถานะบันทึกของตัวเอง
-  const [visitPlans,setVisitPlans] = useState([{id:"plan-1", name:"แผนที่ 1", customers:[], route:null, saved:false, visitDate:""}]);
+  const [visitPlans,setVisitPlans] = useState([{id:"plan-1", name:t("แผนที่ 1", "Plan 1"), customers:[], route:null, saved:false, visitDate:""}]);
   const [activePlanId,setActivePlanId] = useState("plan-1");
   const activePlan = visitPlans.find(p=>p.id===activePlanId) || visitPlans[0];
   const visitPlan = activePlan ? activePlan.customers : [];
@@ -91,7 +131,7 @@ function App(){
   const createPlan = name => { const id = "plan-"+Date.now(); setVisitPlans(prev=>[...prev, {id, name, customers:[], route:null, saved:false, visitDate:""}]); setActivePlanId(id); };
   const deletePlan = id => setVisitPlans(prev=>{
     const next = prev.filter(p=>p.id!==id);
-    if(next.length===0) next.push({id:"plan-"+Date.now(), name:"แผนที่ 1", customers:[], route:null, saved:false, visitDate:""});
+    if(next.length===0) next.push({id:"plan-"+Date.now(), name:t("แผนที่ 1", "Plan 1"), customers:[], route:null, saved:false, visitDate:""});
     if(activePlanId===id) setActivePlanId(next[0].id);
     return next;
   });
@@ -122,7 +162,7 @@ function App(){
     setLayers(x=>({...x,
       existing: recs.some(r=>r.status==="Existing") ? true : x.existing,
       prospect: recs.some(r=>r.status==="Prospect") ? true : x.prospect }));
-    toast(`เพิ่มข้อมูล ${recs.length} รายการเรียบร้อย`, "good");
+    toast(`${t("เพิ่มข้อมูล", "Added")} ${recs.length} ${t("รายการเรียบร้อย", "records")}`, "good");
     setAddForm(null);
   };
   const updateRecord = recs => {   // โหมดแก้ไข: recs มี 1 รายการ ใช้ id เดิม (อาจย้ายประเภทลูกค้า↔Lead)
@@ -134,7 +174,7 @@ function App(){
       return {...prev, customers:custs, prospects:pros};
     });
     setSelectedCustomer(r);
-    toast("บันทึกการแก้ไขแล้ว","good");
+    toast(t("บันทึกการแก้ไขแล้ว", "Changes saved"),"good");
     setAddForm(null);
   };
   // ลบระเบียนจากหน้า "จัดการข้อมูล" (ผู้ดูแลระบบ) — ไม่ติดเงื่อนไข "เฉพาะรายการที่เพิ่มเอง" แบบแผงบนแผนที่
@@ -142,17 +182,17 @@ function App(){
     setDb(prev=>({...prev,
       customers:(prev.customers||[]).filter(x=>x.id!==rec.id),
       prospects:(prev.prospects||[]).filter(x=>x.id!==rec.id) }));
-    pushAudit({ user:(user&&user.email)||"system", action:"ลบระเบียน", category:"ลบ",
+    pushAudit({ user:(user&&user.email)||"system", action:t("ลบระเบียน", "Delete record"), category:"ลบ",
       detail:`${rec.businessName} (${rec.accountNo||rec.id})` });
-    toast("ลบรายการแล้ว","good");
+    toast(t("ลบรายการแล้ว", "Record deleted"),"good");
   };
   const deleteRecord = rec => {
-    if(rec.source!==USER_SOURCE){ toast("ลบได้เฉพาะรายการที่คุณเพิ่มเอง","warn"); return; }
+    if(rec.source!==USER_SOURCE){ toast(t("ลบได้เฉพาะรายการที่คุณเพิ่มเอง", "You can only delete records you added yourself"),"warn"); return; }
     setDb(prev=>({...prev,
       customers:(prev.customers||[]).filter(x=>x.id!==rec.id),
       prospects:(prev.prospects||[]).filter(x=>x.id!==rec.id) }));
     setSelectedCustomer(null); setOverlay(null);
-    toast("ลบรายการแล้ว","good");
+    toast(t("ลบรายการแล้ว", "Record deleted"),"good");
   };
   // เปลี่ยนสถานะการเข้าพบของLead (สลับสองทางได้) — แก้ในชุดข้อมูลจริงแล้วซิงค์กับ panel ที่เปิดอยู่
   // ใช้เฉพาะLeadเท่านั้น (ลูกค้าเดิมไม่มีสถานะนี้) หน้ารายงานที่อ่าน db.prospects จะอัปเดตตามทันที
@@ -160,16 +200,16 @@ function App(){
     setDb(prev=>({...prev,
       prospects:(prev.prospects||[]).map(x=> x.id===rec.id ? {...x, visit_status:status} : x) }));
     setSelectedCustomer(x=> x && x.id===rec.id ? {...x, visit_status:status} : x);
-    toast(status==="ครอบคลุมแล้ว" ? "บันทึกว่าเข้าพบแล้ว" : "ปรับกลับเป็นยังไม่เข้าพบ", "good");
+    toast(status==="ครอบคลุมแล้ว" ? t("บันทึกว่าเข้าพบแล้ว", "Marked as visited") : t("ปรับกลับเป็นยังไม่เข้าพบ", "Reset to not visited"), "good");
   };
   // เพิ่มรอบการเข้าพบ 1 รอบ → สถานะLead derive ใหม่อัตโนมัติ + visit_status สรุปกลับ (back-compat) + Audit Log
   const addVisitRound = (rec, round)=>{
     const merge = x => { const rs=[...(x.visitRounds||[]), round]; return {...x, visitRounds:rs, visit_status:deriveVisitStatus(rs)}; };
     setDb(prev=>({...prev, prospects:(prev.prospects||[]).map(x=> x.id===rec.id ? merge(x) : x) }));
     setSelectedCustomer(x=> x && x.id===rec.id ? merge(x) : x);
-    pushAudit({ user:(user&&user.email)||"system", action:"บันทึกรอบการเข้าพบ", category:"แก้ไข",
-      detail:`${rec.businessName} · รอบที่ ${round.round} · ${round.status}${round.outcome?" · "+round.outcome:""}` });
-    toast("บันทึกการติดตามการเข้าพบแล้ว","good");
+    pushAudit({ user:(user&&user.email)||"system", action:t("บันทึกรอบการเข้าพบ", "Visit round saved"), category:"แก้ไข",
+      detail:`${rec.businessName} ${t("· รอบที่", "· round")} ${round.round} · ${round.status}${round.outcome?" · "+round.outcome:""}` });
+    toast(t("บันทึกการติดตามการเข้าพบแล้ว", "Visit follow-up saved"),"good");
   };
 
   // ── TC ยกเลิกการเข้าพบ Lead ──
@@ -192,9 +232,9 @@ function App(){
       dealVisitDate:(activePlan&&activePlan.visitDate)||"", dealSubmittedDate:new Date().toISOString().slice(0,10) };
     setDb(prev=>({...prev, prospects:(prev.prospects||[]).map(x=> x.id===prospect.id ? {...x, ...stamp} : x) }));
     setSelectedCustomer(x=> x && x.id===prospect.id ? {...x, ...stamp} : x);
-    pushAudit({ user:(user&&user.email)||"system", action:"ส่งดีลปิดการขาย", category:"แก้ไข",
-      detail:`${prospect.businessName} · รออนุมัติเปลี่ยนเป็นลูกค้า${doc?" · แนบ "+doc:""}` });
-    toast("ส่งดีลให้แอดมินตรวจสอบแล้ว","good");
+    pushAudit({ user:(user&&user.email)||"system", action:t("ส่งดีลปิดการขาย", "Deal submitted for closing"), category:"แก้ไข",
+      detail:`${prospect.businessName} ${t("· รออนุมัติเปลี่ยนเป็นลูกค้า", "· awaiting approval to convert to customer ")}${doc?t(" · แนบ ", " · attached ")+doc:""}` });
+    toast(t("ส่งดีลให้แอดมินตรวจสอบแล้ว", "Deal sent to the admin for review"),"good");
   };
   // แอดมินอนุมัติ → ย้าย Lead ไปเป็นสมาชิกเครือข่าย (status Existing) → Lead ของหมวดนั้นลดลง heat/marker ทั้งระบบขยับตาม
   const approveDeal = (prospect)=>{
@@ -207,14 +247,14 @@ function App(){
       prospects:(prev.prospects||[]).filter(x=>x.id!==prospect.id),
       customers:[...(prev.customers||[]), asCust] }));
     setSelectedCustomer(x=> x && x.id===prospect.id ? asCust : x);
-    pushAudit({ user:(user&&user.email)||"system", action:"อนุมัติดีล เปลี่ยนเป็นลูกค้า", category:"แก้ไข",
+    pushAudit({ user:(user&&user.email)||"system", action:t("อนุมัติดีล เปลี่ยนเป็นลูกค้า", "Deal approved — converted to customer"), category:"แก้ไข",
       detail:`${prospect.businessName} · ${provinceTH(prospect.province)}` });
-    toast(`อนุมัติดีล — "${prospect.businessName}" เป็นลูกค้าแล้ว`,"good");
+    toast(`${t("อนุมัติดีล — \"", "Deal approved — \"")}${prospect.businessName}${t("\" เป็นลูกค้าแล้ว", "\" is now a customer")}`,"good");
   };
   const rejectDeal = (prospect)=>{
     setDb(prev=>({...prev, prospects:(prev.prospects||[]).map(x=> x.id===prospect.id ? {...x, dealStatus:"rejected"} : x) }));
-    pushAudit({ user:(user&&user.email)||"system", action:"ตีกลับดีล", category:"แก้ไข", detail:`${prospect.businessName}` });
-    toast("ตีกลับดีลแล้ว — ส่งกลับให้ TC","warn");
+    pushAudit({ user:(user&&user.email)||"system", action:t("ตีกลับดีล", "Deal returned"), category:"แก้ไข", detail:`${prospect.businessName}` });
+    toast(t("ตีกลับดีลแล้ว — ส่งกลับให้ TC", "Deal returned — sent back to the TC"),"warn");
   };
 
   // STARTUP: progressive streaming. Stage 1 (tiny country aggregates) lets the globe
@@ -235,7 +275,7 @@ function App(){
       if(tc){
         const noprov=q.get("noprov")==="1"; const prov=noprov?null:(q.get("prov")||"Chiang Mai");
         setUser({role:"Trade Coordinator", name:"ธนพล ศรีวัฒน์", email:"tc@geointel.io", initials:"TC", province:prov});
-        pushAudit({user:"tc@geointel.io", action:"เข้าสู่ระบบ", category:"เข้าสู่ระบบ", detail: prov?("พื้นที่รับผิดชอบ: "+provinceTH(prov)):"ยังไม่กำหนดพื้นที่รับผิดชอบ"});
+        pushAudit({user:"tc@geointel.io", action:t("เข้าสู่ระบบ", "Sign in"), category:"เข้าสู่ระบบ", detail: prov?(t("พื้นที่รับผิดชอบ: ", "Territory: ")+provinceTH(prov)):t("ยังไม่กำหนดพื้นที่รับผิดชอบ", "No territory assigned yet")});
         if(prov){
           // เข้าหน้าจังหวัดทันที (ตั้ง view/map ก่อน) แล้วค่อยโหลดข้อมูลเบื้องหลัง —
           // กันอาการค้างที่ลูกโลกถ้า loadCountry ช้า/ล้มเหลว (TC ต้องอยู่หน้าจังหวัดที่รับผิดชอบเสมอ)
@@ -254,8 +294,8 @@ function App(){
       }
       // ไม่ใช่ TC แล้ว → ผู้ดูแลระบบ (admin) หรือ ผู้บริหาร (management/ค่าอื่น) · ไม่มีบทบาท "ผู้ใช้ธุรกิจ" อีกต่อไป
       setUser(admin
-        ? {role:"Administrator", name:"ผู้ดูแลระบบ", email:"admin@geointel.io", initials:"SA"}
-        : {role:"Management", name:"ผู้บริหาร", email:"management@geointel.io", initials:"MG"});
+        ? {role:"Administrator", name:t("ผู้ดูแลระบบ", "System Administrator"), email:"admin@geointel.io", initials:"SA"}
+        : {role:"Management", name:t("ผู้บริหาร", "Management"), email:"management@geointel.io", initials:"MG"});
       setView("workspace"); setMode("globe");   // everyone lands on the Geo Intelligence Workspace
       const go=q.get("go");
       // ผู้บริหาร: ลูกโลกหมุนเข้าหาประเทศไทยเอง แล้วเปิดแผนที่ทั้งประเทศ (ไม่ต้องเลือกจังหวัดก่อน)
@@ -270,13 +310,13 @@ function App(){
         else if(go==="customer"){ setSelectedCustomer(cd.customers[0]); setOverlay("customer"); }
       }
       // รายงานแผนการเข้าพบเป็นของ TC เท่านั้น — admin/ผู้บริหารเข้า URL ตรง ถูกเปลี่ยนเส้นทางออก (คงอยู่หน้า workspace)
-      else if(go==="visit-plans"){ toast("หน้านี้สำหรับผู้ประสานงานการค้าเท่านั้น","bad"); }
+      else if(go==="visit-plans"){ toast(t("หน้านี้สำหรับผู้ประสานงานการค้าเท่านั้น", "This page is for Trade Coordinators only"),"bad"); }
       // เปิดหน้าก่อนแล้วค่อยโหลดเบื้องหลัง ถ้ารอโหลดก่อนแล้วคำขอล้มเหลว หน้าจะไม่ถูกเปิดเลย
       // กันบทบาทที่ไม่ใช่ Administrator บังคับเปิดหน้าผู้ดูแลผ่าน ?go= (เช่น master-data) — ไม่ตั้ง overlay เลย (ไม่มีสิทธิ์)
       else if(go && MODALS[go] && (!ADMIN.has(go) || admin)){ setOverlay(go); ensureData("Thailand").catch(()=>{}); }
       if(q.get("tour")) setTourOpen(true);   // dev/test entry point for the product-tour framework
     }
-  })().catch(()=>toast("โหลดข้อมูลเริ่มต้นไม่สำเร็จ ลองรีเฟรชหน้าอีกครั้ง","bad")); },[]);
+  })().catch(()=>toast(t("โหลดข้อมูลเริ่มต้นไม่สำเร็จ ลองรีเฟรชหน้าอีกครั้ง", "Could not load the initial data — please refresh the page"),"bad")); },[]);
 
   // close the top-right menus when clicking anywhere outside them
   useEffect(()=>{ if(!menu) return;
@@ -301,36 +341,36 @@ function App(){
     const c = cd.customers && cd.customers[0]; if(c){ setSelectedCustomer(c); setOverlay("customer"); } };
   const TOUR_STEPS = [
     { target:"#globe-canvas", placement:"center", padding:0, before:tourShowGlobe,
-      title:"ลูกโลกสามมิติ",
-      body:html`นี่คือพื้นที่หลักของระบบ<br/>ใช้สำหรับวิเคราะห์ข้อมูลเชิงพื้นที่` },
+      title:t("ลูกโลกสามมิติ", "3D globe"),
+      body:html`${t("นี่คือพื้นที่หลักของระบบ", "This is the main workspace")}<br/>${t("ใช้สำหรับวิเคราะห์ข้อมูลเชิงพื้นที่", "used for spatial analysis.")}` },
     { target:'[data-tour="country"]', placement:"bottom", before:tourShowGlobe,
-      title:"เลือกประเทศ",
-      body:html`เลือกประเทศที่ต้องการวิเคราะห์<br/>ลูกโลกจะหมุนไปยังประเทศนั้นโดยอัตโนมัติ<br/>โดยไม่เปลี่ยนหน้า` },
+      title:t("เลือกประเทศ", "Pick a country"),
+      body:html`${t("เลือกประเทศที่ต้องการวิเคราะห์", "Pick the country you want to analyse —")}<br/>${t("ลูกโลกจะหมุนไปยังประเทศนั้นโดยอัตโนมัติ", "the globe spins to it automatically,")}<br/>${t("โดยไม่เปลี่ยนหน้า", "without leaving the page.")}` },
     { target:'[data-tour="search"]', placement:"bottom", before:()=>tourShowMap(),
-      title:"ค้นหาจังหวัด / ลูกค้า",
-      body:html`พิมพ์ชื่อจังหวัด ลูกค้า หรือLead<br/>เพื่อค้นหาและซูมไปยังตำแหน่งนั้นได้ทันที` },
-    { target:'[data-tour="segments"]', placement:"bottom", before:()=>tourShowMap(),
-      title:"กรองตามหมวดธุรกิจ",
-      body:html`แตะป้ายหมวดธุรกิจเพื่อเปิด/ปิดการแสดงผลบนแผนที่ (โรงแรม/ร้านอาหาร/ค้าปลีก/อื่นๆ)` },
+      title:t("ค้นหาจังหวัด / ลูกค้า", "Search provinces / customers"),
+      body:html`${t("พิมพ์ชื่อจังหวัด ลูกค้า หรือLead", "Type a province, customer or Lead name")}<br/>${t("เพื่อค้นหาและซูมไปยังตำแหน่งนั้นได้ทันที", "to find it and zoom straight to that location.")}` },
+    { target:'[data-tour="segments"]', placement:"right", before:()=>tourShowMap(),
+      title:t("กรองตามหมวดธุรกิจ", "Filter by business category"),
+      body:html`${t("เลือกหมวดธุรกิจจาก dropdown ท้ายแผงเลเยอร์ เพื่อเปิด/ปิดการแสดงผลบนแผนที่", "Pick business categories from the dropdown at the bottom of the layer panel to show or hide them on the map")}` },
     { target:'[data-tour="layers"]', placement:"left", before:()=>tourShowMap(),
-      title:"เลเยอร์แผนที่",
-      body:html`ปรับการแสดงผลบนแผนที่ได้ 2 ชั้น
-        <div style=${{margin:"8px 0 0",lineHeight:1.9}}>• Heat map Lead สูง (อัตโนมัติตามระดับซูม)<br/>• สถานะ marker (ลูกค้าปัจจุบัน/Lead แยกทึบแสงได้)<br/>• ชั้นพื้นที่จังหวัด — สีไล่ระดับตามดัชนีช่องว่าง</div>` },
+      title:t("เลเยอร์แผนที่", "Map layers"),
+      body:html`${t("ปรับการแสดงผลบนแผนที่ได้ 2 ชั้น", "The map has two display layers:")}
+        <div style=${{margin:"8px 0 0",lineHeight:1.9}}>${t("• Heat map Lead สูง (อัตโนมัติตามระดับซูม)", "• High-Lead heatmap (automatic, by zoom level)")}<br/>${t("• สถานะ marker (ลูกค้าปัจจุบัน/Lead แยกทึบแสงได้)", "• Marker status (customers / Leads, with separate opacity)")}<br/>${t("• ชั้นพื้นที่จังหวัด — สีไล่ระดับตามดัชนีช่องว่าง", "• Province layer — shaded by the gap index")}</div>` },
     { target:".geo-mk", placement:"auto", padding:6,
       before:async ()=>{ const cd=await tourShowMap(null); const c=cd&&cd.customers&&cd.customers[0];
         if(c) setTourFocus({lat:c.latitude,lng:c.longitude,zoom:12,seq:Date.now()}); },
-      title:"หมุดลูกค้า (Marker)",
-      body:html`Marker แสดงตำแหน่งลูกค้า
-        <div style=${{margin:"8px 0 0",lineHeight:1.9}}>ลูกค้าปัจจุบัน<br/>Lead</div>
-        <div style=${{marginTop:"8px"}}>ค่าเริ่มต้น marker ปิดอยู่ ต้องเปิดเองที่กล่องเลเยอร์แผนที่</div>
-        <div style=${{marginTop:"8px"}}>คลิกเพื่อดูรายละเอียด</div>` },
+      title:t("หมุดลูกค้า (Marker)", "Customer markers"),
+      body:html`${t("Marker แสดงตำแหน่งลูกค้า", "Markers show where customers are.")}
+        <div style=${{margin:"8px 0 0",lineHeight:1.9}}>${t("ลูกค้าปัจจุบัน", "Existing customers")}<br/>Lead</div>
+        <div style=${{marginTop:"8px"}}>${t("ค่าเริ่มต้น marker ปิดอยู่ ต้องเปิดเองที่กล่องเลเยอร์แผนที่", "Markers are off by default — turn them on in the map layers panel.")}</div>
+        <div style=${{marginTop:"8px"}}>${t("คลิกเพื่อดูรายละเอียด", "Click one for details.")}</div>` },
     { target:'[data-tour="detail"]', placement:"left", before:tourShowDetail,
-      title:"รายละเอียดลูกค้า",
-      body:html`เมื่อคลิก Marker<br/>ระบบจะแสดงข้อมูลลูกค้า<br/>โดยไม่เปลี่ยนหน้า
-        <div style=${{marginTop:"8px"}}>ลูกค้าปัจจุบันแสดงฝั่งซ้าย<br/>Leadแสดงฝั่งขวา</div>` },
-    { placement:"center", final:true, finishLabel:"เริ่มใช้งาน", before:()=>setTourPanel(null),
-      title:"พร้อมเริ่มใช้งาน",
-      body:html`คุณพร้อมใช้งานระบบแล้ว<br/>เริ่มวิเคราะห์ข้อมูลลูกค้า ค้นหาโอกาสทางธุรกิจ<br/>และวางแผนการเข้าพบลูกค้าได้ทันที` },
+      title:t("รายละเอียดลูกค้า", "Customer details"),
+      body:html`${t("เมื่อคลิก Marker", "When you click a marker,")}<br/>${t("ระบบจะแสดงข้อมูลลูกค้า", "the customer's details appear.")}<br/>${t("โดยไม่เปลี่ยนหน้า", "without leaving the page.")}
+        <div style=${{marginTop:"8px"}}>${t("ลูกค้าปัจจุบันแสดงฝั่งซ้าย", "Existing customers show on the left,")}<br/>${t("Leadแสดงฝั่งขวา", "Leads on the right.")}</div>` },
+    { placement:"center", final:true, finishLabel:t("เริ่มใช้งาน", "Get started"), before:()=>setTourPanel(null),
+      title:t("พร้อมเริ่มใช้งาน", "You're all set"),
+      body:html`${t("คุณพร้อมใช้งานระบบแล้ว", "You're ready to go —")}<br/>${t("เริ่มวิเคราะห์ข้อมูลลูกค้า ค้นหาโอกาสทางธุรกิจ", "start analysing customer data, finding opportunities,")}<br/>${t("และวางแผนการเข้าพบลูกค้าได้ทันที", "and planning customer visits right away.")}` },
   ];
 
   // Lazily fetch + cache one country's working set, merge into db.
@@ -347,11 +387,11 @@ function App(){
   const withLoading = async (งาน)=>{
     setLoadingData(true);
     try { return await งาน(); }
-    catch(err){ toast("โหลดข้อมูลไม่สำเร็จ ลองใหม่อีกครั้ง","bad"); return null; }
+    catch(err){ toast(t("โหลดข้อมูลไม่สำเร็จ ลองใหม่อีกครั้ง", "Could not load the data — please try again"),"bad"); return null; }
     finally { setLoadingData(false); }
   };
   // โหลดเบื้องหลังแบบไม่บังหน้าจอ ใช้กับหน้าที่มีข้อความรอโหลดของตัวเองอยู่แล้ว
-  const โหลดเบื้องหลัง = ()=>{ ensureData("Thailand").catch(()=>toast("โหลดข้อมูลไม่สำเร็จ ลองใหม่อีกครั้ง","bad")); };
+  const โหลดเบื้องหลัง = ()=>{ ensureData("Thailand").catch(()=>toast(t("โหลดข้อมูลไม่สำเร็จ ลองใหม่อีกครั้ง", "Could not load the data — please try again"),"bad")); };
   // Everyone lands on the Geo Intelligence Workspace (globe). The Business Overview lives only in the 'แดชบอร์ดผู้บริหาร (monitoring)' admin page.
   const handleLogin = (u)=>{
     setIntroPlaying(false);
@@ -421,17 +461,17 @@ function App(){
     setOverlay(isTC ? null : "area"); };   // TC ไม่มีแผงวิเคราะห์พื้นที่
   const pickCustomer = c =>{ setSelectedCustomer(c); setOverlay("customer"); };
   // topbar-search province result → just zoom to the province (the province-filter effect flies there); no panel
-  const pickProvinceZoom = p =>{ if(tcGuard(p, "พื้นที่ "+provinceTH(p))) return; setSelectedProvince(p); setFilters(f=>({...f,province:p})); setOverlay(null); };
+  const pickProvinceZoom = p =>{ if(tcGuard(p, t("พื้นที่ ", "Area ")+provinceTH(p))) return; setSelectedProvince(p); setFilters(f=>({...f,province:p})); setOverlay(null); };
   // TC เข้าถึงได้เฉพาะพื้นที่ที่รับผิดชอบ — ถ้าจังหวัดของทรัพยากรไม่ตรง session → 403 (บันทึก Audit Log)
   const tcGuard = (prov, name)=>{
     if(user && user.role==="Trade Coordinator" && user.province && prov && prov!==user.province){
-      setTcDenied({name: name||"ข้อมูลนี้"});
-      pushAudit({user:user.email||"tc@geointel.io", action:"พยายามเข้าถึงข้อมูลนอกพื้นที่", category:"ปฏิเสธการเข้าถึง",
-        detail:(name?name+" · ":"")+"อยู่ในพื้นที่ "+provinceTH(prov)+" (นอกเขตรับผิดชอบ)"});
+      setTcDenied({name: name||t("ข้อมูลนี้","this record")});
+      pushAudit({user:user.email||"tc@geointel.io", action:t("พยายามเข้าถึงข้อมูลนอกพื้นที่", "Attempted to access data outside their territory"), category:"ปฏิเสธการเข้าถึง",
+        detail:(name?name+" · ":"")+t("อยู่ในพื้นที่ ", "is in ")+provinceTH(prov)+t(" (นอกเขตรับผิดชอบ)", " (outside their territory)")});
       return true; }
     return false; };
   // enter the map workspace focused on an area / customer (from dashboard tables, search, etc.)
-  const openArea = async (p)=>{ if(tcGuard(p, "พื้นที่ "+provinceTH(p))) return; if(!await withLoading(()=>ensureData("Thailand"))) return;
+  const openArea = async (p)=>{ if(tcGuard(p, t("พื้นที่ ", "Area ")+provinceTH(p))) return; if(!await withLoading(()=>ensureData("Thailand"))) return;
     setView("workspace"); setActiveCountry("Thailand"); setMode("map"); setSelectedProvince(p); setFilters(f=>({...f,province:p})); setOverlay("area"); };
   const openCustomer = async (c)=>{ if(tcGuard(c&&c.province, c&&c.businessName)) return; if(!await withLoading(()=>ensureData("Thailand"))) return;
     setView("workspace"); setActiveCountry("Thailand"); setMode("map"); setSelectedCustomer(c); setOverlay("customer"); };
@@ -455,7 +495,7 @@ function App(){
     // รายงานแผนการเข้าพบ — เฉพาะ TC ที่มีจังหวัดรับผิดชอบ · บทบาทอื่นถูกเปลี่ยนเส้นทางออก
     if(id==="visit-plans"){
       if(user && user.role==="Trade Coordinator" && user.province){ setOverlay(id); โหลดเบื้องหลัง(); }
-      else { toast("หน้านี้สำหรับผู้ประสานงานการค้าเท่านั้น","bad"); return backToGlobe(); }
+      else { toast(t("หน้านี้สำหรับผู้ประสานงานการค้าเท่านั้น", "This page is for Trade Coordinators only"),"bad"); return backToGlobe(); }
       return;
     }
     if(id==="monitoring"){ setOverlay(id); โหลดเบื้องหลัง(); return; }
@@ -476,7 +516,7 @@ function App(){
   const logout = ()=>{
     setUser(null); setView("dashboard"); setMode("globe"); setActiveCountry(null); setOverlay(null);
     setSelectedProvince(null); setSelectedCustomer(null); setFlyTarget(null); setMenu(null);
-    setVisitPlans([{id:"plan-1", name:"แผนที่ 1", customers:[], route:null, saved:false, visitDate:""}]); setActivePlanId("plan-1");
+    setVisitPlans([{id:"plan-1", name:t("แผนที่ 1", "Plan 1"), customers:[], route:null, saved:false, visitDate:""}]); setActivePlanId("plan-1");
     setFilters(defaultFilters());
   };
 
@@ -498,7 +538,8 @@ function App(){
 
   // ปิดหน้ารายงาน(overlay) กลับไปแผนที่วิเคราะห์เต็มจอ — ใช้จากปุ่มในแดชบอร์ด TC (ไม่สร้างแผนที่ซ้ำสองที่)
   const goMap = ()=>{ setView("workspace"); setMode("map"); setOverlay(null); };
-  const ctx = {db,user,logout,nav,filters,setFilters,routeParams:{area:selectedProvince},profileTab,visitPlans,office:planOffice,
+  const ctx = {db,user,logout,nav,filters,setFilters,routeParams:{area:selectedProvince},profileTab,visitPlans,office:planOffice,lang,setLang,
+
     deletePlan,setActivePlanId,approveDeal,rejectDeal,addToPlan,goMap,updateRecord,adminDeleteRecord,
     selectedProvince,setSelectedProvince,selectedCustomer,setSelectedCustomer,selectedCountry:activeCountry};
 
@@ -507,13 +548,14 @@ function App(){
   // sidebar highlight
   const activeNav = (overlay && MODALS[overlay]) ? overlay : view==="dashboard" ? "dashboard" : "workspace";
   const onGlobe = view==="workspace" && mode==="globe" && !overlay;
-  const stateLabel = overlay==="area" ? `จังหวัด · ${provinceTH(selectedProvince||"")}`
-    : overlay==="customer" ? `ลูกค้า · ${selectedCustomer?selectedCustomer.businessName:""}`
-    : overlay==="reports" ? (filters.province && filters.province!=="All" ? `${provinceTH(filters.province)} · ${TITLES.reports}` : TITLES.reports)
-    : (overlay && MODALS[overlay]) ? (TITLES[overlay]||"")
-    : view==="dashboard" ? "แดชบอร์ด"
-    : mode==="globe" ? "ลูกโลก 3 มิติ"
-    : `ประเทศ · ${countryTH(activeCountry||"Thailand")}`;
+  const titles = TITLES();
+  const stateLabel = overlay==="area" ? `${t("จังหวัด","Province")} · ${provinceTH(selectedProvince||"")}`
+    : overlay==="customer" ? `${t("ลูกค้า","Customer")} · ${selectedCustomer?selectedCustomer.businessName:""}`
+    : overlay==="reports" ? (filters.province && filters.province!=="All" ? `${provinceTH(filters.province)} · ${titles.reports}` : titles.reports)
+    : (overlay && MODALS[overlay]) ? (titles[overlay]||"")
+    : view==="dashboard" ? t("แดชบอร์ด","Dashboard")
+    : mode==="globe" ? t("ลูกโลก 3 มิติ","3D Globe")
+    : `${t("ประเทศ","Country")} · ${countryTH(activeCountry||"Thailand")}`;
   // จังหวัดที่กำลังดูอยู่ (ใช้ทำ breadcrumb: หน้าหลัก › ประเทศไทย › จังหวัด)
   const crumbProvince = (selectedProvince && selectedProvince!=="All") ? provinceTH(selectedProvince)
     : (filters.province && filters.province!=="All") ? provinceTH(filters.province) : null;
@@ -527,7 +569,7 @@ function App(){
   const isTC = user.role === "Trade Coordinator";   // TC ถูกล็อกไว้ที่จังหวัดที่รับผิดชอบเท่านั้น (ไม่มีลูกโลก/ไม่สลับจังหวัด)
   const roleDemo = user.role==="Administrator" ? "admin" : isTC ? "tc" : "management";   // บทบาทปัจจุบันในรูป demo param
   const isDemoMode = /[?&]demo=/.test(location.search);   // ตัวสลับบทบาทโชว์เฉพาะโหมดเดโม (dev) เท่านั้น
-  const roleShort = {admin:"Admin", management:"ผู้บริหาร", tc:"TC"}[roleDemo];
+  const roleShort = {admin:"Admin", management:t("ผู้บริหาร", "Management"), tc:"TC"}[roleDemo];
   const switchRole = d => { const u=new URL(location.href); u.searchParams.set("demo",d);
     u.searchParams.delete("prov"); u.searchParams.delete("noprov"); u.searchParams.delete("go"); location.href=u.pathname+u.search; };
 
@@ -536,7 +578,7 @@ function App(){
     ${!isBiz && html`<aside class="sidebar">
       <div class="sb-brand"><div class="mk">${brandMark()}</div><div class="nm">GeoIntel<small>GEO INTELLIGENCE</small></div></div>
       <div class="sb-scroll">
-        ${NAV.filter(g=>!g.admin||user.role==="Administrator").map(g=>html`<div key=${g.group}>
+        ${NAV().filter(g=>!g.admin||user.role==="Administrator").map(g=>html`<div key=${g.group}>
           <div class="sb-group">${g.group}</div>
           ${g.items.filter(it=>!it.admin||user.role==="Administrator").map(it=>{
             // เมนูย่อยจะกางเมื่ออยู่ที่เมนูหลักนั้นหรือหน้าใดหน้าหนึ่งในเมนูย่อยของมัน
@@ -558,55 +600,57 @@ function App(){
       </div>
       <div class="sb-foot"><div class="row" style=${{gap:"7px"}}>
         <span style=${{width:"7px",height:"7px",borderRadius:"50%",background:"var(--good)",boxShadow:"0 0 7px var(--good)"}}></span>
-        เครื่องมือ: การทำเหมืองเชิงสถิติ</div>
-        <div style=${{marginTop:"4px"}}>เวอร์ชัน 1.0 · ${num(db.countries.reduce((a,c)=>a+c.customerCount+c.prospectCount,0))} รายการ</div></div>
+        ${t("เครื่องมือ: การทำเหมืองเชิงสถิติ", "Engine: statistical mining")}</div>
+        <div style=${{marginTop:"4px"}}>${t("เวอร์ชัน 1.0 ·", "Version 1.0 ·")} ${num(db.countries.reduce((a,c)=>a+c.customerCount+c.prospectCount,0))} ${t("รายการ", "records")}</div></div>
     </aside>`}
 
     <div class="main">
       <header class="topbar">
         ${isBiz
-          ? html`<button class="tb-brand" title=${isTC?"เขตที่รับผิดชอบ":"กลับสู่ลูกโลก"} onClick=${isTC?null:()=>navItem("workspace")} style=${isTC?{cursor:"default"}:null}>
+          ? html`<button class="tb-brand" title=${isTC?t("เขตที่รับผิดชอบ", "My territory"):t("กลับสู่ลูกโลก", "Back to the globe")} onClick=${isTC?null:()=>navItem("workspace")} style=${isTC?{cursor:"default"}:null}>
               <div class="mk">${brandMark()}</div><div class="nm">GeoIntel<small>GEO INTELLIGENCE</small></div></button>`
           : html`<button class="hamb" onClick=${()=>setCollapsed(c=>!c)}><${Icon} name="grid" size=${17}/></button>`}
         ${onGlobe ? html`<div style=${{marginRight:"auto"}}></div>`
         : (view==="workspace" && mode==="map")
           ? (isTC
               /* TC ถูกล็อกที่จังหวัดเดียว — breadcrumb เป็นข้อความคงที่ ไม่มีลิงก์กลับประเทศ/ลูกโลก */
-              ? html`<div class="crumbs"><span class="crumb-cur">เขตที่รับผิดชอบ · <b>${provinceTH(user.province||"")}</b></span></div>`
+              ? html`<div class="crumbs"><span class="crumb-cur">${t("เขตที่รับผิดชอบ ·", "Territory ·")} <b>${provinceTH(user.province||"")}</b></span></div>`
               : html`<div class="crumbs crumbs-nav">
-              <button class="crumb-link" onClick=${backToGlobe}>หน้าหลัก</button>
+              <button class="crumb-link" onClick=${backToGlobe}>${t("หน้าหลัก", "Home")}</button>
               <span class="crumb-sep">›</span>
-              <button class="crumb-link" onClick=${backToGlobe}>ประเทศไทย</button>
+              <button class="crumb-link" onClick=${backToGlobe}>${t("ประเทศไทย", "Thailand")}</button>
               ${crumbProvince && html`<span class="crumb-sep">›</span><span class="crumb-cur">${crumbProvince}</span>`}
             </div>`)
-          : html`<div class="crumbs">พื้นที่ทำงาน · <b>${stateLabel}</b></div>`}
+          : html`<div class="crumbs">${t("พื้นที่ทำงาน ·", "Workspace ·")} <b>${stateLabel}</b></div>`}
         <div class="tb-right">
-          ${isBiz && view==="workspace" && mode==="map" && html`<button title="เปิดหน้ารายงาน" onClick=${()=>navItem("reports")}
+          <!-- สลับภาษา ไทย/อังกฤษ — แสดงทุกบทบาท · ค่าถูกจำไว้ใน localStorage -->
+          <${LangToggle}/>
+          ${isBiz && view==="workspace" && mode==="map" && html`<button title=${t("เปิดหน้ารายงาน","Open reports")} onClick=${()=>navItem("reports")}
             style=${{display:"inline-flex",alignItems:"center",gap:"7px",height:"38px",padding:"0 14px",marginRight:"8px",
               borderRadius:"10px",border:"1px solid var(--stroke2)",background:"var(--panel)",color:"var(--txt)",
               fontFamily:"var(--font)",fontSize:"12.5px",fontWeight:600,cursor:"pointer",backdropFilter:"blur(8px)"}}>
-            <${Icon} name="reports" size=${15} color="var(--accent)"/> รายงาน</button>`}
+            <${Icon} name="reports" size=${15} color="var(--accent)"/> ${t("รายงาน", "Reports")}</button>`}
           <div style=${{position:"relative"}}>
             <button class="icon-btn" onClick=${()=>setMenu(menu==="notif"?null:"notif")}><${Icon} name="bell" size=${18}/>
               ${notifs.length ? html`<span class="dot"></span>` : ""}</button>
             ${menu==="notif" && (()=>{ const shown = notifs;
               return html`<div class="dropdown" style=${{width:"300px"}}>
-              <div class="row between" style=${{padding:"6px 10px 10px"}}><b style=${{fontSize:"13px"}}>การแจ้งเตือน</b>
+              <div class="row between" style=${{padding:"6px 10px 10px"}}><b style=${{fontSize:"13px"}}>${t("การแจ้งเตือน", "Notifications")}</b>
                 ${shown.length? html`<${Badge} tone="bad">${shown.length}</${Badge}>`:""}</div>
               ${shown.length ? shown.map((n,i)=>html`<div key=${n.key} class="dd-item" style=${{alignItems:"flex-start",cursor:"default"}}>
                 <${Icon} name=${n.icon} size=${15} color="var(--accent2)"/>
                 <div style=${{flex:1}}><div style=${{fontSize:"12.5px",color:"var(--txt)"}}>${n.t}</div>
-                  <div class="dim" style=${{fontSize:"12px",marginTop:"2px"}}>${n.time}ที่แล้ว</div></div></div>`)
-                : html`<div class="dim" style=${{padding:"14px 10px",fontSize:"12.5px",textAlign:"center"}}>ไม่มีการแจ้งเตือน</div>`}
+                  <div class="dim" style=${{fontSize:"12px",marginTop:"2px"}}>${n.time}${t("ที่แล้ว", " ago")}</div></div></div>`)
+                : html`<div class="dim" style=${{padding:"14px 10px",fontSize:"12.5px",textAlign:"center"}}>${t("ไม่มีการแจ้งเตือน", "No notifications")}</div>`}
             </div>`; })()}
           </div>
           <div style=${{position:"relative"}}>
             <button class="userbtn" onClick=${()=>setMenu(menu==="user"?null:"user")} title=${user.name}
-              aria-label="เมนูผู้ใช้" aria-haspopup="true" aria-expanded=${menu==="user"}
+              aria-label=${t("เมนูผู้ใช้", "User menu")} aria-haspopup="true" aria-expanded=${menu==="user"}
               style=${{padding:"2px",gap:0,borderRadius:"50%"}}>
               <span class="avatar">${user.initials}</span>
             </button>
-            ${menu==="user" && html`<div class="dropdown userdd" role="menu" aria-label="เมนูผู้ใช้"
+            ${menu==="user" && html`<div class="dropdown userdd" role="menu" aria-label=${t("เมนูผู้ใช้", "User menu")}
                 style=${{width:"284px",maxHeight:"calc(100vh - 84px)",display:"flex",flexDirection:"column",padding:0,overflow:"hidden"}}>
               <!-- ส่วนหัวบัญชี (ตรึงบนสุด): avatar + ชื่อผู้ใช้ + บทบาท + อีเมล + badge (TC เพิ่มบรรทัดจังหวัด) -->
               <div class="dd-account" style=${{margin:0,borderRadius:0,flex:"none"}}>
@@ -620,27 +664,27 @@ function App(){
 
               <!-- รายการเมนู (เลื่อนได้) — 5 รายการ ไม่มีหัวข้อย่อย -->
               <div style=${{flex:1,minHeight:0,overflowY:"auto",padding:"6px"}}>
-                <div class="dd-item" role="menuitem" tabindex="0" onClick=${()=>openProfile("info")}><${Icon} name="profile" size=${16}/>ดูโปรไฟล์</div>
-                <div class="dd-item" role="menuitem" tabindex="0" onClick=${()=>openProfile("password")}><${Icon} name="config" size=${16}/>ตั้งค่า</div>
+                <div class="dd-item" role="menuitem" tabindex="0" onClick=${()=>openProfile("info")}><${Icon} name="profile" size=${16}/>${t("ดูโปรไฟล์", "View profile")}</div>
+                <div class="dd-item" role="menuitem" tabindex="0" onClick=${()=>openProfile("password")}><${Icon} name="config" size=${16}/>${t("ตั้งค่า", "Settings")}</div>
                 ${isDemoMode && html`<div>
                   <div class="dd-item" role="menuitem" tabindex="0" aria-haspopup="true" aria-expanded=${roleSub} onClick=${()=>setRoleSub(s=>!s)}>
-                    <${Icon} name="user" size=${16}/>สลับบทบาท (เดโม)
+                    <${Icon} name="user" size=${16}/>${t("สลับบทบาท (เดโม)", "Switch role (demo)")}
                     <span style=${{marginLeft:"auto",display:"inline-flex",alignItems:"center",gap:"7px"}}>
                       <span style=${{fontSize:"11px",fontWeight:700,color:"var(--accent2)"}}>${roleShort}</span>
                       <${Icon} name="chevron" size=${13} style=${{transform:roleSub?"rotate(180deg)":"none",transition:".2s"}}/></span></div>
                   ${roleSub && html`<div style=${{paddingLeft:"12px"}}>
-                    ${[["admin","ผู้ดูแลระบบ"],["management","ผู้บริหาร"],["tc","ผู้ประสานงานการค้า (TC)"]].map(([d,l])=>html`
+                    ${[["admin",t("ผู้ดูแลระบบ", "System Administrator")],["management",t("ผู้บริหาร", "Management")],["tc",t("ผู้ประสานงานการค้า (TC)", "Trade Coordinator (TC)")]].map(([d,l])=>html`
                       <div key=${d} class="dd-item" role="menuitem" tabindex="0" onClick=${()=>switchRole(d)}>
                         <${Icon} name="user" size=${15}/>${l}
-                        ${roleDemo===d?html`<span style=${{marginLeft:"auto",color:"var(--accent2)",fontSize:"12px",fontWeight:700}}>ปัจจุบัน</span>`:""}</div>`)}
+                        ${roleDemo===d?html`<span style=${{marginLeft:"auto",color:"var(--accent2)",fontSize:"12px",fontWeight:700}}>${t("ปัจจุบัน", "Current")}</span>`:""}</div>`)}
                   </div>`}
                 </div>`}
-                <div class="dd-item" role="menuitem" tabindex="0" onClick=${()=>{setMenu(null);toast("ศูนย์ช่วยเหลือ GeoIntel · เวอร์ชัน 1.0","info");}}><${Icon} name="reports" size=${16}/>ช่วยเหลือ</div>
+                <div class="dd-item" role="menuitem" tabindex="0" onClick=${()=>{setMenu(null);toast(t("ศูนย์ช่วยเหลือ GeoIntel · เวอร์ชัน 1.0", "GeoIntel Help Centre · version 1.0"),"info");}}><${Icon} name="reports" size=${16}/>${t("ช่วยเหลือ", "Help")}</div>
               </div>
 
               <!-- ออกจากระบบ (ตรึงล่างสุด · สี destructive · ไม่ใช่ default focus) -->
               <div style=${{flex:"none",borderTop:"1px solid var(--stroke)",padding:"6px"}}>
-                <div class="dd-item" role="menuitem" tabindex="0" onClick=${logout} style=${{color:"var(--bad,#b91c1c)",fontWeight:600}}><${Icon} name="logout" size=${16}/>ออกจากระบบ</div>
+                <div class="dd-item" role="menuitem" tabindex="0" onClick=${logout} style=${{color:"var(--bad,#b91c1c)",fontWeight:600}}><${Icon} name="logout" size=${16}/>${t("ออกจากระบบ", "Sign out")}</div>
               </div>
             </div>`}
           </div>
@@ -652,7 +696,8 @@ function App(){
         ${(view==="dashboard" && user.role==="Administrator")
           ? html`<${Dashboard}/>`
           : html`<${GeoStage} db=${db} mode=${mode} activeCountry=${activeCountry} flyTarget=${flyTarget} globeUnder=${globeUnder}
-              lockProvince=${isTC ? user.province : null}
+              lockProvince=${isTC ? user.province : null} lockZones=${lockZones}
+              zoneMode=${isTC && lockZones ? "lock" : user.role==="Management" ? "outline" : null}
               onArriveCountry=${arriveCountry} onSelectCountry=${selectCountry} onSelectProvince=${selectProvinceFromGlobe} onBackToGlobe=${backToGlobe}
               filters=${filters} setFilters=${setFilters} layers=${layers} setLayers=${setLayers}
               onPickProvince=${pickProvince} onPickCustomer=${pickCustomer}
@@ -702,32 +747,32 @@ function App(){
         ${isTC && !user.province && html`<div style=${{position:"absolute",inset:0,zIndex:1400,background:"var(--bg)",display:"grid",placeItems:"center",padding:"24px"}}>
           <div style=${{textAlign:"center",maxWidth:"440px"}}>
             <div style=${{width:"72px",height:"72px",borderRadius:"50%",background:"rgba(255,176,46,.14)",display:"grid",placeItems:"center",margin:"0 auto 16px"}}><${Icon} name="pin" size=${32} color="var(--warn)"/></div>
-            <h2 style=${{margin:"0 0 8px"}}>บัญชีของคุณยังไม่ได้กำหนดพื้นที่ที่ดูแล</h2>
-            <p class="muted" style=${{fontSize:"14px",lineHeight:1.6}}>กรุณาติดต่อผู้ดูแลระบบเพื่อกำหนดพื้นที่รับผิดชอบก่อนเริ่มใช้งาน</p>
-            <div style=${{marginTop:"18px"}}><button class="btn outline" onClick=${logout}>ออกจากระบบ</button></div>
+            <h2 style=${{margin:"0 0 8px"}}>${t("บัญชีของคุณยังไม่ได้กำหนดพื้นที่ที่ดูแล", "Your account has no territory assigned yet")}</h2>
+            <p class="muted" style=${{fontSize:"14px",lineHeight:1.6}}>${t("กรุณาติดต่อผู้ดูแลระบบเพื่อกำหนดพื้นที่รับผิดชอบก่อนเริ่มใช้งาน", "Please ask an administrator to assign your territory before you start.")}</p>
+            <div style=${{marginTop:"18px"}}><button class="btn outline" onClick=${logout}>${t("ออกจากระบบ", "Sign out")}</button></div>
           </div></div>`}
 
         ${tcDenied && html`<div style=${{position:"absolute",inset:0,zIndex:1400,background:"var(--bg)",display:"grid",placeItems:"center",padding:"24px"}}>
           <div style=${{textAlign:"center",maxWidth:"460px"}}>
             <div style=${{width:"72px",height:"72px",borderRadius:"50%",background:"rgba(255,90,90,.12)",display:"grid",placeItems:"center",margin:"0 auto 16px"}}><${Icon} name="gap" size=${32} color="var(--bad)"/></div>
-            <h2 style=${{margin:"0 0 8px"}}>ไม่สามารถเข้าถึงข้อมูลที่ขอได้</h2>
-            <p class="muted" style=${{fontSize:"14px",lineHeight:1.6}}>ข้อมูลที่คุณเปิดอยู่นอกพื้นที่ที่คุณดูแล หากคิดว่าเป็นความผิดพลาด กรุณาติดต่อผู้ดูแลระบบ</p>
+            <h2 style=${{margin:"0 0 8px"}}>${t("ไม่สามารถเข้าถึงข้อมูลที่ขอได้", "You cannot access the requested data")}</h2>
+            <p class="muted" style=${{fontSize:"14px",lineHeight:1.6}}>${t("ข้อมูลที่คุณเปิดอยู่นอกพื้นที่ที่คุณดูแล หากคิดว่าเป็นความผิดพลาด กรุณาติดต่อผู้ดูแลระบบ", "The record you opened is outside your territory. If you think this is a mistake, contact an administrator.")}</p>
             <div style=${{marginTop:"18px"}}><button class="btn outline" onClick=${()=>{ setTcDenied(null); setOverlay(null); setSelectedProvince(user.province); setFilters(f=>({...f,province:user.province})); }}>
-              ← กลับไปหน้าจังหวัด${provinceTH(user.province||"")}</button></div>
+              ${t("← กลับไปหน้าจังหวัด", "← Back to the province ")}${provinceTH(user.province||"")}</button></div>
           </div></div>`}
 
         ${loadingData && html`<div style=${{position:"absolute",inset:0,zIndex:900,background:"rgba(4,7,14,.5)",backdropFilter:"blur(2px)",display:"grid",placeItems:"center"}}>
           <div class="card" style=${{display:"flex",alignItems:"center",gap:"14px",padding:"16px 22px"}}>
             <div style=${{width:"22px",height:"22px",borderRadius:"50%",border:"3px solid rgba(120,160,220,.25)",borderTopColor:"var(--accent2)",animation:"spin 1s linear infinite"}}></div>
-            <div><div style=${{fontSize:"13px",fontWeight:700}}>กำลังโหลดข้อมูล…</div>
-              <div class="dim" style=${{fontSize:"13px"}}>ลูกค้า · จังหวัด · แผนที่ความร้อน</div></div>
+            <div><div style=${{fontSize:"13px",fontWeight:700}}>${t("กำลังโหลดข้อมูล…", "Loading data…")}</div>
+              <div class="dim" style=${{fontSize:"13px"}}>${t("ลูกค้า · จังหวัด · แผนที่ความร้อน", "Customers · provinces · heatmap")}</div></div>
           </div>
           <style>@keyframes spin{to{transform:rotate(360deg)}}</style>
         </div>`}
       </div>
     </div>
   </div>
-  ${introPlaying && mode==="globe" && html`<button class="intro-skip" onClick=${skipIntro}>ข้าม<${Icon} name="chevronR" size=${14}/></button>`}
+  ${introPlaying && mode==="globe" && html`<button class="intro-skip" onClick=${skipIntro}>${t("ข้าม", "Skip")}<${Icon} name="chevronR" size=${14}/></button>`}
   ${showWelcome && html`<${WelcomeDialog} onStart=${startTour} onSkip=${skipWelcome}/>`}
   <${ProductTour} open=${tourOpen} steps=${TOUR_STEPS} onFinish=${endTour} onSkip=${endTour}/>
   <${HelpTips} user=${user} disabled=${showWelcome||tourOpen}/>
@@ -741,11 +786,11 @@ function searchAll(db,q){
   const s=q.toLowerCase();
   const areas = (db.areas||[]).filter(a=>a.province.toLowerCase().includes(s)||provinceTH(a.province).includes(q))
     .slice(0,5).map(a=>({province:a.province, title:provinceTH(a.province),
-      sub:`${num(a.customerCount)} ลูกค้า · Lead ${a.gapScore}`}));
+      sub:`${num(a.customerCount)} ${t("ลูกค้า · Lead", "Customers · Leads")} ${a.gapScore}`}));
   const people = [...(db.customers||[]), ...(db.prospects||[])]
     .filter(c=>c.businessName.toLowerCase().includes(s) || c.id.toLowerCase().includes(s) || (c.address||"").toLowerCase().includes(s))
     .slice(0,8).map(c=>({id:c.id, title:c.businessName,
-      sub:`${c.status==="Existing"?"ลูกค้าปัจจุบัน":"Lead"} · ${provinceTH(c.province)}${c.address?" · "+c.address:""}`}));
+      sub:`${c.status==="Existing"?t("ลูกค้าปัจจุบัน", "Existing customers"):"Lead"} · ${provinceTH(c.province)}${c.address?" · "+c.address:""}`}));
   return {areas, people};
 }
 

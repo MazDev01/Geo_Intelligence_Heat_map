@@ -1,3 +1,4 @@
+import {t} from "./i18n.js";   // สลับภาษา TH/EN — ดู src/i18n.js
 // ═══════════════════════════════════════════════════════════════════════════
 // src/select.js — Dropdown เลือกค่าแบบกำหนดสไตล์เอง (แทน native <select> ที่คุมหน้าตาไม่ได้)
 // โชว์สูงสุด ~6 ตัวเลือกแล้วเลื่อนลง · hover = แดงอ่อน (--accent-soft ตามเทมเพลต)
@@ -36,7 +37,7 @@ if(typeof document!=="undefined" && !document.getElementById("sel-css")){
 }
 
 // options: [[value,label], ...] หรือ [{value,label}, ...]
-export function Dropdown({value, onChange, options=[], placeholder="เลือก…", disabled=false, title}){
+export function Dropdown({value, onChange, options=[], placeholder=t("เลือก…", "Select…"), disabled=false, title}){
   const [open,setOpen]=useState(false);
   const [hl,setHl]=useState(-1);
   const ref=useRef(null); const popRef=useRef(null);

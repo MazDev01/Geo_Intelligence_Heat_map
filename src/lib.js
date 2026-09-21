@@ -1,8 +1,22 @@
 import React, {useState, useEffect, useRef, useMemo, useCallback, createContext, useContext} from "react";
 import {createRoot} from "react-dom/client";
 import htm from "htm";
-import {SEGMENTS, SEG_COLOR, SEG_ICON, SEG_SVG, SEG_TH, DISTRICT_TH as GEO_DISTRICT_TH} from "./mock/geoData.js";   // 12 เซกเมนต์ + ชื่ออำเภอ จากแหล่งข้อมูลเดียว
+import {SEGMENTS, SEG_COLOR, SEG_ICON, SEG_SVG, SEG_TH, SEG_EN, DISTRICT_TH as GEO_DISTRICT_TH} from "./mock/geoData.js";   // 12 เซกเมนต์ + ชื่ออำเภอ จากแหล่งข้อมูลเดียว
+import {t, isEN, getLang, setLang, subscribeLang} from "./i18n.js";   // สลับภาษา TH/EN — ดู src/i18n.js
 export {React, useState, useEffect, useRef, useMemo, useCallback, createContext, useContext, createRoot};
+export {t, isEN, getLang, setLang};   // re-export เพื่อให้ไฟล์ที่ import จาก lib.js อยู่แล้วเรียก t() ได้เลย
+
+/* hook ภาษา — อยู่ที่นี่ ไม่ใช่ที่ i18n.js เพราะ i18n.js ต้อง import ได้จาก Node ด้วย (gen.mjs → geoData.js)
+   คืนภาษาปัจจุบันและสั่ง re-render เมื่อสลับ · ใช้ที่ App หนึ่งที่พอ (ทั้งต้นไม้ re-render ตาม)
+   component อื่นเรียกได้เมื่อจำเป็นต้องใช้ภาษาเป็น dep ของ useEffect (เช่น แผนที่ Leaflet) */
+export function useLang(){
+  const [lang, set] = useState(getLang());
+  useEffect(()=>{
+    if(getLang() !== lang) set(getLang());   // สลับภาษาไปแล้วก่อน effect แรกจะทำงาน
+    return subscribeLang(set);
+  }, []);
+  return lang;
+}
 export const html = htm.bind(React.createElement);
 
 /* ---------------- วันที่/เวลา — ที่เดียวของทั้งระบบ ----------------
@@ -14,6 +28,10 @@ export const html = htm.bind(React.createElement);
      • สตริงไม่มีโซนเวลา  "2026-07-11" / "2026-07-11 09:12"  → ถือว่าเป็นเวลาไทยอยู่แล้ว อ่านตรง ๆ
      • ISO ที่มีโซนเวลา   "2026-07-11T18:00:00.000Z"          → แปลงเป็นเวลาไทยก่อนค่อยอ่าน       */
 export const TH_MONTHS = ["ม.ค.","ก.พ.","มี.ค.","เม.ย.","พ.ค.","มิ.ย.","ก.ค.","ส.ค.","ก.ย.","ต.ค.","พ.ย.","ธ.ค."];
+export const EN_MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+/* ชื่อเดือนตามภาษาปัจจุบัน · ปีก็เปลี่ยนฐาน: ไทยใช้ พ.ศ. (+543) · อังกฤษใช้ ค.ศ. */
+const MONTHS = () => isEN() ? EN_MONTHS : TH_MONTHS;
+const YEAR = y => isEN() ? y : y + 543;
 const _NAIVE = /^(d{4})-(d{2})-(d{2})(?:[ T](d{2}):(d{2}))?$/;   // ไม่มี Z / ไม่มี offset
 const BKK_OFFSET = 7*3600e3;
 /* คืน Date ที่ "อ่านด้วย getUTC* แล้วได้เวลาไทย" — null ถ้าค่าใช้ไม่ได้ */
@@ -27,8 +45,8 @@ function bkk(v){
   return Number.isNaN(t) ? null : new Date(t + BKK_OFFSET);
 }
 const pad2 = n => String(n).padStart(2,"0");
-/* "11 ก.ค. 2569" */
-export const thDate = v => { const d=bkk(v); return d ? d.getUTCDate()+" "+TH_MONTHS[d.getUTCMonth()]+" "+(d.getUTCFullYear()+543) : "—"; };
+/* "11 ก.ค. 2569" · EN: "11 Jul 2026" */
+export const thDate = v => { const d=bkk(v); return d ? d.getUTCDate()+" "+MONTHS()[d.getUTCMonth()]+" "+YEAR(d.getUTCFullYear()) : "—"; };
 /* "09:12" (24 ชม.) */
 export const thTime = v => { const d=bkk(v); return d ? pad2(d.getUTCHours())+":"+pad2(d.getUTCMinutes()) : "—"; };
 /* "11 ก.ค. 2569 09:12" */
@@ -38,8 +56,8 @@ export const thMonth = (v, short=true) => {
   let y,mo;
   if(typeof v==="string" && /^d{4}-d{2}$/.test(v.trim())){ const [a,b]=v.trim().split("-"); y=+a; mo=+b-1; }
   else { const d=bkk(v); if(!d) return "—"; y=d.getUTCFullYear(); mo=d.getUTCMonth(); }
-  const be = y+543;
-  return TH_MONTHS[mo]+" "+(short ? String(be).slice(-2) : be);
+  const yy = YEAR(y);
+  return MONTHS()[mo]+" "+(short ? String(yy).slice(-2) : yy);
 };
 /* วันนี้ตามเวลาไทย ในรูป "YYYY-MM-DD" — ใช้กับ <input type="date"> และค่าที่เก็บลงข้อมูล */
 export const todayBKK = () => { const d=new Date(Date.now()+BKK_OFFSET);
@@ -94,14 +112,18 @@ export const PROVINCE_TH = {
   "Trang":"ตรัง","Trat":"ตราด","Ubon Ratchathani":"อุบลราชธานี","Udon Thani":"อุดรธานี","Uthai Thani":"อุทัยธานี",
   "Uttaradit":"อุตรดิตถ์","Yala":"ยะลา","Yasothon":"ยโสธร"
 };
-export const provinceTH = p => PROVINCE_TH[p]||p;
+/* ── ตัวแปลงค่าข้อมูล → ชื่อที่แสดงผล ──
+   คีย์ของทุก dict เป็น "ค่าดิบภาษาอังกฤษ" ที่อยู่ในข้อมูลอยู่แล้ว (Bangkok Metropolis, Administrator, High…)
+   โหมด EN จึงคืนคีย์ตรง ๆ ได้เลย ไม่ต้องมี dict ที่สอง — ยกเว้น SEG ที่คีย์เป็น camelCase (HomeLiving)
+   จึงต้องมี SEG_EN แยกไว้เป็นชื่อที่อ่านออก */
+export const provinceTH = p => isEN() ? (p||"") : (PROVINCE_TH[p]||p);
 // ชื่ออำเภอ/เขต ภาษาไทย — ใช้จากแหล่งข้อมูลเดียว (src/mock/geoData.js) ครอบคลุม 4 จังหวัด
 export const DISTRICT_TH = GEO_DISTRICT_TH;
-export const districtTH = d => DISTRICT_TH[d]||d;
-export const segTH = s => SEG_TH[s]||s;
-export const gapTH = g => GAP_TH[g]||g;
-export const roleTH = r => ROLE_TH[r]||r;
-export const countryTH = c => COUNTRY_TH[c]||c;
+export const districtTH = d => isEN() ? (d||"") : (DISTRICT_TH[d]||d);
+export const segTH = s => isEN() ? (SEG_EN[s]||s) : (SEG_TH[s]||s);
+export const gapTH = g => isEN() ? (g||"") : (GAP_TH[g]||g);
+export const roleTH = r => isEN() ? (r||"") : (ROLE_TH[r]||r);
+export const countryTH = c => isEN() ? (c||"") : (COUNTRY_TH[c]||c);
 
 /* ---------------- icons (24x24 stroke) ---------------- */
 const P = {

@@ -12,6 +12,7 @@
    ═══════════════════════════════════════════════════════════════════════════ */
 import {permByRole, DEFAULT_SCOPE} from "./permissions.js";   // ตารางสิทธิ์/ขอบเขตชุดเดียวของระบบ
 import {provinceTH, segTH} from "./lib.js";
+import {t} from "./i18n.js";
 
 
 /* รายการเหตุการณ์ทั้งหมด — ตัดของที่อ้างถึงฟีเจอร์ที่ไม่มีแล้วออกหมด
@@ -22,14 +23,15 @@ import {provinceTH, segTH} from "./lib.js";
    (เหตุการณ์ที่อ้างถึงฟีเจอร์ที่ถอดออกไปแล้วถูกตัดทิ้งหมด: ซิงค์ข้อมูลกับระบบภายนอก ·
     ความครอบคลุม · ข่าวสารการตลาด · คิวตรวจข้อมูลซ้ำ) */
 export const NOTIF_EVENTS = [
-  { key:"lead_new",    label:"พบ Lead ใหม่ในพื้นที่รับผิดชอบ", priority:"medium", perm:"customer.view" },
-  { key:"lead_gap",    label:"พบพื้นที่ Lead สูง",             priority:"high",   perm:"map.view_score" },
-  { key:"import_done", label:"นำเข้าไฟล์สำเร็จ",               priority:"low",    perm:"data.import" },
-  { key:"export_done", label:"ส่งออกข้อมูลสำเร็จ",             priority:"low",    perm:"report.export_summary" },
-  { key:"weekly",      label:"สรุปข่าวกรองประจำสัปดาห์",        priority:"low",    perm:"report.view" },
+  { key:"lead_new",    get label(){ return t("พบ Lead ใหม่ในพื้นที่รับผิดชอบ","New Lead in your territory"); }, priority:"medium", perm:"customer.view" },
+  { key:"lead_gap",    get label(){ return t("พบพื้นที่ Lead สูง","High-Lead area found"); },                   priority:"high",   perm:"map.view_score" },
+  { key:"import_done", get label(){ return t("นำเข้าไฟล์สำเร็จ","File import finished"); },                     priority:"low",    perm:"data.import" },
+  { key:"export_done", get label(){ return t("ส่งออกข้อมูลสำเร็จ","Data export finished"); },                   priority:"low",    perm:"report.export_summary" },
+  { key:"weekly",      get label(){ return t("สรุปข่าวกรองประจำสัปดาห์","Weekly intelligence summary"); },       priority:"low",    perm:"report.view" },
 ];
 export const NOTIF_INDEX = Object.fromEntries(NOTIF_EVENTS.map(e=>[e.key,e]));
-export const PRIORITY_TH = { high:"สูง", medium:"กลาง", low:"ต่ำ" };
+export const PRIORITY_TH = {
+  get high(){ return t("สูง","High"); }, get medium(){ return t("กลาง","Medium"); }, get low(){ return t("ต่ำ","Low"); } };
 
 /* ── ชั้นที่ 1 · ค่าระดับระบบ (แอดมิน) ── */
 let _SYS = null;
@@ -72,7 +74,7 @@ export function buildNotifs(user, db){
   const pros  = (db && db.prospects || []).filter(inScope);
   const custs = (db && db.customers || []).filter(inScope);
   // "ในเชียงใหม่" / "ทั่วประเทศ" — คำบุพบทอยู่ในตัวแปร ไม่งั้นได้ "ในทั่วประเทศ"
-  const where = prov ? "ใน"+provinceTH(prov) : "ทั่วประเทศ";
+  const where = prov ? t("ใน","in ")+provinceTH(prov) : t("ทั่วประเทศ","nationwide");
 
   // Lead ใหม่: นับเทียบกับ "วันล่าสุดที่มี Lead ในข้อมูล" ไม่ใช่วันนี้ (ชุดข้อมูลนิ่ง ไม่ใช่ realtime)
   const ts = pros.map(o => Date.parse(o.created_at)).filter(Number.isFinite);
@@ -85,14 +87,22 @@ export function buildNotifs(user, db){
   custs.forEach(o => { bal[o.segment] = (bal[o.segment]||0) - 1; });
   const [gapSeg, gapN] = Object.entries(bal).sort((a,b)=>b[1]-a[1])[0] || [null,0];
 
+  // ข้อความทั้งประโยคเขียนเป็น template สองภาษา ไม่ใช่ต่อคำทีละชิ้น —
+  // ลำดับคำไทยกับอังกฤษไม่ตรงกัน ("หมวดX ยังขาดอีก N ราย" ↔ "X is short by N businesses")
   const all = [
-    {key:"lead_new",    icon:"target",   time:"3 นาที",
-     t:`พบ Lead ใหม่ ${newLeads} ราย ${where} (${NEW_WINDOW_DAYS} วันล่าสุด)`, skip:!newLeads},
-    {key:"lead_gap",    icon:"gap",      time:"1 ชม.",
-     t:`หมวด${segTH(gapSeg)}${where} ยังขาดอีก ${gapN} ราย`, skip:!gapSeg || gapN<=0},
-    {key:"import_done", icon:"upload",   time:"3 ชม.", t:"นำเข้าไฟล์ ลูกค้า_กรุงเทพ_Q2.xlsx สำเร็จ 110 รายการ"},
-    {key:"export_done", icon:"download", time:"4 ชม.", t:"ส่งออกรายงานโอกาส (PDF) เรียบร้อย"},
-    {key:"weekly",      icon:"reports",  time:"5 ชม.", t:`รายงานโอกาสประจำสัปดาห์${prov?" ("+provinceTH(prov)+")":""} พร้อมแล้ว`},
+    {key:"lead_new",    icon:"target",   time:t("3 นาที","3 min"),
+     t:t(`พบ Lead ใหม่ ${newLeads} ราย ${where} (${NEW_WINDOW_DAYS} วันล่าสุด)`,
+         `${newLeads} new Leads ${where} (last ${NEW_WINDOW_DAYS} days)`), skip:!newLeads},
+    {key:"lead_gap",    icon:"gap",      time:t("1 ชม.","1 hr"),
+     t:t(`หมวด${segTH(gapSeg)}${where} ยังขาดอีก ${gapN} ราย`,
+         `${segTH(gapSeg)} ${where} is short by ${gapN} businesses`), skip:!gapSeg || gapN<=0},
+    {key:"import_done", icon:"upload",   time:t("3 ชม.","3 hr"),
+     t:t("นำเข้าไฟล์ ลูกค้า_กรุงเทพ_Q2.xlsx สำเร็จ 110 รายการ","Imported ลูกค้า_กรุงเทพ_Q2.xlsx — 110 records")},
+    {key:"export_done", icon:"download", time:t("4 ชม.","4 hr"),
+     t:t("ส่งออกรายงานโอกาส (PDF) เรียบร้อย","Opportunity report (PDF) exported")},
+    {key:"weekly",      icon:"reports",  time:t("5 ชม.","5 hr"),
+     t:t(`รายงานโอกาสประจำสัปดาห์${prov?" ("+provinceTH(prov)+")":""} พร้อมแล้ว`,
+         `Weekly opportunity report${prov?" ("+provinceTH(prov)+")":""} is ready`)},
   ];
   const allowed = new Set(roleEvents(role).map(e=>e.key));
   return all.filter(x => !x.skip && allowed.has(x.key) && notifOn(x.key));

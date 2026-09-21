@@ -1,6 +1,7 @@
 import {html, cx, useRef, useEffect, useState} from "./lib.js";
 import {createPortal} from "react-dom";   // portal tooltip ไป <body> เพื่อไม่ให้ .slide-panel (transform+overflow:hidden) ดึงตำแหน่ง fixed ให้เพี้ยน/ถูกตัด — tooltip จึงลอยบนสุดตรงเมาส์เสมอ
 import {DONUT, LINE, EASE, prefersReducedMotion} from "./config/animation.js";
+import {t} from "./i18n.js";   // สลับภาษา TH/EN — ดู src/i18n.js
 
 /* Dependency-free SVG charts, theme-aware */
 
@@ -108,7 +109,7 @@ export function Donut({data, size=150, thickness=14, center, animate=true}){
   const arcs=segs.map((d,i)=>{ const frac=d.value/total, dash=frac*c, startOff=off, startAngle=(startOff/c)*360; off+=dash;
     return {d,i,dash,startOff,startAngle}; });
   const hover=(e,a)=>{ setHi(a.i); show(e, a.d.label,
-    [{label:"จำนวน",value:nf(a.d.value)+" ราย"},{label:"สัดส่วน",value:Math.round(a.d.value/total*100)+"%"}]); };
+    [{label:t("จำนวน", "Count"),value:nf(a.d.value)+t(" ราย", " businesses")},{label:t("สัดส่วน", "Share"),value:Math.round(a.d.value/total*100)+"%"}]); };
   return html`<div style=${{display:"flex",alignItems:"center",justifyContent:"center",gap:"18px",flexWrap:"wrap",position:"relative"}}>
     <${ChartTip} state=${tip}/>
     <svg width=${size} height=${size} viewBox=${`0 0 ${size} ${size}`} style=${{overflow:"visible"}}>
@@ -184,9 +185,9 @@ export function LineChart({series, height=190, format=(v)=>v, labels=[], animate
     const rx=cx0/box.width*W; let i = n<=1?0:Math.round((rx-padL)/(plotW/(n-1)));
     i=Math.max(0,Math.min(n-1,i)); setHx(i);
     const total=series.reduce((a,s)=>a+(s.points[i]||0),0);
-    show(e, labels[i]||("จุดที่ "+(i+1)),
+    show(e, labels[i]||(t("จุดที่ ", "Point ")+(i+1)),
       [...series.map(s=>({label:s.label,color:s.color,value:fmt(Math.round(s.points[i]||0))})),
-       {label:"รวม",value:fmt(Math.round(total))}]);
+       {label:t("รวม", "Total"),value:fmt(Math.round(total))}]);
   };
   const onLeave=()=>{ setHx(-1); hide(); };
   return html`<div ref=${ref} style=${{width:"100%",position:"relative"}}>

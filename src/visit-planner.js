@@ -1,8 +1,9 @@
+import {t} from "./i18n.js";   // สลับภาษา TH/EN — ดู src/i18n.js
 // ไม่นำเข้า fetchDrivingRoute / fmtKm / fmtDuration / legMinutes อีกต่อไป
 import {topGapLeads} from "./data.js";
 import {demandGap, GAP_REF} from "./mock/geoData.js";
 // เพราะแผงนี้ไม่ใช้บริการคำนวณเส้นทาง และไม่แสดงตัวเลขระยะทาง/เวลาเดินทางแล้ว
-import {html, useState, useEffect, useRef, Icon, segTH, provinceTH, districtTH} from "./lib.js";
+import {html, useState, useEffect, useRef, Icon, segTH, provinceTH, districtTH, useLang} from "./lib.js";
 import {basemap} from "./basemap.js";
 import {clusterCustomers, clusterRoute, computeRoute, optimizeOrder, haversine} from "./visit.js";
 import {PLAN_TODAY, deriveStatus, overdueAppt, beDate} from "./visit-rounds.js";
@@ -75,7 +76,7 @@ export function VisitPlanner({db, office, plan, setPlan, route, setRoute, savePl
 
   // collapsed → floating pill with the selected-count badge
   if(!open) return html`<button class="vp-pill" onClick=${()=>setOpen(true)}>
-    <${Icon} name="route" size=${16} color="#ff3b5c"/><span>แผนการเข้าพบ</span>
+    <${Icon} name="route" size=${16} color="#ff3b5c"/><span>${t("แผนการเข้าพบ", "Visit plan")}</span>
     ${count>0 && html`<span class="vp-count">${count}</span>`}
     <style>${CSS}</style>
   </button>`;
@@ -84,10 +85,10 @@ export function VisitPlanner({db, office, plan, setPlan, route, setRoute, savePl
     <div class="vp-head">
       <div class="row" style=${{gap:"9px"}}>
         <${Icon} name="route" size=${16} color="#ff3b5c"/>
-        <b style=${{fontSize:"13.5px"}}>แผนการเข้าพบลูกค้า</b>
+        <b style=${{fontSize:"13.5px"}}>${t("แผนการเข้าพบลูกค้า", "Customer visit plan")}</b>
         ${count>0 && html`<span class="vp-count sm">${count}</span>`}
       </div>
-      <button class="vp-x" onClick=${()=>setOpen(false)} aria-label="ย่อ"><${Icon} name="chevron" size=${15}/></button>
+      <button class="vp-x" onClick=${()=>setOpen(false)} aria-label=${t("ย่อ", "Collapse")}><${Icon} name="chevron" size=${15}/></button>
     </div>
 
     <!-- เนื้อหาทั้งหมดใต้หัวแผงเลื่อนรวมกันในกล่องเดียว — เวลาเลื่อนลง สรุปงานวันนี้/เลือกแผน/จุดเริ่มต้น/วันที่ จะเลื่อนหายไป เปิดพื้นที่ให้ปุ่ม "เลือกลูกค้า" เสมอ -->
@@ -96,20 +97,20 @@ export function VisitPlanner({db, office, plan, setPlan, route, setRoute, savePl
 
     ${plans && html`<div class="vp-plans">
       <button class="vp-plan-current" onClick=${()=>setShowPlanMenu(v=>!v)}>
-        <span style=${{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>${activePlan?activePlan.name:"แผนที่ 1"}${activePlan&&!activePlan.saved?" (ยังไม่บันทึก)":""}</span>
+        <span style=${{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>${activePlan?activePlan.name:t("แผนที่ 1", "Plan 1 ")}${activePlan&&!activePlan.saved?t(" (ยังไม่บันทึก)", " (unsaved)"):""}</span>
         <${Icon} name="chevron" size=${13} style=${{transform:showPlanMenu?"rotate(180deg)":"none",flex:"none"}}/>
       </button>
       ${showPlanMenu && html`<div class="vp-plan-menu">
         ${plans.map(p=>html`<div key=${p.id} class=${"vp-plan-item"+(p.id===activePlanId?" active":"")}>
           <button class="vp-plan-select" onClick=${()=>{ setActivePlanId(p.id); setShowPlanMenu(false); }}>
             <span style=${{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>${p.name}</span>
-            <span class="dim" style=${{fontSize:"11px",flex:"none"}}>${p.customers.length} ราย${p.saved?" · บันทึกแล้ว":""}</span>
+            <span class="dim" style=${{fontSize:"11px",flex:"none"}}>${p.customers.length} ${t("ราย", "businesses ")}${p.saved?t(" · บันทึกแล้ว", " · saved"):""}</span>
           </button>
-          ${plans.length>1 && html`<button class="vp-plan-del" onClick=${()=>{ if(confirm('ลบแผน "'+p.name+'" ?')) deletePlan(p.id); }} aria-label="ลบแผน">
+          ${plans.length>1 && html`<button class="vp-plan-del" onClick=${()=>{ if(confirm(t('ลบแผน "', "Delete plan \"")+p.name+'" ?')) deletePlan(p.id); }} aria-label=${t("ลบแผน", "Delete plan")}>
             <${Icon} name="close" size=${13}/></button>`}
         </div>`)}
         <div class="vp-plan-new">
-          <input class="vp-plan-input" placeholder="ชื่อแผนใหม่…" value=${newPlanName}
+          <input class="vp-plan-input" placeholder=${t("ชื่อแผนใหม่…", "New plan name…")} value=${newPlanName}
             onInput=${e=>setNewPlanName(e.target.value)}
             onKeyDown=${e=>{ if(e.key==="Enter" && newPlanName.trim()){ createPlan(newPlanName.trim()); setNewPlanName(""); setShowPlanMenu(false); } }}/>
           <button class="vp-plan-add" onClick=${()=>{ if(newPlanName.trim()){ createPlan(newPlanName.trim()); setNewPlanName(""); setShowPlanMenu(false); } }}>
@@ -122,14 +123,14 @@ export function VisitPlanner({db, office, plan, setPlan, route, setRoute, savePl
     <div class="vp-startbar">
       <span class="vp-start-ic"><${Icon} name="pin" size=${13} color="#ff3b5c"/></span>
       <div style=${{minWidth:0}}>
-        <div class="vp-start-lb">จุดเริ่มต้น (สาขา)</div>
+        <div class="vp-start-lb">${t("จุดเริ่มต้น (สาขา)", "Starting point (branch)")}</div>
         <div class="vp-start-nm">${office?office.businessName:"—"}</div>
       </div>
     </div>
 
     <!-- วันที่เข้าพบตามแผน — กำหนดก่อนวางแผน · ใช้เป็น "วันที่นัดหมาย" ในหน้ารายละเอียดLeadตอนปิดดีล -->
     <div class="vp-datebar">
-      <label class="vp-date-lb"><${Icon} name="clock" size=${14} color="#ff3b5c"/> วันที่เข้าพบตามแผน</label>
+      <label class="vp-date-lb"><${Icon} name="clock" size=${14} color="#ff3b5c"/> ${t("วันที่เข้าพบตามแผน", "Planned visit date")}</label>
       <${DateField} className="vp-date-in" value=${visitDate||""} onChange=${v=>setVisitDate&&setVisitDate(v)}/>
     </div>
 
@@ -138,9 +139,9 @@ export function VisitPlanner({db, office, plan, setPlan, route, setRoute, savePl
       return html`<div class="vp-office">
         <span class="vp-office-ic"><${Icon} name="pin" size=${14} color="#ff3b5c"/></span>
         <div style=${{flex:1,minWidth:0}}>
-          <div class="vp-office-lb">สรุปพื้นที่แผนงาน</div>
-          <div class="vp-office-nm">จังหวัด: ${พื้นที่.จังหวัด}${พื้นที่.อำเภอ.length?` (โซน ${พื้นที่.อำเภอ.join(" / ")})`:""}</div>
-          <div class="vp-area-sub">รายการที่เลือกไว้: ${พื้นที่.รวม} สถานที่${พื้นที่.จังหวัดอื่น?` · มีอีก ${พื้นที่.จังหวัดอื่น} จังหวัด`:""}</div>
+          <div class="vp-office-lb">${t("สรุปพื้นที่แผนงาน", "Plan area summary")}</div>
+          <div class="vp-office-nm">${t("จังหวัด:", "Province:")} ${พื้นที่.จังหวัด}${พื้นที่.อำเภอ.length?` ${t("(โซน", "(zone")} ${พื้นที่.อำเภอ.join(" / ")})`:""}</div>
+          <div class="vp-area-sub">${t("รายการที่เลือกไว้:", "Selected:")} ${พื้นที่.รวม} ${t("สถานที่", "places ")}${พื้นที่.จังหวัดอื่น?` ${t("· มีอีก", "· plus")} ${พื้นที่.จังหวัดอื่น} ${t("จังหวัด", "provinces")}`:""}</div>
         </div>
       </div>`; })()}
 
@@ -148,19 +149,19 @@ export function VisitPlanner({db, office, plan, setPlan, route, setRoute, savePl
       ${count===0 ? html`
         <div class="vp-empty">
           <div class="vp-empty-ic"><${Icon} name="target" size=${26} color="#ff3b5c"/></div>
-          <div class="vp-empty-t">เริ่มสร้างแผนการเข้าพบลูกค้า</div>
-          <div class="vp-empty-s">เลือกลูกค้าจากแผนที่แล้วกด "เพิ่มในแผนการเข้าพบ" เพื่อจัดกลุ่มและวางเส้นทาง</div>
-          <button class="vp-btn primary" style=${{marginTop:"14px"}} onClick=${()=>{ setOpen(false); onPickCustomers && onPickCustomers(); }}>เลือกลูกค้า</button>
+          <div class="vp-empty-t">${t("เริ่มสร้างแผนการเข้าพบลูกค้า", "Start building a customer visit plan")}</div>
+          <div class="vp-empty-s">${t("เลือกลูกค้าจากแผนที่แล้วกด \"เพิ่มในแผนการเข้าพบ\" เพื่อจัดกลุ่มและวางเส้นทาง", "Pick customers on the map and press \"Add to the visit plan\" to group them and lay out a route")}</div>
+          <button class="vp-btn primary" style=${{marginTop:"14px"}} onClick=${()=>{ setOpen(false); onPickCustomers && onPickCustomers(); }}>${t("เลือกลูกค้า", "Pick customers")}</button>
         </div>`
       : html`
         <${PlanMiniMap} office=${office} clusters=${clusters} routes=${routes}/>
-        <div class="vp-mapnote">เส้นแสดงลำดับการเข้าพบโดยประมาณ ไม่ใช่เส้นทางถนนจริง</div>
+        <div class="vp-mapnote">${t("เส้นแสดงลำดับการเข้าพบโดยประมาณ ไม่ใช่เส้นทางถนนจริง", "The line shows an approximate visit order, not a real road route")}</div>
         <div class="vp-overall" style=${{gridTemplateColumns:"repeat(2,1fr)"}}>
-          <div><b>${clusters.length}</b> กลุ่ม</div><div><b>${count}</b> สถานที่</div>
+          <div><b>${clusters.length}</b> ${t("กลุ่ม", "Group")}</div><div><b>${count}</b> ${t("สถานที่", "places")}</div>
         </div>
 
         <!-- รายชื่อสถานที่พร้อมรายละเอียดจริงของแต่ละจุด (ประเภทธุรกิจ · อำเภอ) -->
-        <div class="vp-cl-head" style=${{marginTop:"14px"}}><b>รายชื่อสถานที่ในกลุ่มนี้</b></div>
+        <div class="vp-cl-head" style=${{marginTop:"14px"}}><b>${t("รายชื่อสถานที่ในกลุ่มนี้", "Places in this group")}</b></div>
         ${routes.flatMap(r=>r.order).map((c,i)=>{
           const เป็นLead = c.status!=="Existing";
           return html`<div key=${c.id} class="vp-stop">
@@ -172,20 +173,20 @@ export function VisitPlanner({db, office, plan, setPlan, route, setRoute, savePl
                 ${c.district ? ` | ${districtTH(c.district)}` : ` | ${provinceTH(c.province)}`}
               </div>
             </div>
-            <button class="vp-remove" onClick=${()=>remove(c.id)} title="ลบออกจากแผน" aria-label="ลบออกจากแผน">
+            <button class="vp-remove" onClick=${()=>remove(c.id)} title=${t("ลบออกจากแผน", "Remove from the plan")} aria-label=${t("ลบออกจากแผน", "Remove from the plan")}>
               <${Icon} name="trash" size=${13}/></button>
           </div>`; })}
 
         ${db && html`<div class="vp-recommend">
-          <div class="vp-cl-head" style=${{marginTop:"14px"}}><b>Leadใกล้เคียงที่ควรไปเยี่ยมต่อ</b></div>
+          <div class="vp-cl-head" style=${{marginTop:"14px"}}><b>${t("Leadใกล้เคียงที่ควรไปเยี่ยมต่อ", "Nearby Leads worth visiting next")}</b></div>
           ${buildNearbyRecommendations(office, db.customers, db.prospects).map(p=>html`<div key=${p.id} class="vp-stop" style=${{cursor:"default"}}>
             <div style=${{flex:1,minWidth:0}}>
               <div class="vp-nm">${p.businessName} <span class="vp-cl-meta">${segTH(p.segment)}</span></div>
               <div class="vp-meta">${provinceTH(p.province)}</div>
-              ${p.nearestCustomer && html`<div class="vp-leg">อยู่ใกล้ลูกค้าเดิม "${p.nearestCustomer.businessName}" ที่สุด</div>`}
+              ${p.nearestCustomer && html`<div class="vp-leg">${t("อยู่ใกล้ลูกค้าเดิม \"", "Closest to existing customer \"")}${p.nearestCustomer.businessName}${t("\" ที่สุด", "\"")}</div>`}
             </div>
           </div>`)}
-          ${buildNearbyRecommendations(office, db.customers, db.prospects).length===0 && html`<div class="dim" style=${{fontSize:"13px",padding:"8px 0"}}>ไม่พบLeadในจังหวัดนี้</div>`}
+          ${buildNearbyRecommendations(office, db.customers, db.prospects).length===0 && html`<div class="dim" style=${{fontSize:"13px",padding:"8px 0"}}>${t("ไม่พบLeadในจังหวัดนี้", "No Leads found in this province")}</div>`}
         </div>`}
       `}
     </div>
@@ -194,18 +195,18 @@ export function VisitPlanner({db, office, plan, setPlan, route, setRoute, savePl
     <!-- แถวปุ่มท้ายแผง: เรียงลงเป็นคอลัมน์เต็มความกว้าง ระยะห่างเท่ากัน (เหลือ 2 ปุ่มก็ยังพอดี ไม่มีช่องว่างค้าง) -->
     ${/* แผนที่บันทึกลงรายงานแล้ว ไม่มีปุ่มบันทึก/ล้างรายการอีก — เปิดมาก็เห็นรายละเอียดจุดที่จะไปอย่างเดียว */""}
     ${count>0 && activePlan && activePlan.saved ? html`<div class="vp-savednote">
-      <${Icon} name="check" size=${14} color="#0f7a3d"/>บันทึกแผนแล้ว · ดูได้ในรายงานแผนการเข้าพบ</div>` : ""}
+      <${Icon} name="check" size=${14} color="#0f7a3d"/>${t("บันทึกแผนแล้ว · ดูได้ในรายงานแผนการเข้าพบ", "Plan saved · see it in the Visit Plan Report")}</div>` : ""}
     ${count>0 && !(activePlan && activePlan.saved) && html`<div class="vp-foot">
       <button class="vp-btn primary" disabled=${saving} onClick=${()=>{
           if(saving) return;
-          if(!visitDate){ alert("กรุณาเลือกวันที่เข้าพบตามแผนก่อนบันทึก"); return; }
+          if(!visitDate){ alert(t("กรุณาเลือกวันที่เข้าพบตามแผนก่อนบันทึก", "Pick a planned visit date before saving")); return; }
           setSaving(true);
           // หน่วงสั้น ๆ ให้เห็นสถานะ "กำลังบันทึก" ก่อน แล้วจึงเขียนลงรายงานจริง
           setTimeout(()=>{ savePlan && savePlan(); setSaving(false); }, 700);
         }}>
-        ${saving ? html`<span class="vp-spin"></span>กำลังบันทึก…`
-                 : html`<${Icon} name="check" size=${14} color="#fff"/>บันทึกแผนนี้`}</button>
-      <button class="vp-btn ghost" onClick=${clearAll}>ล้างรายการทั้งหมด</button>
+        ${saving ? html`<span class="vp-spin"></span>${t("กำลังบันทึก…", "Saving…")}`
+                 : html`<${Icon} name="check" size=${14} color="#fff"/>${t("บันทึกแผนนี้", "Save this plan")}`}</button>
+      <button class="vp-btn ghost" onClick=${clearAll}>${t("ล้างรายการทั้งหมด", "Clear everything")}</button>
     </div>`}
     <style>${CSS}</style>
   </div>`;
@@ -214,13 +215,14 @@ export function VisitPlanner({db, office, plan, setPlan, route, setRoute, savePl
 // small Leaflet map — selected customers coloured by cluster, per-cluster route lines, office marker
 function PlanMiniMap({office, clusters, routes}){
   const ref = useRef();
+  const lang = useLang();   // สลับภาษา → สร้างแผนที่ย่อใหม่ (ป้ายชื่อสถานที่เปลี่ยนตาม)
   const sig = clusters.map(cl=>cl.map(c=>c.id).join(",")).join("|");
   useEffect(()=>{
     if(!ref.current) return;
     const map = L.map(ref.current,{zoomControl:false,attributionControl:true});
-    basemap(map, "th");
+    basemap(map);
     const all=[[office.latitude,office.longitude]];
-    L.circleMarker([office.latitude,office.longitude],{radius:6,color:"#fff",weight:2,fillColor:"#111",fillOpacity:1}).addTo(map).bindTooltip("จุดเริ่มต้น · "+(office.businessName||""));
+    L.circleMarker([office.latitude,office.longitude],{radius:6,color:"#fff",weight:2,fillColor:"#111",fillOpacity:1}).addTo(map).bindTooltip(t("จุดเริ่มต้น · ", "Start · ")+(office.businessName||""));
     let alive=true;
     routes.forEach((r,gi)=>{ const col=CLUSTER_COLORS[gi%CLUSTER_COLORS.length];
       const pts=r.order.map(c=>[c.latitude,c.longitude]); pts.forEach(p=>all.push(p));
@@ -232,7 +234,7 @@ function PlanMiniMap({office, clusters, routes}){
     map.fitBounds(L.latLngBounds(all).pad(0.3));
     setTimeout(()=>map.invalidateSize(),60);
     return ()=>{ alive=false; map.remove(); };
-  },[sig]);
+  },[sig,lang]);
   return html`<div ref=${ref} class="vp-minimap"></div>`;
 }
 

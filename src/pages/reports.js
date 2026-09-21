@@ -1,34 +1,36 @@
-import {html, useState, useMemo, useRef, useEffect, useApp, Icon, SegmentBadge, num, pct, SEG_COLOR, STATUS_COLOR, SEGMENTS, segTH, gapTH, countryTH, provinceTH, districtTH, thDate, thMonth, TH_MONTHS} from "../lib.js";
+import {html, useState, useMemo, useRef, useEffect, useApp, Icon, SegmentBadge, num, pct, SEG_COLOR, STATUS_COLOR, SEGMENTS, segTH, gapTH, countryTH, provinceTH, districtTH, thDate, thMonth, TH_MONTHS, useLang} from "../lib.js";
 import {basemap} from "../basemap.js";
 import {createPortal} from "react-dom";   // portal the Export dialog to <body> so the full-screen .slide-panel (overflow:hidden) can't clip it
 import {Card, Kpi, Btn, Badge, Table, Toggle, Meter, DateField, TCReportNav} from "../ui.js";
 import {Donut, BarChart, Gauge, LineChart, ChartTip, useTip} from "../charts.js";
 import {segZero, segOnly, segAllTrue, OTHER_COLOR} from "../mock/geoData.js";
 import {globalKpis, rankAreas, rankDistricts, analyzeArea, buildClusters, topGapLeads, custPass, prosPass, defaultFilters, downloadCSV} from "../data.js";
-import {demandGap, gapBySegment, gapLevelOf, GAP_REF, GAP_TH as GAP_LV_TH} from "../mock/geoData.js";
+import {demandGap, gapBySegment, gapLevelOf, GAP_REF} from "../mock/geoData.js";
 import {LeafletMap} from "../lmap.js";   // ใช้แผนที่ Leaflet ตัวเดียวกับหน้าหลักซ้ำ (ไม่สร้าง instance ใหม่)
 import {toast} from "../ui.js";
 import {Dropdown} from "../select.js";   // dropdown กำหนดสไตล์เอง (โชว์ 6 ตัวเลือก+เลื่อน · hover แดงอ่อน · ที่เลือกพื้นขาวตัวอักษรแดงเข้ม)
 import {Monitoring} from "./admin.js";   // แดชบอร์ดผู้บริหาร (แดชบอร์ดภาพรวมธุรกิจ) — ใช้เป็นแดชบอร์ดของผู้บริหารในหน้ารายงาน
 import {canExport} from "../export-perms.js";   // สิทธิ์ส่งออกตามบทบาท (กรองประเภทไฟล์ + ด่านตรวจก่อนส่งออก)
 import {pushAudit} from "../audit.js";           // บันทึกการส่งออกลงประวัติการเข้าถึงระบบ (สำเร็จ/ล้มเหลว)
+import {t} from "../i18n.js";   // สลับภาษา TH/EN — ดู src/i18n.js
 
+// name เป็น getter — ค่าคงที่ระดับโมดูลถูกประเมินครั้งเดียวตอนโหลด ห่อ t() ตรง ๆ จะค้างเป็นภาษาแรก
 const TYPES = [
-  {id:"summary", name:"สรุปแดชบอร์ด", icon:"dashboard"},
+  {id:"summary",     get name(){ return t("สรุปแดชบอร์ด","Dashboard summary"); },              icon:"dashboard"},
   // ยุบ "รายงานเชิงภูมิศาสตร์" + "รายงานความครอบคลุม" เป็นเมนูเดียว แล้วสลับดูด้วยแท็บภายในหน้า
-  {id:"areasummary", name:"รายงานสรุปข้อมูลรายพื้นที่", icon:"globe"},
-  {id:"gap", name:"รายงานวิเคราะห์ช่องว่าง", icon:"gap"},
-  {id:"opportunity", name:"รายงาน Lead", icon:"bolt"},
-  {id:"route", name:"รายงานการวางแผนเส้นทาง", icon:"route"},
+  {id:"areasummary", get name(){ return t("รายงานสรุปข้อมูลรายพื้นที่","Area summary report"); }, icon:"globe"},
+  {id:"gap",         get name(){ return t("รายงานวิเคราะห์ช่องว่าง","Gap analysis report"); },   icon:"gap"},
+  {id:"opportunity", get name(){ return t("รายงาน Lead","Lead report"); },                      icon:"bolt"},
+  {id:"route",       get name(){ return t("รายงานการวางแผนเส้นทาง","Route planning report"); },  icon:"route"},
 ];
 
 // เป้าหมายอัตราความครอบคลุม (ปรับได้จุดเดียว) — ใช้ทั้ง KPI และแถบเปรียบเทียบจังหวัด
 const REPORT_COV_TARGET = 80;
 // 3 มุมมองของแผนที่สรุป (สลับภายในแผนที่เดียว — ไม่ใช่แท็บของทั้งหน้า)
 const MAP_VIEWS = [
-  {id:"kde",       lb:"ความหนาแน่น (KDE)"},
-  {id:"cluster",   lb:"กลุ่มลูกค้า (Cluster)"},
-  {id:"territory", lb:"เขตรับผิดชอบ TC"},
+  {id:"kde",       get lb(){ return t("ความหนาแน่น (KDE)","Density (KDE)"); }},
+  {id:"cluster",   get lb(){ return t("กลุ่มลูกค้า (Cluster)","Customer clusters"); }},
+  {id:"territory", get lb(){ return t("เขตรับผิดชอบ TC","TC territories"); }},
 ];
 // สีประจำ TC (ใช้ในโหมดเขตรับผิดชอบ) — ไล่ตามรายชื่อที่เรียงแล้ว
 const TC_PALETTE = ["#e60023","#2563eb","#33d69f","#ff8f3c","#8a5cf6","#14b8a6"];
@@ -109,7 +111,10 @@ function daysBack(anchor, n){
   const t = Date.parse(anchor+"T00:00:00Z") - n*_QR_DAY;
   return new Date(t).toISOString().slice(0,10);
 }
-const QR_PRESETS = [{id:"7d",label:"7 วันล่าสุด",days:6},{id:"30d",label:"30 วันล่าสุด",days:29},{id:"1y",label:"1 ปีล่าสุด",days:364}];
+const QR_PRESETS = [
+  {id:"7d",  get label(){ return t("7 วันล่าสุด","Last 7 days"); },  days:6},
+  {id:"30d", get label(){ return t("30 วันล่าสุด","Last 30 days"); }, days:29},
+  {id:"1y",  get label(){ return t("1 ปีล่าสุด","Last year"); },      days:364}];
 // ตัวควบคุมช่วงเวลาด่วน — ค่าปัจจุบันสืบจาก from/to (ถ้าตรงพรีเซ็ตไหนก็โชว์อันนั้น ไม่งั้น "กำหนดเอง")
 function QuickRange({db, from, to, setFrom, setTo}){
   const anchor = dataAnchor(db);
@@ -120,9 +125,9 @@ function QuickRange({db, from, to, setFrom, setTo}){
     const p = QR_PRESETS.find(x=>x.id===id); if(!p||!anchor) return;
     setFrom(daysBack(anchor, p.days)); setTo(anchor);
   };
-  return html`<label class="op-lab">⏱️ ช่วงเวลาด่วน
+  return html`<label class="op-lab">${t("⏱️ ช่วงเวลาด่วน", "⏱️ Quick period")}
     <${Dropdown} value=${val} onChange=${onPick}
-      options=${[...QR_PRESETS.map(p=>[p.id,p.label]),["custom","กำหนดเอง"]]}/></label>`;
+      options=${[...QR_PRESETS.map(p=>[p.id,p.label]),["custom",t("กำหนดเอง", "Custom")]]}/></label>`;
 }
 
 export function Reports(){
@@ -145,37 +150,37 @@ export function Reports(){
   const tableRef = useRef(null);
   // เปลี่ยนตัวกรอง → กลับหน้า 1 เสมอ (ข้อ 4)
   useEffect(()=>{ setTablePage(1); }, [prov,segSel,from,to,tcSel,distSel]);
-  if(!db.customers) return html`<div class="page"><div class="emptybox">กำลังโหลดข้อมูลธุรกิจ…</div></div>`;
+  if(!db.customers) return html`<div class="page"><div class="emptybox">${t("กำลังโหลดข้อมูลธุรกิจ…", "Loading business data…")}</div></div>`;
   // แดชบอร์ดของผู้บริหาร (ไม่ใช่ TC) ในหน้ารายงาน = ใช้ "แดชบอร์ดภาพรวมธุรกิจ" (Monitoring) แทนของเดิม
   // hook ทุกตัวถูกเรียกครบก่อนบรรทัดนี้แล้ว การ return ก่อนจึงไม่ทำให้ลำดับ hook เพี้ยน
   if(!isTC) return html`<${Monitoring} defaultTab="business"/>`;
   const f = filters;
-  const today = "11 ก.ค. 2569";   // วันที่ พ.ศ. (ไม่ปน ค.ศ.)
+  const today = t("11 ก.ค. 2569", "11 Jul 2026");   // วันที่ พ.ศ. (ไม่ปน ค.ศ.)
 
   // ── ค่าที่ปุ่มส่งออกต้องใช้ (คงตรรกะเดิม ไม่แก้สูตร) ──
   const k = globalKpis(db, f);
   const rankOpp = rankAreas(db, f, "gapScore"), rankCov = rankAreas(db, f, "coverage"),
         rankGap = rankAreas(db, f, "gapCount"), rankOppDist = rankDistricts(db, f, "gapScore"), rankGapDist = rankDistricts(db, f, "gapCount");
-  const ROLE_TH={Administrator:"ผู้ดูแลระบบ",Management:"ผู้บริหาร","Trade Coordinator":"ผู้ประสานงานการค้า"};
+  const ROLE_TH={Administrator:t("ผู้ดูแลระบบ", "System Administrator"),Management:t("ผู้บริหาร", "Management"),"Trade Coordinator":t("ผู้ประสานงานการค้า", "Trade Coordinator")};
   const handleExport = ({format, filename, opts, dataSel, count, scope})=>{
     const name = (filename||"").trim().replace(/[\\/:*?"<>|]+/g,"_") || defaultReportName(scope);
     const fmtLabel = {pdf:"PDF",excel:"Excel",csv:"CSV"}[format]||format;
-    const scopeStr = scope ? `${scope.areaLabel||"ทั้งประเทศ"} · ${scope.segLabel||"ทั้งหมด"} · ${scope.dateLabel||"ทั้งหมด"}` : "";
+    const scopeStr = scope ? `${scope.areaLabel||t("ทั้งประเทศ","Nationwide")} · ${scope.segLabel||t("ทั้งหมด","All")} · ${scope.dateLabel||t("ทั้งหมด","All")}` : "";
     // §5 ด่านตรวจสิทธิ์ (นอกเหนือจากการซ่อนตัวเลือก) — บทบาทไม่มีสิทธิ์ = ปฏิเสธ + บันทึกความล้มเหลว
     // TODO(server): ต้องบังคับด่านนี้ที่เซิร์ฟเวอร์จริงตอนเรียก API ส่งออก การตรวจฝั่ง client เป็นชั้นเสริมเท่านั้น
     if(!canExport(user.role, format)){
-      pushAudit({user:user.name, action:"ส่งออกรายงานถูกปฏิเสธ", category:"ส่งออก",
-        detail:`บทบาท ${ROLE_TH[user.role]||user.role} ไม่มีสิทธิ์ส่งออก ${fmtLabel} · ${scopeStr} · ${num(count||0)} รายการ`});
-      toast(`บทบาทของคุณไม่มีสิทธิ์ส่งออกไฟล์ ${fmtLabel}`,"bad"); setExportOpen(false); return;
+      pushAudit({user:user.name, action:t("ส่งออกรายงานถูกปฏิเสธ", "Report export refused"), category:"ส่งออก",
+        detail:`${t("บทบาท", "Role")} ${ROLE_TH[user.role]||user.role} ${t("ไม่มีสิทธิ์ส่งออก", "No export permission")} ${fmtLabel} · ${scopeStr} · ${num(count||0)} ${t("รายการ", "records")}`});
+      toast(`${t("บทบาทของคุณไม่มีสิทธิ์ส่งออกไฟล์", "Your role cannot export files")} ${fmtLabel}`,"bad"); setExportOpen(false); return;
     }
     const rows = buildReportRows("coverage", {today, k, rankOpp, rankCov, rankGap, rankOppDist, rankGapDist, filters:f}, {...opts, dataSel});
     setExportOpen(false);
-    if(format==="csv"){ downloadCSV(name+".csv", rows); toast("ส่งออกไฟล์ CSV แล้ว","good"); }
-    else if(format==="excel"){ downloadXLS(name+".xls", rows); toast("ส่งออกไฟล์ Excel แล้ว","good"); }
-    else { toast("กำลังเตรียมไฟล์ PDF…","info"); setTimeout(()=>window.print(),350); }
+    if(format==="csv"){ downloadCSV(name+".csv", rows); toast(t("ส่งออกไฟล์ CSV แล้ว", "CSV file exported"),"good"); }
+    else if(format==="excel"){ downloadXLS(name+".xls", rows); toast(t("ส่งออกไฟล์ Excel แล้ว", "Excel file exported"),"good"); }
+    else { toast(t("กำลังเตรียมไฟล์ PDF…", "Preparing the PDF…"),"info"); setTimeout(()=>window.print(),350); }
     // §6 บันทึกการส่งออกสำเร็จ: ผู้ส่งออก · ประเภท+ชื่อไฟล์ · ขอบเขต · จำนวนรายการ (เวลาเป็น พ.ศ. โดย audit log)
-    pushAudit({user:user.name, action:"ส่งออกรายงาน", category:"ส่งออก",
-      detail:`${fmtLabel} · ${name} · ${scopeStr} · ${num(count||0)} รายการ`});
+    pushAudit({user:user.name, action:t("ส่งออกรายงาน", "Export report"), category:"ส่งออก",
+      detail:`${fmtLabel} · ${name} · ${scopeStr} · ${num(count||0)} ${t("รายการ", "records")}`});
   };
 
   // ขอบเขตวิเคราะห์: "ทั้งหมด" = 4 จังหวัดหลัก (ที่มีข้อมูลระดับเขต) · หรือจังหวัดเดียวที่เลือก
@@ -201,10 +206,10 @@ export function Reports(){
   const _exSeg = o => segSel==="All" || o.segment===segSel;
   const _beTH = s => s ? thDate(s) : "";   // ใช้ตัวแปลงกลาง
   const exportScope = {
-    areaName: isTC ? (distSel!=="All"?districtTH(distSel):provinceTH(tcProv)) : (prov==="All"?"ทั้งประเทศ":provinceTH(prov)),
-    areaLabel: isTC ? (`จังหวัด${provinceTH(tcProv)}`+(distSel!=="All"?` · อ.${districtTH(distSel)}`:"")) : (prov==="All"?"ทั้งประเทศ (4 จังหวัดหลัก)":`จังหวัด${provinceTH(prov)}`),
-    segLabel: segSel==="All"?"ทั้งหมด":segTH(segSel),
-    dateLabel: (from||to)?`${from?_beTH(from):"เริ่มต้น"} – ${to?_beTH(to):"ล่าสุด"}`:"ทั้งหมด",
+    areaName: isTC ? (distSel!=="All"?districtTH(distSel):provinceTH(tcProv)) : (prov==="All"?t("ทั้งประเทศ", "Nationwide"):provinceTH(prov)),
+    areaLabel: isTC ? (`${t("จังหวัด", "Province ")}${provinceTH(tcProv)}`+(distSel!=="All"?` ${t("· อ.", "· dist.")}${districtTH(distSel)}`:"")) : (prov==="All"?t("ทั้งประเทศ (4 จังหวัดหลัก)", "Nationwide (4 main provinces)"):`${t("จังหวัด", "Province ")}${provinceTH(prov)}`),
+    segLabel: segSel==="All"?t("ทั้งหมด", "All"):segTH(segSel),
+    dateLabel: (from||to)?`${from?_beTH(from):t("เริ่มต้น", "Start")} – ${to?_beTH(to):t("ล่าสุด", "Latest")}`:t("ทั้งหมด", "All"),
     counts:{ existing: vdb.customers.filter(_exSeg).length, prospect: vdb.prospects.filter(_exSeg).length },
   };
   // สถิติรายจังหวัด — ในขอบเขต และของ 4 จังหวัดหลักเสมอ (ไว้เปรียบเทียบ) · คิดจากชุดที่กรองแล้ว
@@ -280,7 +285,7 @@ export function Reports(){
     ontouchstart=${e=>{e.stopPropagation();showTip(e,title,[{label:text,value:""}]);}}>i</span>`;
   // ป้าย delta เทียบช่วงก่อน (เขียว=เพิ่ม / แดง=ลด / เทา=เท่าเดิม)
   const deltaBadge = d => html`<div class=${"rp-delta "+(d>0?"up":d<0?"down":"flat")}>
-    <span>${d>0?"▲":d<0?"▼":"▬"}</span><span>${d>0?"+":""}${num(d)} จากช่วงก่อน</span></div>`;
+    <span>${d>0?"▲":d<0?"▼":"▬"}</span><span>${d>0?"+":""}${num(d)} ${t("จากช่วงก่อน", "vs. the previous period")}</span></div>`;
 
   // ── หมวดธุรกิจที่เครือข่ายยังขาด: Lead รายหมวดของขอบเขตที่เลือก ──
   // ช่องว่าง = จำนวน Lead ในหมวดนั้น − จำนวนสมาชิกเครือข่ายในหมวดเดียวกัน (ไม่ต่ำกว่า 0)
@@ -318,7 +323,7 @@ export function Reports(){
   const dimOK = seg => segSel==="All" || segSel===seg;   // ไฮไลต์กลุ่มที่เลือก
   const segTotals = segTop.map(x=>({label:x.label,
       color: dimOK(x.s) ? SEG_COLOR[x.s] : segDim(SEG_COLOR[x.s]), value:x.value}))
-    .concat(restSum>0 ? [{label:"อื่น ๆ ("+segRest.length+" หมวด)",
+    .concat(restSum>0 ? [{label:t("อื่น ๆ (", "Other (")+segRest.length+t(" หมวด)", " categories)"),
       color: (segSel==="All"||segRest.some(r=>r.s===segSel)) ? OTHER_COLOR : segDim(OTHER_COLOR), value:restSum}] : []);
   const segCenterVal = segSel==="All" ? segRecs.length : segRecs.filter(x=>x.segment===segSel).length;  // ตรงกลาง = ยอดกลุ่มที่เลือก
 
@@ -353,18 +358,18 @@ export function Reports(){
   const gapNotVisit = vdb.prospects.filter(p=>segOk(p) && tcGapOf(p)>0 && (p.visit_status||"ยังไม่เข้าพบ")==="ยังไม่เข้าพบ").length;
   const scrollToTable = ()=>{ tableRef.current&&tableRef.current.scrollIntoView({behavior:"smooth",block:"start"}); };
   const tcTasks = [
-    {icon:"calendar", label:"เข้าพบตามนัดวันนี้",             count:apptToday,      tone:"bad",  act:scrollToTable},
-    {icon:"clock",    label:"นัดหมายที่เลยกำหนด",             count:apptOverdue,    tone:"warn", act:scrollToTable},
-    {icon:"check",    label:"คำขอเปลี่ยนเป็นลูกค้าที่รอผล",     count:dealPending,    tone:"info", act:()=>goMap&&goMap()},
-    {icon:"target",   label:"Lead ในหมวดที่ยังขาด · ยังไม่ได้เข้าพบ", count:gapNotVisit, tone:"bad",  act:()=>{ setTcScope("gap"); scrollToTable(); }},
+    {icon:"calendar", label:t("เข้าพบตามนัดวันนี้", "Appointments today"),             count:apptToday,      tone:"bad",  act:scrollToTable},
+    {icon:"clock",    label:t("นัดหมายที่เลยกำหนด", "Overdue appointments"),             count:apptOverdue,    tone:"warn", act:scrollToTable},
+    {icon:"check",    label:t("คำขอเปลี่ยนเป็นลูกค้าที่รอผล", "Conversion requests awaiting a decision"),     count:dealPending,    tone:"info", act:()=>goMap&&goMap()},
+    {icon:"target",   label:t("Lead ในหมวดที่ยังขาด · ยังไม่ได้เข้าพบ", "Leads in under-served categories · not visited yet"), count:gapNotVisit, tone:"bad",  act:()=>{ setTcScope("gap"); scrollToTable(); }},
   ].filter(t=>t.count>0);
 
   // แถว 2.1 · สัดส่วนที่เป็นลูกค้าแล้ว (donut) — ไม่ใช้คำว่า Coverage
   const totBiz = totExisting + totProspect;
   const custShare = totBiz ? Math.round(totExisting/totBiz*100) : 0;
   const shareDonut = totBiz ? [
-    {label:"เป็นลูกค้าแล้ว", value:totExisting, color:STATUS_COLOR.Existing},
-    {label:"ยังเป็น Lead",   value:totProspect, color:STATUS_COLOR.Prospect},
+    {label:t("เป็นลูกค้าแล้ว", "Now customers"), value:totExisting, color:STATUS_COLOR.Existing},
+    {label:t("ยังเป็น Lead", "Still Leads"),   value:totProspect, color:STATUS_COLOR.Prospect},
   ] : [];
 
   // แถว 2.2 · Lead แยกตามอำเภอ (แท่งซ้อน ลูกค้า/Lead) top 4 + อื่น ๆ · เฉพาะอำเภอในจังหวัดของผู้ใช้
@@ -380,7 +385,7 @@ export function Reports(){
     .filter(x=>x.value>0).sort((a,b)=>b.value-a.value);
   const segLeadRest = segLeadAll.slice(5);
   const segLeadBars = segLeadAll.slice(0,5).map(x=>({label:x.label, value:x.value, color:x.color}))
-    .concat(segLeadRest.length ? [{label:"อื่น ๆ ("+segLeadRest.length+" หมวด)", value:segLeadRest.reduce((a,x)=>a+x.value,0), color:OTHER_COLOR}] : []);
+    .concat(segLeadRest.length ? [{label:t("อื่น ๆ (", "Other (")+segLeadRest.length+t(" หมวด)", " categories)"), value:segLeadRest.reduce((a,x)=>a+x.value,0), color:OTHER_COLOR}] : []);
 
   // แถว 3.1 · เส้น 6 เดือน — ลูกค้าใหม่/เดือน + Lead ใหม่/เดือน (จากวันที่ในระเบียนจริง)
   const last6 = months.slice(-6);
@@ -394,11 +399,11 @@ export function Reports(){
   const fRequested   = vdb.prospects.filter(p=>p.dealStatus==="pending"||p.dealStatus==="approved").length;
   const fConverted   = vdb.prospects.filter(p=>p.dealStatus==="approved").length;
   const funnel = [
-    {label:"Lead ในเขตที่รับผิดชอบ",    value:totProspect},
-    {label:"เริ่มเข้าไปเข้าพบแล้ว",       value:fVisited},
-    {label:"เข้าพบแล้วอย่างน้อย 1 ครั้ง", value:fVisitedDone},
-    {label:"ส่งคำขอเปลี่ยนเป็นลูกค้า",     value:fRequested},
-    {label:"อนุมัติเป็นลูกค้าแล้ว",        value:fConverted},
+    {label:t("Lead ในเขตที่รับผิดชอบ", "Leads in your territory"),    value:totProspect},
+    {label:t("เริ่มเข้าไปเข้าพบแล้ว", "Visits started"),       value:fVisited},
+    {label:t("เข้าพบแล้วอย่างน้อย 1 ครั้ง", "Visited at least once"), value:fVisitedDone},
+    {label:t("ส่งคำขอเปลี่ยนเป็นลูกค้า", "Conversion requested"),     value:fRequested},
+    {label:t("อนุมัติเป็นลูกค้าแล้ว", "Approved as customers"),        value:fConverted},
   ];
   const funnelMax = Math.max(1, totProspect);
 
@@ -433,10 +438,10 @@ export function Reports(){
   const tcLosers  = tcSegDelta.slice().sort((a,b)=>a.delta-b.delta).slice(0,3).filter(x=>x.delta<0);
   const _tcGain0 = tcGainers[0];
   const tcInsights = [
-    {icon:"gap",    tone:"bad",  title:`อัตราการเปลี่ยนเป็นลูกค้า ${custShare}%`, body:`เป็นลูกค้าแล้ว ${num(totExisting)} ราย · ยังเป็น Lead ${num(totProspect)} ราย ในเขต${provinceTH(tcProv)}`},
-    {icon:"target", tone:"warn", title:`หมวดธุรกิจที่เขตนี้ยังขาด`, body:`${num(gapNotVisit)} ราย ที่ยังไม่ได้เข้าพบ — อยู่ในหมวดที่เครือข่ายยังขาด ควรเข้าดูแลก่อน`},
+    {icon:"gap",    tone:"bad",  title:`${t("อัตราการเปลี่ยนเป็นลูกค้า", "Conversion rate")} ${custShare}%`, body:`${t("เป็นลูกค้าแล้ว", "Now customers")} ${num(totExisting)} ${t("ราย · ยังเป็น Lead", "customers · still Leads")} ${num(totProspect)} ${t("ราย ในเขต", "in the territory of ")}${provinceTH(tcProv)}`},
+    {icon:"target", tone:"warn", title:`${t("หมวดธุรกิจที่เขตนี้ยังขาด", "Categories this territory is short of")}`, body:`${num(gapNotVisit)} ${t("ราย ที่ยังไม่ได้เข้าพบ — อยู่ในหมวดที่เครือข่ายยังขาด ควรเข้าดูแลก่อน", "not yet visited — they sit in categories the network is short of, so handle these first")}`},
   ];
-  if(_tcGain0) tcInsights.push({icon:"trend", tone:"good", title:`หมวด${_tcGain0.label} กำลังเติบโต`, body:`ลูกค้าใหม่ ${num(_tcGain0.cur)} ราย ใน 90 วันล่าสุด (+${num(_tcGain0.delta)} จากช่วงก่อน)`});
+  if(_tcGain0) tcInsights.push({icon:"trend", tone:"good", title:`${t("หมวด", "categories ")}${_tcGain0.label} ${t("กำลังเติบโต", "is growing")}`, body:`${t("ลูกค้าใหม่", "New customers")} ${num(_tcGain0.cur)} ${t("ราย ใน 90 วันล่าสุด (+", "in the last 90 days (+")}${num(_tcGain0.delta)} ${t("จากช่วงก่อน)", "vs. the previous period)")}`});
   const tcInsTone = t => t==="bad"?"var(--accent)":t==="warn"?"#f0a022":t==="good"?"#33d69f":"#2f7fe0";
   // แท่งซ้อนแนวนอน (ลูกค้าเข้ม + Lead จาง) สำหรับกราฟรายอำเภอ
   const stackBar = (label,cs,ps,max,onClick,sub)=>{ const tot=cs+ps;
@@ -446,13 +451,13 @@ export function Reports(){
         <div class="tcd-sbar-f" style=${{width:(cs/max*100)+"%",background:STATUS_COLOR.Existing}}></div>
         <div class="tcd-sbar-f" style=${{width:(ps/max*100)+"%",background:STATUS_COLOR.Prospect,opacity:.55}}></div>
       </div>
-      <div class="dim" style=${{fontSize:"11px",marginTop:"2px"}}>${sub||`ลูกค้า ${num(cs)} · Lead ${num(ps)}`}</div>
+      <div class="dim" style=${{fontSize:"11px",marginTop:"2px"}}>${sub||`${t("ลูกค้า", "Customers")} ${num(cs)} · Lead ${num(ps)}`}</div>
     </div>`; };
   const statChip = (lb,val,color)=>html`<div class="tc-chip"><div class="tc-chip-k">${lb}</div><div class="tc-chip-v" style=${{color:color||"var(--txt)"}}>${val}</div></div>`;
   const tcActionRow = (icon,label,count,tone,detail)=>html`<div class="tc-act">
     <div class=${"tc-act-ic "+tone}><${Icon} name=${icon} size=${16}/></div>
     <div style=${{flex:1,minWidth:0}}><div class="tc-act-t">${label}</div><div class="tc-act-d">${detail}</div></div>
-    <${Badge} tone=${tone==="info"?"neutral":tone}>${num(count)} รายการ</${Badge}>
+    <${Badge} tone=${tone==="info"?"neutral":tone}>${num(count)} ${t("รายการ", "records")}</${Badge}>
   </div>`;
 
   // TC ได้เมนูรายงานเป็นคอลัมน์ซ้าย (TCReportNav) · บทบาทอื่นไม่มีเมนูนี้ จึงเป็นหน้าเดี่ยวเหมือนเดิม
@@ -461,12 +466,12 @@ export function Reports(){
     ${isTC ? html`<${TCReportNav} active="reports" nav=${nav}/>`:""}
     <!-- ═════ Header: ชื่อหน้า + เลือกจังหวัด + ปุ่มส่งออก (เว้นมุมขวาบนให้ปุ่มปิด ✕ ของ modal) ═════ -->
     <div class="page-head" style=${{paddingRight:"56px", flexWrap:"wrap"}}>
-      <div><div class="eyebrow">${isTC?"แดชบอร์ดผู้ประสานงานการค้า (TC)":"ข่าวกรองเชิงพื้นที่ GeoIntel"}</div>
-        <h1>${isTC?`ภาพรวมจังหวัด${provinceTH(tcProv)}`:"แดชบอร์ดสรุปภาพรวมเชิงพื้นที่"}</h1>
-        <div class="sub">${isTC?`${user.name} · `:""}จัดทำเมื่อ ${today} · เครื่องมือทำเหมืองเชิงสถิติ · เอกสารลับ</div></div>
+      <div><div class="eyebrow">${isTC?t("แดชบอร์ดผู้ประสานงานการค้า (TC)", "Trade Coordinator dashboard"):t("ข่าวกรองเชิงพื้นที่ GeoIntel", "GeoIntel spatial intelligence")}</div>
+        <h1>${isTC?`${t("ภาพรวมจังหวัด", "Province overview ")}${provinceTH(tcProv)}`:t("แดชบอร์ดสรุปภาพรวมเชิงพื้นที่", "Spatial overview dashboard")}</h1>
+        <div class="sub">${isTC?`${user.name} · `:""}${t("จัดทำเมื่อ", " Prepared on")} ${today} ${t("· เครื่องมือทำเหมืองเชิงสถิติ · เอกสารลับ", "· statistical mining tool · confidential")}</div></div>
       <div class="ph-right" style=${{gap:"10px"}}>
         <button class="export-btn export-secondary" onClick=${()=>setExportOpen(true)}>
-          <${Icon} name="download" size=${16} color="var(--accent)"/><span>ส่งออก PDF/Excel</span>
+          <${Icon} name="download" size=${16} color="var(--accent)"/><span>${t("ส่งออก PDF/Excel", "Export PDF/Excel")}</span>
         </button>
       </div>
     </div>
@@ -474,24 +479,24 @@ export function Reports(){
     <!-- ═════ Global Filter Bar (5 ตัว): จังหวัด · Segment ธุรกิจ · ช่วงเวลา(created_at) · TC · Export ═════ -->
     <div class="op-slicers">
       ${isTC
-        ? html`<label class="op-lab">อำเภอ
+        ? html`<label class="op-lab">${t("อำเภอ", "District")}
             <${Dropdown} value=${distSel} onChange=${setDistSel}
-              options=${[["All","ทุกอำเภอ"], ...tcDistricts.map(d=>[d,districtTH(d)])]}/></label>`
-        : html`<label class="op-lab">จังหวัด
+              options=${[["All",t("ทุกอำเภอ", "All districts")], ...tcDistricts.map(d=>[d,districtTH(d)])]}/></label>`
+        : html`<label class="op-lab">${t("จังหวัด", "Province")}
             <${Dropdown} value=${prov} onChange=${setProv}
-              options=${[["All","ทั้งหมด (4 จังหวัด)"], ...CLUSTER_PROVS.map(p=>[p,provinceTH(p)])]}/></label>`}
-      <label class="op-lab">Segment ธุรกิจ
+              options=${[["All",t("ทั้งหมด (4 จังหวัด)", "All (4 provinces)")], ...CLUSTER_PROVS.map(p=>[p,provinceTH(p)])]}/></label>`}
+      <label class="op-lab">${t("Segment ธุรกิจ", "Business segment")}
         <${Dropdown} value=${segSel} onChange=${setSegSel}
-          options=${[["All","ทุกกลุ่ม"], ...SEGMENTS.map(s=>[s,segTH(s)])]}/></label>
+          options=${[["All",t("ทุกกลุ่ม", "All segments")], ...SEGMENTS.map(s=>[s,segTH(s)])]}/></label>
       <${QuickRange} db=${db} from=${from} to=${to} setFrom=${setFrom} setTo=${setTo}/>
-      <label class="op-lab">ช่วงเวลา (ตั้งแต่)
+      <label class="op-lab">${t("ช่วงเวลา (ตั้งแต่)", "Period (from)")}
         <${DateField} className="op-sel" value=${from} onChange=${setFrom}/></label>
-      <label class="op-lab">ถึง
+      <label class="op-lab">${t("ถึง", "to")}
         <${DateField} className="op-sel" value=${to} onChange=${setTo}/></label>
       ${!isTC && html`<label class="op-lab">TC
         <${Dropdown} value=${tcSel} onChange=${setTcSel}
-          options=${[["All","ทุกคน"], ...tcList.map(t=>[t,t])]}/></label>`}
-      ${((!isTC&&(prov!=="All"||tcSel!=="All"))||(isTC&&distSel!=="All")||segSel!=="All"||from||to) && html`<button class="op-clear" onClick=${()=>{if(!isTC){setProv("All");setTcSel("All");}else{setDistSel("All");}setSegSel("All");setFrom("");setTo("");}}>ล้างตัวกรอง</button>`}
+          options=${[["All",t("ทุกคน", "Everyone")], ...tcList.map(t=>[t,t])]}/></label>`}
+      ${((!isTC&&(prov!=="All"||tcSel!=="All"))||(isTC&&distSel!=="All")||segSel!=="All"||from||to) && html`<button class="op-clear" onClick=${()=>{if(!isTC){setProv("All");setTcSel("All");}else{setDistSel("All");}setSegSel("All");setFrom("");setTo("");}}>${t("ล้างตัวกรอง", "Clear filters")}</button>`}
     </div>
 
     ${exportOpen && html`<${ExportDialog} scope=${exportScope} role=${user.role}
@@ -507,8 +512,8 @@ export function Reports(){
           <div class="tcd8-urgent">
             <div class="tcd8-urgent-main">
               <div class="tcd8-urgent-ic"><${Icon} name="target" size=${24}/></div>
-              <div><div class="tcd8-urgent-k">งานที่ต้องทำวันนี้</div>
-                <div class="tcd8-urgent-t">Lead ในหมวดที่ยังขาด · ยังไม่ได้เข้าพบ</div></div>
+              <div><div class="tcd8-urgent-k">${t("งานที่ต้องทำวันนี้", "Today's work")}</div>
+                <div class="tcd8-urgent-t">${t("Lead ในหมวดที่ยังขาด · ยังไม่ได้เข้าพบ", "Leads in under-served categories · not visited yet")}</div></div>
             </div>
             <div class="tcd8-urgent-r">
               <span class="tcd8-urgent-n"><${CountUp} value=${gapNotVisit}/></span>
@@ -517,31 +522,31 @@ export function Reports(){
 
           <!-- โดนัทสัดส่วน | Lead แยกตามอำเภอ -->
           <div class="tcd8-2col">
-            <${Card} title="อัตราการเปลี่ยนเป็นลูกค้า" sub=${`สัดส่วนลูกค้าต่อธุรกิจที่รู้จักในพื้นที่ ณ ปัจจุบัน · จากธุรกิจ ${num(totBiz)} แห่ง`}>
+            <${Card} title=${t("อัตราการเปลี่ยนเป็นลูกค้า", "Conversion rate")} sub=${`${t("สัดส่วนลูกค้าต่อธุรกิจที่รู้จักในพื้นที่ ณ ปัจจุบัน · จากธุรกิจ", "Customers as a share of known businesses in the area right now · out of")} ${num(totBiz)} ${t("แห่ง", "places")}`}>
               ${totBiz ? html`<div style=${{display:"flex",flexDirection:"column",alignItems:"center"}}>
-                <${Donut} key=${"tcd-donut-"+animSig} data=${shareDonut} center=${{value:custShare, label:"เป็นลูกค้าแล้ว", format:v=>v+"%"}}/>
-                <div class="tcd8-ringfoot"><span>เป็นลูกค้าแล้ว <b>${num(totExisting)}</b></span><span>ยังเป็น Lead <b>${num(totProspect)}</b></span></div>
-              </div>` : html`<div class="emptybox">ยังไม่มีข้อมูลเพียงพอสำหรับแสดงกราฟนี้</div>`}
+                <${Donut} key=${"tcd-donut-"+animSig} data=${shareDonut} center=${{value:custShare, label:t("เป็นลูกค้าแล้ว", "Now customers"), format:v=>v+"%"}}/>
+                <div class="tcd8-ringfoot"><span>${t("เป็นลูกค้าแล้ว", "Now customers")} <b>${num(totExisting)}</b></span><span>${t("ยังเป็น Lead", "Still Leads")} <b>${num(totProspect)}</b></span></div>
+              </div>` : html`<div class="emptybox">${t("ยังไม่มีข้อมูลเพียงพอสำหรับแสดงกราฟนี้", "Not enough data to draw this chart yet")}</div>`}
             </${Card}>
-            <${Card} title="Lead แยกตามอำเภอ" sub="เฉพาะอำเภอในจังหวัดของคุณ · เรียงจากมากไปน้อย">
+            <${Card} title=${t("Lead แยกตามอำเภอ", "Leads by district")} sub=${t("เฉพาะอำเภอในจังหวัดของคุณ · เรียงจากมากไปน้อย", "Only districts in your province · highest first")}>
               ${distAll.length ? html`<div class="tcd8-dbars">
                 ${distAll.slice(0,4).map(d=>html`<div key=${d.d} class="tcd8-dbar">
-                  <div class="tcd8-dbar-h"><span class="tcd8-dbar-l">${districtTH(d.d)}</span><span class="tcd8-dbar-v">${num(d.ps)} ราย</span></div>
+                  <div class="tcd8-dbar-h"><span class="tcd8-dbar-l">${districtTH(d.d)}</span><span class="tcd8-dbar-v">${num(d.ps)} ${t("ราย", "businesses")}</span></div>
                   <div class="tcd8-dbar-track"><div class="tcd8-dbar-fill" style=${{width:(d.ps/distLeadMax*100)+"%"}}></div></div>
                 </div>`)}
-              </div>` : html`<div class="emptybox">ยังไม่มีข้อมูลเพียงพอสำหรับแสดงกราฟนี้</div>`}
+              </div>` : html`<div class="emptybox">${t("ยังไม่มีข้อมูลเพียงพอสำหรับแสดงกราฟนี้", "Not enough data to draw this chart yet")}</div>`}
             </${Card}>
           </div>
 
           <!-- เทียบลูกค้า vs Lead รายหมวด ครบ 12 หมวด — แท่งคู่ต่อหนึ่งหมวด -->
-          <${Card} title="ลูกค้า เทียบ Lead รายหมวดธุรกิจ"
-            sub=${`ทั้ง ${SEGMENTS.length} หมวดในพื้นที่รับผิดชอบ · เรียงจากจำนวนรวมมากไปน้อย`}
+          <${Card} title=${t("ลูกค้า เทียบ Lead รายหมวดธุรกิจ", "Customers vs. Leads by business category")}
+            sub=${`${t("ทั้ง", "All")} ${SEGMENTS.length} ${t("หมวดในพื้นที่รับผิดชอบ · เรียงจากจำนวนรวมมากไปน้อย", "categories in your territory · sorted by total, highest first")}`}
             right=${html`<div class="sc-legend">
-              <span class="sc-lg"><i class="sc-sw cust"></i>ลูกค้า</span>
+              <span class="sc-lg"><i class="sc-sw cust"></i>${t("ลูกค้า", "Customers")}</span>
               <span class="sc-lg"><i class="sc-sw lead"></i>Lead</span></div>`}>
             <div class="sc-scroll">
               <svg class="sc-svg" width=${SC_W} height=${SC_H} viewBox=${"0 0 "+SC_W+" "+SC_H}
-                role="img" aria-label="กราฟแท่งเทียบจำนวนลูกค้ากับ Lead รายหมวดธุรกิจ">
+                role="img" aria-label=${t("กราฟแท่งเทียบจำนวนลูกค้ากับ Lead รายหมวดธุรกิจ", "Bar chart comparing customers with Leads by business category")}>
                 <!-- เส้นกริดแนวนอน + ตัวเลขแกน Y -->
                 ${scTicks.map(t=>html`<g key=${"t"+t}>
                   <line x1=${SC_PL} y1=${scY(t)} x2=${SC_W-SC_PR} y2=${scY(t)} class=${t===0?"sc-axis":"sc-grid"}/>
@@ -561,7 +566,7 @@ export function Reports(){
                     ${r.cust?html`<text x=${xc+bw/2} y=${base-hc-6} class="sc-nv">${num(r.cust)}</text>`:""}
                     ${r.lead?html`<text x=${xl+bw/2} y=${base-hl-6} class="sc-nv">${num(r.lead)}</text>`:""}
                     <text class="sc-xtx" transform=${"rotate(-40 "+cx+" "+(base+16)+")"} x=${cx} y=${base+16}>${short}</text>
-                    <title>${r.label} · ลูกค้า ${num(r.cust)} · Lead ${num(r.lead)}</title>
+                    <title>${r.label} ${t("· ลูกค้า", "· customers")} ${num(r.cust)} · Lead ${num(r.lead)}</title>
                   </g>`;
                 })}
               </svg>
@@ -573,7 +578,7 @@ export function Reports(){
 
         <!-- ═══ ฝั่งขวา (4) ═══ -->
         <div class="tcd8-right">
-          <${Card} title="สิ่งที่พบจากข้อมูล">
+          <${Card} title=${t("สิ่งที่พบจากข้อมูล", "What the data shows")}>
             <div class="tcd8-ins">
               ${tcInsights.map((a,i)=>html`<div key=${i} class=${"tcd8-ins-card "+a.tone}>
                 <div class="tcd8-ins-h"><${Icon} name=${a.icon} size=${15} color=${tcInsTone(a.tone)}/><span>${a.title}</span></div>
@@ -582,17 +587,17 @@ export function Reports(){
             </div>
           </${Card}>
 
-          <${Card} title="หมวดธุรกิจที่เติบโตและชะลอตัว" sub="ลูกค้าใหม่ 90 วันล่าสุด เทียบ 90 วันก่อนหน้า">
+          <${Card} title=${t("หมวดธุรกิจที่เติบโตและชะลอตัว", "Growing and slowing categories")} sub=${t("ลูกค้าใหม่ 90 วันล่าสุด เทียบ 90 วันก่อนหน้า", "New customers in the last 90 days vs. the 90 before")}>
             <div class="tcd8-grow">
               <div class="tcd8-grow-box up">
-                <div class="tcd8-grow-h up">เติบโต</div>
+                <div class="tcd8-grow-h up">${t("เติบโต", "Growing")}</div>
                 ${tcGainers.length ? tcGainers.map(g=>html`<div key=${g.s} class="tcd8-grow-row"><span class="tcd8-grow-l">${g.label}</span><span class="tcd8-grow-n up">+${num(g.delta)}</span></div>`)
-                  : html`<div class="dim" style=${{fontSize:"11.5px",padding:"6px 0"}}>ยังไม่มีหมวดที่เติบโต</div>`}
+                  : html`<div class="dim" style=${{fontSize:"11.5px",padding:"6px 0"}}>${t("ยังไม่มีหมวดที่เติบโต", "No category is growing yet")}</div>`}
               </div>
               <div class="tcd8-grow-box down">
-                <div class="tcd8-grow-h down">ชะลอตัว</div>
+                <div class="tcd8-grow-h down">${t("ชะลอตัว", "is slowing")}</div>
                 ${tcLosers.length ? tcLosers.map(g=>html`<div key=${g.s} class="tcd8-grow-row"><span class="tcd8-grow-l">${g.label}</span><span class="tcd8-grow-n down">${num(g.delta)}</span></div>`)
-                  : html`<div class="dim" style=${{fontSize:"11.5px",padding:"6px 0"}}>ไม่มีหมวดที่ลดลง</div>`}
+                  : html`<div class="dim" style=${{fontSize:"11.5px",padding:"6px 0"}}>${t("ไม่มีหมวดที่ลดลง", "No category is declining")}</div>`}
               </div>
             </div>
           </${Card}>
@@ -602,35 +607,35 @@ export function Reports(){
     <!-- ═════ Section 1: Executive KPI 4 การ์ด (ลูกค้าปัจจุบัน · Lead · Coverage Rate · Gap) ═════ -->
     <div class="grid g4" style=${{marginBottom:"16px"}}>
       <div class="rp-kpi" style=${cardSt}>
-        <div style=${capSt}><${Icon} name="users" size=${15} color="var(--accent)"/>ลูกค้าปัจจุบัน (Existing)${infoDot("ลูกค้าปัจจุบัน (Existing)","นับจากระเบียนที่สถานะ = ลูกค้าปัจจุบัน ภายในจังหวัด/Segment/ช่วงเวลาที่เลือก · อ้างอิงฐานข้อมูลลูกค้าที่นำเข้าระบบ · อัปเดตล่าสุด "+today)}</div>
+        <div style=${capSt}><${Icon} name="users" size=${15} color="var(--accent)"/>${t("ลูกค้าปัจจุบัน (Existing)", "Existing customers ")}${infoDot(t("ลูกค้าปัจจุบัน (Existing)", "Existing customers"),t("นับจากระเบียนที่สถานะ = ลูกค้าปัจจุบัน ภายในจังหวัด/Segment/ช่วงเวลาที่เลือก · อ้างอิงฐานข้อมูลลูกค้าที่นำเข้าระบบ · อัปเดตล่าสุด ", "Counted from records with status = existing customer, within the selected province / segment / period · based on the imported customer database · last updated ")+today)}</div>
         <div style=${bigSt}><${CountUp} value=${totExisting}/></div>
-        <div class="dim" style=${{fontSize:"11.5px"}}>จำนวนลูกค้าที่ปิดการขายแล้วในขอบเขตที่กรอง</div>
+        <div class="dim" style=${{fontSize:"11.5px"}}>${t("จำนวนลูกค้าที่ปิดการขายแล้วในขอบเขตที่กรอง", "Customers already closed within the filtered scope")}</div>
         ${deltaBadge(custDelta)}
       </div>
       <div class="rp-kpi" style=${cardSt}>
-        <div style=${capSt}><${Icon} name="target" size=${15} color=${STATUS_COLOR.Prospect}/>Lead (Prospects)${infoDot("Lead (Prospects)","นับจากระเบียนที่สถานะ = Lead — ธุรกิจที่ยังไม่อยู่ในเครือข่าย Barter · เป็นฝั่งอุปสงค์ที่ใช้คำนวณ Lead สูง")}</div>
+        <div style=${capSt}><${Icon} name="target" size=${15} color=${STATUS_COLOR.Prospect}/>Lead (Prospects)${infoDot("Lead (Prospects)",t("นับจากระเบียนที่สถานะ = Lead — ธุรกิจที่ยังไม่อยู่ในเครือข่าย Barter · เป็นฝั่งอุปสงค์ที่ใช้คำนวณ Lead สูง", "Counted from records with status = Lead — businesses not yet in the Barter network · they form the demand side of the Lead index"))}</div>
         <div style=${bigSt}><${CountUp} value=${totProspect}/></div>
-        <div class="dim" style=${{fontSize:"11.5px"}}>Leadที่ยังไม่ปิดการขายในขอบเขตที่กรอง</div>
+        <div class="dim" style=${{fontSize:"11.5px"}}>${t("Leadที่ยังไม่ปิดการขายในขอบเขตที่กรอง", "Leads not yet closed within the filtered scope")}</div>
         ${deltaBadge(prosDelta)}
       </div>
       <div class="rp-kpi" style=${cardSt}>
-        <div style=${capSt}><${Icon} name="coverage" size=${15} color="#33d69f"/>Coverage Rate${infoDot("Coverage Rate","สูตร: ลูกค้าปัจจุบัน ÷ (ลูกค้าปัจจุบัน + Lead) × 100 · เป้าหมายองค์กร "+REPORT_COV_TARGET+"% · ตอนนี้ต่ำกว่าเป้า "+covGap+" จุด")}</div>
-        <div style=${bigSt}><${CountUp} value=${coverage} fmt=${v=>v+"%"}/> <span style=${{fontSize:"13px",fontWeight:600,color:coverage>=REPORT_COV_TARGET?"#33d69f":"var(--muted)"}}>(เป้า ${REPORT_COV_TARGET}%)</span></div>
+        <div style=${capSt}><${Icon} name="coverage" size=${15} color="#33d69f"/>Coverage Rate${infoDot("Coverage Rate",t("สูตร: ลูกค้าปัจจุบัน ÷ (ลูกค้าปัจจุบัน + Lead) × 100 · เป้าหมายองค์กร ", "Formula: existing customers ÷ (existing customers + Leads) × 100 · company target ")+REPORT_COV_TARGET+t("% · ตอนนี้ต่ำกว่าเป้า ", "% · currently below target by ")+covGap+t(" จุด", " points"))}</div>
+        <div style=${bigSt}><${CountUp} value=${coverage} fmt=${v=>v+"%"}/> <span style=${{fontSize:"13px",fontWeight:600,color:coverage>=REPORT_COV_TARGET?"#33d69f":"var(--muted)"}}>${t("(เป้า", "(target")} ${REPORT_COV_TARGET}%)</span></div>
         <div class="sd-target"><div class="sd-target-f" style=${{width:Math.min(100,coverage)+"%",background:covColor(coverage)}}></div>
           <div class="sd-target-goal" style=${{left:REPORT_COV_TARGET+"%"}}></div></div>
-        <div class="dim" style=${{fontSize:"11.5px"}}>${coverage}% · เป้า ${REPORT_COV_TARGET}% · ขาดอีก <b style=${{color:"var(--txt)"}}>${covGap} จุด</b></div>
+        <div class="dim" style=${{fontSize:"11.5px"}}>${coverage}${t("% · เป้า", "% · target")} ${REPORT_COV_TARGET}${t("% · ขาดอีก", "% · short by")} <b style=${{color:"var(--txt)"}}>${covGap} ${t("จุด", "points")}</b></div>
       </div>
-      <div class="rp-kpi" style=${{...cardSt,cursor:"pointer"}} title="คลิกเพื่อไปที่ตารางสรุปรายโซน"
+      <div class="rp-kpi" style=${{...cardSt,cursor:"pointer"}} title=${t("คลิกเพื่อไปที่ตารางสรุปรายโซน", "Click to jump to the zone summary table")}
         onClick=${()=>{ setGapHi(true); tableRef.current&&tableRef.current.scrollIntoView({behavior:"smooth",block:"center"}); setTimeout(()=>setGapHi(false),2200); }}>
-        <div style=${capSt}><${Icon} name="gap" size=${15} color="#ff5a3c"/>Gap Identification${infoDot("Gap Identification","โซนที่ Coverage ต่ำกว่าเกณฑ์ แต่มีLeadหนาแน่น (Heat Score ≥ 40) — คือพื้นที่ที่ควรขยายก่อน · คลิกการ์ดเพื่อไปที่ตารางสรุปรายโซน")}</div>
+        <div style=${capSt}><${Icon} name="gap" size=${15} color="#ff5a3c"/>Gap Identification${infoDot("Gap Identification",t("โซนที่ Coverage ต่ำกว่าเกณฑ์ แต่มีLeadหนาแน่น (Heat Score ≥ 40) — คือพื้นที่ที่ควรขยายก่อน · คลิกการ์ดเพื่อไปที่ตารางสรุปรายโซน", "Zones below the coverage threshold but dense with Leads (heat score ≥ 40) — expand into these first · click the card to jump to the zone summary table"))}</div>
         <div style=${bigSt}><${CountUp} value=${gapZones}/></div>
-        <div class="dim" style=${{fontSize:"11.5px"}}>โซนที่มีช่องว่างโอกาสสูง จาก ${num(clusters.length)} โซน · <span style=${{color:"var(--accent)",fontWeight:700}}>ดูในตาราง ↓</span></div>
+        <div class="dim" style=${{fontSize:"11.5px"}}>${t("โซนที่มีช่องว่างโอกาสสูง จาก", "zones with a large opportunity gap, out of")} ${num(clusters.length)} ${t("โซน ·", "zones ·")} <span style=${{color:"var(--accent)",fontWeight:700}}>${t("ดูในตาราง ↓", "see the table ↓")}</span></div>
       </div>
     </div>
 
     <!-- ═════ Section 2 · แถวที่ 1: แผนที่ (70%) + กราฟโดนัท Segment ธุรกิจ (30%) ═════ -->
     <div class="rp-map-row" style=${{marginBottom:"16px"}}>
-      <${Card} title="แผนที่ภูมิสารสนเทศ" sub="มุมมองสรุปหลายจังหวัด (แสดงผลอย่างเดียว) · สลับ 3 มุมมอง">
+      <${Card} title=${t("แผนที่ภูมิสารสนเทศ", "Geospatial map")} sub=${t("มุมมองสรุปหลายจังหวัด (แสดงผลอย่างเดียว) · สลับ 3 มุมมอง", "Multi-province summary view (display only) · three views to switch between")}>
         <div class="sd-views">
           ${MAP_VIEWS.map(v=>html`<button key=${v.id} class=${"sd-view"+(mapView===v.id?" on":"")} onClick=${()=>setMapView(v.id)}>
             ${v.lb}</button>`)}
@@ -640,8 +645,8 @@ export function Reports(){
           <span><span class="as-vdot2" style=${{background:"#d81e1e"}}></span>Heat Score 80-100</span>
           <span><span class="as-vdot2" style=${{background:"#ffc233"}}></span>40-79</span>
           <span><span class="as-vdot2" style=${{background:"#26e07a"}}></span>0-39</span>
-          <span><span class="as-vdot2" style=${{background:"transparent",border:"2px solid #2563eb"}}></span>ขอบเขต Territory</span>
-          ${mapView==="territory" ? html`<span><span class="as-vdot2" style=${{background:"#ff2d55"}}></span>พื้นที่ทับซ้อน (${num((territories&&territories.overlaps||[]).length)} จุด)</span>` : ""}
+          <span><span class="as-vdot2" style=${{background:"transparent",border:"2px solid #2563eb"}}></span>${t("ขอบเขต Territory", "Territory boundaries")}</span>
+          ${mapView==="territory" ? html`<span><span class="as-vdot2" style=${{background:"#ff2d55"}}></span>${t("พื้นที่ทับซ้อน (", "Overlapping areas (")}${num((territories&&territories.overlaps||[]).length)} ${t("จุด)", "points)")}</span>` : ""}
         </div>
         <div class="geo-map">
           <${LeafletMap} db=${vdb} filters=${mapFilters} layers=${mapLayers} country="Thailand"
@@ -653,65 +658,65 @@ export function Reports(){
         </div>` : ""}
       </${Card}>
       <div class="rp-right-col">
-        <${Card} title="การกระจายกลุ่มธุรกิจ" sub=${segSel==="All"?"สัดส่วนตามกลุ่มธุรกิจในขอบเขตที่กรอง":"ไฮไลต์กลุ่ม "+segTH(segSel)+" ตามตัวกรอง"}>
-          ${segTotals.length ? html`<${Donut} key=${"donut-"+animSig} data=${segTotals} center=${{value:segCenterVal, label:segSel==="All"?"รายการ":segTH(segSel), format:num}}/>`
-                             : html`<div class="emptybox">ไม่มีข้อมูลตามตัวกรองที่เลือก</div>`}
+        <${Card} title=${t("การกระจายกลุ่มธุรกิจ", "Business segment mix")} sub=${segSel==="All"?t("สัดส่วนตามกลุ่มธุรกิจในขอบเขตที่กรอง", "Share by business segment within the filtered scope"):t("ไฮไลต์กลุ่ม ", "Highlighting ")+segTH(segSel)+t(" ตามตัวกรอง", " from the filter")}>
+          ${segTotals.length ? html`<${Donut} key=${"donut-"+animSig} data=${segTotals} center=${{value:segCenterVal, label:segSel==="All"?t("รายการ", "records"):segTH(segSel), format:num}}/>`
+                             : html`<div class="emptybox">${t("ไม่มีข้อมูลตามตัวกรองที่เลือก", "No data matches the current filters")}</div>`}
         </${Card}>
         <!-- ย้ายมาจาก Section 3 · เปลี่ยนจากแถบความคืบหน้าเป็น Bar Chart · นับฐานLeadทั้งประเทศ ตาม Global Filter -->
-        <${Card} title="หมวดธุรกิจที่เครือข่ายยังขาด" sub=${"5 หมวดที่มี Lead มากที่สุด (Lead − สมาชิกปัจจุบัน)"+(prov==="All"?" · ทุกจังหวัด":" · "+provinceTH(prov))}>
+        <${Card} title=${t("หมวดธุรกิจที่เครือข่ายยังขาด", "Categories the network is short of")} sub=${t("5 หมวดที่มี Lead มากที่สุด (Lead − สมาชิกปัจจุบัน)", "The 5 categories with the highest Lead demand (Leads − current members)")+(prov==="All"?t(" · ทุกจังหวัด", " · all provinces"):" · "+provinceTH(prov))}>
           ${gapTotal ? html`<div>
             <${BarChart} data=${gradeBars} height=${150} horizontal=${true} format=${(v)=>num(v)}
               tipTitle=${d=>d.label} tipRows=${d=>[
-                {label:"ยังขาด",value:num(d.value)+" ราย"},
-                {label:"อุปสงค์ (Lead)",value:num(d.demand)+" ราย"},
-                {label:"สมาชิกเครือข่ายแล้ว",value:num(d.supply)+" ราย"},
-                {label:"สัดส่วนของช่องว่างทั้งหมด",value:(gapTotal?Math.round(d.value/gapTotal*100):0)+"%"}]}/>
-            <div class="rp-grade-sum">ยังขาดรวม <b><${CountUp} value=${gapTotal}/></b> ราย · ดัชนีช่องว่าง <b>${gapScope.gapScore}</b>/100 (${GAP_LV_TH[gapScope.gapLevel]})</div>
-          </div>` : html`<div class="emptybox">ไม่มีข้อมูลตามตัวกรองที่เลือก</div>`}
+                {label:t("ยังขาด", "still short"),value:num(d.value)+t(" ราย", " businesses")},
+                {label:t("อุปสงค์ (Lead)", "Demand (Leads)"),value:num(d.demand)+t(" ราย", " businesses")},
+                {label:t("สมาชิกเครือข่ายแล้ว", "Already members"),value:num(d.supply)+t(" ราย", " businesses")},
+                {label:t("สัดส่วนของช่องว่างทั้งหมด", "Share of the total gap"),value:(gapTotal?Math.round(d.value/gapTotal*100):0)+"%"}]}/>
+            <div class="rp-grade-sum">${t("ยังขาดรวม", "Short by")} <b><${CountUp} value=${gapTotal}/></b> ${t("ราย · ดัชนีช่องว่าง", "in total · gap index")} <b>${gapScope.gapScore}</b>/100 (${gapTH(gapScope.gapLevel)})</div>
+          </div>` : html`<div class="emptybox">${t("ไม่มีข้อมูลตามตัวกรองที่เลือก", "No data matches the current filters")}</div>`}
         </${Card}>
       </div>
     </div>
 
     <!-- ═════ Section 2 · แถวที่ 2: แนวโน้มการเติบโต (เต็มความกว้าง) — ย้ายมาจาก Section 3 ═════ -->
-    <${Card} title="แนวโน้มการเติบโตของฐานข้อมูล" sub=${"ยอดสะสม ลูกค้า+Lead ตาม created_at"+(months.length?" · "+monLabel(months[0])+"–"+monLabel(months[months.length-1]):"")} style=${{marginBottom:"16px"}}>
+    <${Card} title=${t("แนวโน้มการเติบโตของฐานข้อมูล", "Database growth trend")} sub=${t("ยอดสะสม ลูกค้า+Lead ตาม created_at", "Cumulative customers + Leads by created_at")+(months.length?" · "+monLabel(months[0])+"–"+monLabel(months[months.length-1]):"")} style=${{marginBottom:"16px"}}>
       ${months.length>=2 ? html`<div>
         <div class="rp-gt-legend">
-          <span><i style=${{background:STATUS_COLOR.Existing}}></i>ลูกค้าปัจจุบัน <b><${CountUp} value=${cumCust[cumCust.length-1]||0}/></b></span>
+          <span><i style=${{background:STATUS_COLOR.Existing}}></i>${t("ลูกค้าปัจจุบัน", "Existing customers")} <b><${CountUp} value=${cumCust[cumCust.length-1]||0}/></b></span>
           <span><i style=${{background:STATUS_COLOR.Prospect}}></i>Lead <b><${CountUp} value=${cumPros[cumPros.length-1]||0}/></b></span>
         </div>
         <${LineChart} key=${"line-"+animSig} labels=${months.map(monLabel)} series=${[
-          {label:"ลูกค้าปัจจุบัน", color:STATUS_COLOR.Existing, points:cumCust},
+          {label:t("ลูกค้าปัจจุบัน", "Existing customers"), color:STATUS_COLOR.Existing, points:cumCust},
           {label:"Lead",   color:STATUS_COLOR.Prospect, points:cumPros}
         ]} height=${210} format=${num}/>
         <div class="row between" style=${{fontSize:"11.5px",marginTop:"4px"}}>
           <span class="dim">${monLabel(months[0])}</span>
-          <span style=${{fontWeight:700}}>ยอดสะสมรวม <${CountUp} value=${cumLast}/> รายการ</span>
+          <span style=${{fontWeight:700}}>${t("ยอดสะสมรวม", "Cumulative total")} <${CountUp} value=${cumLast}/> ${t("รายการ", "records")}</span>
           <span class="dim">${monLabel(months[months.length-1])}</span>
-        </div></div>` : html`<div class="emptybox">ข้อมูลไม่พอสร้างกราฟแนวโน้ม</div>`}
+        </div></div>` : html`<div class="emptybox">${t("ข้อมูลไม่พอสร้างกราฟแนวโน้ม", "Not enough data to draw a trend")}</div>`}
     </${Card}>
 
     <!-- ═════ Section 3: 2 คอลัมน์ — ซ้าย: อันดับพื้นที่ & หมวดที่ขาด · ขวา: เปรียบเทียบจังหวัด (เต็มคอลัมน์) ═════ -->
     <div class="geo-2col" style=${{marginBottom:"16px"}}>
-      <${Card} title="อันดับพื้นที่โอกาสสูงสุด (5 อันดับ)" sub="อำเภอที่มีคะแนนโอกาส (Heat Ranking Score) สูงสุด · คะแนนเท่ากันเรียงตามจำนวนLead">
-        ${topAreas.length ? topAreas.map((d,i)=>{const tipRows=[{label:"ดัชนี Lead",value:num(d.gapScore)},{label:"ยังขาด (ราย)",value:num(d.gapCount)},{label:"ลูกค้าในพื้นที่",value:num(d.customerCount)},{label:"Leadในพื้นที่",value:num(d.prospectCount)}];
+      <${Card} title=${t("อันดับพื้นที่โอกาสสูงสุด (5 อันดับ)", "Top 5 opportunity areas")} sub=${t("อำเภอที่มีคะแนนโอกาส (Heat Ranking Score) สูงสุด · คะแนนเท่ากันเรียงตามจำนวนLead", "Districts with the highest heat ranking score · ties are broken by Lead count")}>
+        ${topAreas.length ? topAreas.map((d,i)=>{const tipRows=[{label:t("ดัชนี Lead", "Lead index"),value:num(d.gapScore)},{label:t("ยังขาด (ราย)", "Still short"),value:num(d.gapCount)},{label:t("ลูกค้าในพื้นที่", "Customers in the area"),value:num(d.customerCount)},{label:t("Leadในพื้นที่", "Leads in the area"),value:num(d.prospectCount)}];
           return html`<div key=${d.province+d.district} class="sd-top-row" style=${{cursor:"pointer"}}
           onMouseMove=${e=>showTip(e, districtTH(d.district)+" · "+provinceTH(d.province), tipRows)} onMouseLeave=${hideTip}
           ontouchstart=${e=>showTip(e, districtTH(d.district)+" · "+provinceTH(d.province), tipRows)}>
           <span class=${"sd-top-rank"+(i<3?" medal m"+(i+1):"")}>${i+1}</span>
           <div style=${{flex:1,minWidth:0}}><b style=${{fontSize:"13.5px"}}>${districtTH(d.district)}</b>
             <span class="dim" style=${{fontSize:"12px"}}> · ${provinceTH(d.province)}</span></div>
-          <${Badge} tone=${d.gapScore>=67?"bad":d.gapScore>=34?"warn":"info"}>ดัชนี ${d.gapScore}</${Badge}>
-        </div>`;}) : html`<div class="dim" style=${{fontSize:"12px"}}>ไม่มีข้อมูลพื้นที่ในขอบเขตที่เลือก</div>`}
+          <${Badge} tone=${d.gapScore>=67?"bad":d.gapScore>=34?"warn":"info"}>${t("ดัชนี", "Index")} ${d.gapScore}</${Badge}>
+        </div>`;}) : html`<div class="dim" style=${{fontSize:"12px"}}>${t("ไม่มีข้อมูลพื้นที่ในขอบเขตที่เลือก", "No area data within the selected scope")}</div>`}
       </${Card}>
-      <${Card} title="เปรียบเทียบรายจังหวัด (ลูกค้า vs เป้าหมาย Coverage)" sub=${"เกณฑ์เทียบ 4 จังหวัดหลัก · เรียงครอบคลุมมาก→น้อย"+(prov!=="All"?" · ไฮไลต์ "+provinceTH(prov):"")}>
+      <${Card} title=${t("เปรียบเทียบรายจังหวัด (ลูกค้า vs เป้าหมาย Coverage)", "Province comparison (customers vs. coverage target)")} sub=${t("เกณฑ์เทียบ 4 จังหวัดหลัก · เรียงครอบคลุมมาก→น้อย", "Benchmark across the 4 main provinces · sorted by coverage, highest first")+(prov!=="All"?t(" · ไฮไลต์ ", " · highlighting ")+provinceTH(prov):"")}>
         <div class="sd-cmp">
-          ${cmpSorted.map(m=>{const cmpTip=[{label:"ลูกค้า",value:num(m.s.customerCount)},{label:"Lead",value:num(m.s.prospectCount)},{label:"Coverage",value:m.s.coverage+"%"},{label:"เป้าหมาย",value:REPORT_COV_TARGET+"%"},{label:"ต่ำกว่าเป้า",value:Math.max(0,REPORT_COV_TARGET-m.s.coverage)+" จุด"}];
+          ${cmpSorted.map(m=>{const cmpTip=[{label:t("ลูกค้า", "Customers"),value:num(m.s.customerCount)},{label:"Lead",value:num(m.s.prospectCount)},{label:"Coverage",value:m.s.coverage+"%"},{label:t("เป้าหมาย", "Target"),value:REPORT_COV_TARGET+"%"},{label:t("ต่ำกว่าเป้า", "below target"),value:Math.max(0,REPORT_COV_TARGET-m.s.coverage)+t(" จุด", " points")}];
             return html`<div key=${m.province} class=${"sd-cmp-row"+(prov!=="All"&&m.province===prov?" on":"")} style=${{cursor:"pointer"}}
             onMouseMove=${e=>showTip(e, provinceTH(m.province), cmpTip)} onMouseLeave=${hideTip} ontouchstart=${e=>showTip(e, provinceTH(m.province), cmpTip)}>
-            <div class="sd-cmp-top"><b>${provinceTH(m.province)}</b><span style=${{color:covColor(m.s.coverage),fontWeight:700}}>${m.s.coverage}% <span class="dim" style=${{fontWeight:400}}>/ เป้า ${REPORT_COV_TARGET}%</span></span></div>
+            <div class="sd-cmp-top"><b>${provinceTH(m.province)}</b><span style=${{color:covColor(m.s.coverage),fontWeight:700}}>${m.s.coverage}% <span class="dim" style=${{fontWeight:400}}>${t("/ เป้า", "/ target")} ${REPORT_COV_TARGET}%</span></span></div>
             <div class="sd-cmp-bar"><div class="sd-cmp-fill" style=${{width:Math.min(100,m.s.coverage)+"%",background:covColor(m.s.coverage)}}></div>
               <div class="sd-cmp-goal" style=${{left:REPORT_COV_TARGET+"%"}}></div></div>
-            <div class="dim" style=${{fontSize:"11.5px"}}>ลูกค้า ${num(m.s.customerCount)} · Lead ${num(m.s.prospectCount)} · ช่องว่าง ${m.s.gapScore}</div>
+            <div class="dim" style=${{fontSize:"11.5px"}}>${t("ลูกค้า", "Customers")} ${num(m.s.customerCount)} · Lead ${num(m.s.prospectCount)} ${t("· ช่องว่าง", "· gap")} ${m.s.gapScore}</div>
           </div>`;})}
         </div>
       </${Card}>
@@ -719,21 +724,21 @@ export function Reports(){
 
     <!-- ═════ Section 4: ตารางสรุปเชิงปฏิบัติ (คอลัมน์ตาม Template) — แบ่งหน้า 5 แถว ═════ -->
     <div ref=${tableRef} class=${gapHi?"rp-table-hi":""} style=${{borderRadius:"var(--r)",marginBottom:"16px"}}>
-    <${Card} title="ตารางสรุปเชิงปฏิบัติรายโซน" sub="โซน · ลูกค้า · Lead · ดัชนี Lead · ระดับช่องว่าง · สถานะ Territory/Coverage · Action" pad0=${true}>
+    <${Card} title=${t("ตารางสรุปเชิงปฏิบัติรายโซน", "Actionable zone summary")} sub=${t("โซน · ลูกค้า · Lead · ดัชนี Lead · ระดับช่องว่าง · สถานะ Territory/Coverage · Action", "Zone · customers · Leads · Lead index · gap level · territory/coverage status · action")} pad0=${true}>
       ${zoneRows.length ? html`<${Table} cols=${[
-        {h:"โซน/พื้นที่", render:c=>html`<div class="row" style=${{gap:"8px"}}><span class="geo-cdot sm" style=${{background:c.color}}>${c.code}</span>
+        {h:t("โซน/พื้นที่", "Zone / area"), render:c=>html`<div class="row" style=${{gap:"8px"}}><span class="geo-cdot sm" style=${{background:c.color}}>${c.code}</span>
           <div><b>${clusterName(c)}</b><div class="dim" style=${{fontSize:"11px"}}>${provinceTH(c.province)}</div></div></div>`},
-        {h:"ลูกค้า", render:c=>html`<b>${num(c.existing)}</b>`},
+        {h:t("ลูกค้า", "Customers"), render:c=>html`<b>${num(c.existing)}</b>`},
         {h:"Lead", render:c=>html`<b style=${{color:STATUS_COLOR.Prospect}}>${num(c.prospect)}</b>`},
-        {h:"ดัชนีช่องว่าง", render:c=>html`<${Badge} tone=${c.gapScore>=67?"bad":c.gapScore>=34?"warn":"good"}>${c.gapScore}</${Badge}>`},
-        {h:"ระดับช่องว่าง", render:c=>html`<b style=${{fontSize:"13px",color:c.gapLv==="High"?"#c81e1e":c.gapLv==="Medium"?"#b45309":"#0f7a3d"}}>${GAP_LV_TH[c.gapLv]}</b>`},
-        {h:"สถานะ Territory/Coverage", render:c=>html`<div style=${{minWidth:"160px"}}>
+        {h:t("ดัชนีช่องว่าง", "Gap index"), render:c=>html`<${Badge} tone=${c.gapScore>=67?"bad":c.gapScore>=34?"warn":"good"}>${c.gapScore}</${Badge}>`},
+        {h:t("ระดับช่องว่าง", "Gap level"), render:c=>html`<b style=${{fontSize:"13px",color:c.gapLv==="High"?"#c81e1e":c.gapLv==="Medium"?"#b45309":"#0f7a3d"}}>${gapTH(c.gapLv)}</b>`},
+        {h:t("สถานะ Territory/Coverage", "Territory / coverage status"), render:c=>html`<div style=${{minWidth:"160px"}}>
           <div style=${{fontSize:"11.5px",marginBottom:"3px"}}>${c.domTC}</div>
-          <div style=${{fontSize:"12px"}}><b>${c.coverage.toFixed(0)}%</b> · <${Badge} tone=${c.gapLevel==="High"?"bad":c.gapLevel==="Medium"?"warn":"good"}>ขาด ${num(c.gapCount)} ราย</${Badge}></div></div>`},
+          <div style=${{fontSize:"12px"}}><b>${c.coverage.toFixed(0)}%</b> · <${Badge} tone=${c.gapLevel==="High"?"bad":c.gapLevel==="Medium"?"warn":"good"}>${t("ขาด", "Short")} ${num(c.gapCount)} ${t("ราย", "businesses")}</${Badge}></div></div>`},
         {h:"Action Suggested", render:c=>html`<span style=${{fontSize:"12px"}}>${expansionGuidance(c.priority, c.topSegment, c.coverage)}</span>`},
-      ]} rows=${pageRows}/>` : html`<div class="emptybox" style=${{margin:"18px"}}>ไม่มีข้อมูลโซนในพื้นที่ที่เลือก</div>`}
+      ]} rows=${pageRows}/>` : html`<div class="emptybox" style=${{margin:"18px"}}>${t("ไม่มีข้อมูลโซนในพื้นที่ที่เลือก", "No zone data in the selected area")}</div>`}
       ${zoneRows.length>PAGE_SIZE && html`<div class="rp-pager">
-        <span class="rp-pager-sum">แสดง ${pageStart}–${pageEnd} จาก ${num(zoneRows.length)} โซน</span>
+        <span class="rp-pager-sum">${t("แสดง", "Showing")} ${pageStart}–${pageEnd} ${t("จาก", "of")} ${num(zoneRows.length)} ${t("โซน", "Zone")}</span>
         <div class="rp-pager-ctrl">
           <button class="rp-pg" disabled=${curPage<=1} onClick=${()=>setTablePage(p=>Math.max(1,p-1))}>‹</button>
           ${pageList.map((p,i)=> p==="…"
@@ -953,19 +958,19 @@ const REPORT_SD_CSS = `
 function buildDistrictInsight(provinceArea, distRows){
   if(!distRows || distRows.length===0) return null;
   const top = distRows[0];   // distRows is already sorted gapScore high→low (rankDistricts)
-  const gapPhrase = top.gapLevel==="High" ? `Lead สูง — ยังขาดสมาชิกเครือข่าย ${num(top.gapCount)} ราย ใน ${top.gapBreadth} หมวด เหมาะเป็นเป้าหมายเติมก่อน`
-    : top.gapLevel==="Medium" ? `Lead ปานกลาง — ยังเติมได้อีก ${num(top.gapCount)} ราย`
-    : "ช่องว่างตลาดต่ำ — ตลาดค่อนข้างอิ่มตัวแล้วในอำเภอนี้";
+  const gapPhrase = top.gapLevel==="High" ? `${t("Lead สูง — ยังขาดสมาชิกเครือข่าย", "High Lead demand — the network is still short by")} ${num(top.gapCount)} ${t("ราย ใน", "businesses across")} ${top.gapBreadth} ${t("หมวด เหมาะเป็นเป้าหมายเติมก่อน", "categories, a good place to start filling")}`
+    : top.gapLevel==="Medium" ? `${t("Lead ปานกลาง — ยังเติมได้อีก", "Medium Lead demand — room for another")} ${num(top.gapCount)} ${t("ราย", "businesses")}`
+    : t("ช่องว่างตลาดต่ำ — ตลาดค่อนข้างอิ่มตัวแล้วในอำเภอนี้", "Low market gap — this district is fairly saturated");
   const vsProvince = provinceArea && provinceArea.gapScore!=null
     ? (top.gapScore > provinceArea.gapScore
-        ? `สูงกว่าค่าเฉลี่ยของทั้งจังหวัด (${provinceArea.gapScore}) อยู่ ${top.gapScore-provinceArea.gapScore} หน่วย`
+        ? `${t("สูงกว่าค่าเฉลี่ยของทั้งจังหวัด (", "above the province average (")}${provinceArea.gapScore}${t(") อยู่", ") by")} ${top.gapScore-provinceArea.gapScore} ${t("หน่วย", "points")}`
         : top.gapScore < provinceArea.gapScore
-          ? `ต่ำกว่าค่าเฉลี่ยของทั้งจังหวัด (${provinceArea.gapScore}) อยู่ ${provinceArea.gapScore-top.gapScore} หน่วย`
-          : `เท่ากับค่าเฉลี่ยของทั้งจังหวัด`)
+          ? `${t("ต่ำกว่าค่าเฉลี่ยของทั้งจังหวัด (", "below the province average (")}${provinceArea.gapScore}${t(") อยู่", ") by")} ${provinceArea.gapScore-top.gapScore} ${t("หน่วย", "points")}`
+          : `${t("เท่ากับค่าเฉลี่ยของทั้งจังหวัด", "equal to the province average")}`)
     : null;
-  const sentence = `อำเภอ${districtTH(top.district)}มีดัชนี Lead สูงสุดในจังหวัดนี้ที่ ${top.gapScore}`
+  const sentence = `${t("อำเภอ", "District ")}${districtTH(top.district)}${t("มีดัชนี Lead สูงสุดในจังหวัดนี้ที่", " has the highest Lead index in this province at")} ${top.gapScore}`
     + (vsProvince ? ` ${vsProvince}` : "")
-    + ` กลุ่มธุรกิจที่พบมากที่สุดคือ${segTH(top.topSegment)} และมี${gapPhrase}`;
+    + ` ${t("กลุ่มธุรกิจที่พบมากที่สุดคือ", "The most common business segment is ")}${segTH(top.topSegment)} ${t("และมี", "with ")}${gapPhrase}`;
   return {top, sentence};
 }
 
@@ -983,8 +988,8 @@ function buildSpatialBullets(provinceArea, distRows){
   const lowDensity = distRows.filter(d=>d.prospectCount>0 && d.customerCount===0)
     .sort((a,b)=>b.prospectCount-a.prospectCount).slice(0,2);
   const bullets = [];
-  if(top) bullets.push(`จุดกระจุกตัวหลัก: ลูกค้าและLeadกว่า ${topShare}% กระจุกตัวอยู่ในอำเภอ${districtTH(top.district)}`);
-  if(lowDensity.length) bullets.push(`โอกาสในพื้นที่รอบนอก: อำเภอ${lowDensity.map(d=>districtTH(d.district)).join(" และ")} มีLeadอยู่แต่ยังไม่มีลูกค้าเลย เหมาะจัดแคมเปญการตลาดเฉพาะพื้นที่`);
+  if(top) bullets.push(`${t("จุดกระจุกตัวหลัก: ลูกค้าและLeadกว่า", "Main concentration: over")} ${topShare}${t("% กระจุกตัวอยู่ในอำเภอ", "% of customers and Leads sit in ")}${districtTH(top.district)}`);
+  if(lowDensity.length) bullets.push(`${t("โอกาสในพื้นที่รอบนอก: อำเภอ", "Opportunity on the fringe:")}${lowDensity.map(d=>districtTH(d.district)).join(t(" และ", " and "))} ${t("มีLeadอยู่แต่ยังไม่มีลูกค้าเลย เหมาะจัดแคมเปญการตลาดเฉพาะพื้นที่", "have Leads but no customers at all — good candidates for a local campaign")}`);
   return bullets;
 }
 
@@ -995,17 +1000,17 @@ const GAP_PROVS = ["Bangkok Metropolis","Chiang Mai","Phuket","Pattaya"];
 
 // สถานะช่องว่างตาม % ความครอบคลุม (สอดคล้องหน้า Coverage ที่ >=70 = "พื้นที่อิ่มตัว" และแยกช่วง 30-70 ละเอียดขึ้น)
 function gapStatus(cov){
-  if(cov<30) return {label:"ช่องว่างสูงมาก", tone:"bad",  color:"#ff5a3c"};
-  if(cov<50) return {label:"ช่องว่างสูง",   tone:"warn", color:"#ff8f3c"};
-  if(cov<70) return {label:"เข้าถึงปานกลาง", tone:"warn", color:"#ffb02e"};
-  return         {label:"พื้นที่อิ่มตัว",   tone:"good", color:"#33d69f"};
+  if(cov<30) return {label:t("ช่องว่างสูงมาก", "Very large gap"), tone:"bad",  color:"#ff5a3c"};
+  if(cov<50) return {label:t("ช่องว่างสูง", "Large gap"),   tone:"warn", color:"#ff8f3c"};
+  if(cov<70) return {label:t("เข้าถึงปานกลาง", "Moderate reach"), tone:"warn", color:"#ffb02e"};
+  return         {label:t("พื้นที่อิ่มตัว", "Saturated area"),   tone:"good", color:"#33d69f"};
 }
 // กลยุทธ์การขยายธุรกิจต่อเขต แบบ rule-based (ไม่ใช้ AI) — อิงลำดับความสำคัญ + กลุ่มธุรกิจเด่น
 function expansionGuidance(priority, topSegment, cov){
   const s = segTH(topSegment);
-  if(priority===1) return `จัดตั้งทีมขายเฉพาะกิจ เจาะกลุ่ม${s}และธุรกิจขนาดใหญ่ในพื้นที่โดยเร็ว`;
-  if(cov<50)       return `เพิ่มกิจกรรมการตลาดกลุ่ม${s} สร้างการรับรู้ก่อนขยายเต็มรูปแบบ`;
-  return                 `รักษาความสัมพันธ์ลูกค้ากลุ่ม${s}เดิม และเฝ้าติดตามเป็นระยะ`;
+  if(priority===1) return `${t("จัดตั้งทีมขายเฉพาะกิจ เจาะกลุ่ม", "Set up a dedicated sales team to target ")}${s}${t("และธุรกิจขนาดใหญ่ในพื้นที่โดยเร็ว", " and the larger businesses in the area, quickly")}`;
+  if(cov<50)       return `${t("เพิ่มกิจกรรมการตลาดกลุ่ม", "Increase marketing activity for ")}${s} ${t("สร้างการรับรู้ก่อนขยายเต็มรูปแบบ", "to build awareness before a full rollout")}`;
+  return                 `${t("รักษาความสัมพันธ์ลูกค้ากลุ่ม", "Maintain relationships with existing ")}${s}${t("เดิม และเฝ้าติดตามเป็นระยะ", " customers and check in periodically")}`;
 }
 
 // มัธยฐาน (median) ของอาเรย์ตัวเลข — ใช้แบ่ง quadrant ของ Bubble Matrix จากข้อมูลจริง (ไม่ hardcode)
@@ -1016,7 +1021,7 @@ function densityTier(d){ return d>=67 ? {tone:"bad"} : d>=34 ? {tone:"warn"} : {
 
 // Demand-Gap Matrix (Bubble Chart) 2x2 — X=ลูกค้า, Y=Lead, ขนาด=ดัชนี Lead, แบ่ง 4 quadrant ด้วยมัธยฐาน
 function gapBubbleMatrix(rows, selDist, onPick){
-  if(!rows.length) return html`<div class="emptybox">ไม่มีข้อมูล</div>`;
+  if(!rows.length) return html`<div class="emptybox">${t("ไม่มีข้อมูล", "No data")}</div>`;
   const W=760, H=430, padL=58, padR=18, padT=30, padB=48, plotW=W-padL-padR, plotH=H-padT-padB;
   const maxX=Math.max(1,...rows.map(r=>r.existing)), maxY=Math.max(1,...rows.map(r=>r.prospect)), maxHeat=Math.max(1,...rows.map(r=>r.heatScore));
   const medX=gapMedian(rows.map(r=>r.existing)), medY=gapMedian(rows.map(r=>r.prospect));
@@ -1030,23 +1035,23 @@ function gapBubbleMatrix(rows, selDist, onPick){
     <rect x=${x0} y=${y0} width=${mx-x0} height=${my-y0} fill="rgba(255,176,46,.08)"/>
     <rect x=${mx} y=${my} width=${x1-mx} height=${y1-my} fill="rgba(51,214,159,.08)"/>
     <rect x=${x0} y=${my} width=${mx-x0} height=${y1-my} fill="rgba(120,140,170,.08)"/>
-    <text x=${x1-6} y=${y0+14} text-anchor="end" font-size="10.5" font-weight="700" fill="#ff5a3c">Priority 1: ลุยทันที</text>
-    <text x=${x0+6} y=${y0+14} text-anchor="start" font-size="10.5" font-weight="700" fill="#d98b1a">ช่องว่างสูง / เน้นทำตลาด</text>
-    <text x=${x1-6} y=${y1-8} text-anchor="end" font-size="10.5" font-weight="700" fill="#1e9e73">รักษาฐานลูกค้า</text>
-    <text x=${x0+6} y=${y1-8} text-anchor="start" font-size="10.5" font-weight="700" fill="#7f93ac">โอกาสต่ำ</text>
+    <text x=${x1-6} y=${y0+14} text-anchor="end" font-size="10.5" font-weight="700" fill="#ff5a3c">${t("Priority 1: ลุยทันที", "Priority 1: go now")}</text>
+    <text x=${x0+6} y=${y0+14} text-anchor="start" font-size="10.5" font-weight="700" fill="#d98b1a">${t("ช่องว่างสูง / เน้นทำตลาด", "Large gap / focus on marketing")}</text>
+    <text x=${x1-6} y=${y1-8} text-anchor="end" font-size="10.5" font-weight="700" fill="#1e9e73">${t("รักษาฐานลูกค้า", "Retain the customer base")}</text>
+    <text x=${x0+6} y=${y1-8} text-anchor="start" font-size="10.5" font-weight="700" fill="#7f93ac">${t("โอกาสต่ำ", "Low opportunity")}</text>
     <line x1=${mx} y1=${y0} x2=${mx} y2=${y1} stroke="rgba(120,160,220,.45)" stroke-dasharray="4 4"/>
     <line x1=${x0} y1=${my} x2=${x1} y2=${my} stroke="rgba(120,160,220,.45)" stroke-dasharray="4 4"/>
     <line x1=${x0} y1=${y1} x2=${x1} y2=${y1} stroke="var(--stroke2)"/>
     <line x1=${x0} y1=${y0} x2=${x0} y2=${y1} stroke="var(--stroke2)"/>
-    <text x=${(x0+x1)/2} y=${H-8} text-anchor="middle" font-size="11" fill="var(--muted)">จำนวนลูกค้าปัจจุบัน →</text>
-    <text x=${16} y=${(y0+y1)/2} text-anchor="middle" font-size="11" fill="var(--muted)" transform=${`rotate(-90 16 ${(y0+y1)/2})`}>จำนวนLead →</text>
-    <text x=${mx} y=${y1+14} text-anchor="middle" font-size="9" fill="var(--dim)">มัธยฐาน ${Math.round(medX)}</text>
-    <text x=${x0-5} y=${my-3} text-anchor="end" font-size="9" fill="var(--dim)">มัธยฐาน ${Math.round(medY)}</text>
+    <text x=${(x0+x1)/2} y=${H-8} text-anchor="middle" font-size="11" fill="var(--muted)">${t("จำนวนลูกค้าปัจจุบัน →", "Existing customers →")}</text>
+    <text x=${16} y=${(y0+y1)/2} text-anchor="middle" font-size="11" fill="var(--muted)" transform=${`rotate(-90 16 ${(y0+y1)/2})`}>${t("จำนวนLead →", "Leads →")}</text>
+    <text x=${mx} y=${y1+14} text-anchor="middle" font-size="9" fill="var(--dim)">${t("มัธยฐาน", "median")} ${Math.round(medX)}</text>
+    <text x=${x0-5} y=${my-3} text-anchor="end" font-size="9" fill="var(--dim)">${t("มัธยฐาน", "median")} ${Math.round(medY)}</text>
     ${rows.map(r=>{ const cx=sx(r.existing), cy=sy(r.prospect), rr=rad(r.heatScore), col=QC[quad(r)], on=selDist===r.district;
       return html`<g key=${r.district} style=${{cursor:"pointer"}} onClick=${()=>onPick&&onPick(r.district)}>
         <circle cx=${cx} cy=${cy} r=${rr} fill=${col} fill-opacity=${on?0.85:0.5} stroke=${col} stroke-width=${on?2.6:1.2}/>
         <text x=${cx} y=${cy-rr-3} text-anchor="middle" font-size="9" fill="var(--muted)" style=${{pointerEvents:"none"}}>${districtTH(r.district)}</text>
-        <title>${districtTH(r.district)} · ลูกค้า ${r.existing} · Lead ${r.prospect} · Heat ${r.heatScore}</title>
+        <title>${districtTH(r.district)} ${t("· ลูกค้า", "· customers")} ${r.existing} · Lead ${r.prospect} · Heat ${r.heatScore}</title>
       </g>`; })}
   </svg>`;
 }
@@ -1131,120 +1136,120 @@ function GapReport({db, f}){
     <!-- ═════ ชั้น 2: Top KPI Cards Summary (4 กล่อง) — ลำดับที่ 2 ใต้ Header ═════ -->
     <div class="grid g4" style=${{marginBottom:"16px"}}>
       <div style=${cardSt}>
-        <div style=${capSt}><${Icon} name="users" size=${15} color="#8a5cf6"/>ธุรกิจในพื้นที่ทั้งหมด</div>
+        <div style=${capSt}><${Icon} name="users" size=${15} color="#8a5cf6"/>${t("ธุรกิจในพื้นที่ทั้งหมด", "All businesses in the area")}</div>
         <div style=${bigSt}>${num(totalMarket)}</div>
-        <div class="dim" style=${{fontSize:"11.5px"}}>ลูกค้า ${num(provExisting)} + Lead ${num(provProspect)}</div>
+        <div class="dim" style=${{fontSize:"11.5px"}}>${t("ลูกค้า", "Customers")} ${num(provExisting)} + Lead ${num(provProspect)}</div>
       </div>
       <div style=${cardSt}>
-        <div style=${capSt}><${Icon} name="target" size=${15} color=${STATUS_COLOR.Prospect}/>ช่องว่างโอกาสรวม</div>
+        <div style=${capSt}><${Icon} name="target" size=${15} color=${STATUS_COLOR.Prospect}/>${t("ช่องว่างโอกาสรวม", "Total opportunity gap")}</div>
         <div style=${bigSt}>${num(provProspect)}</div>
-        <div class="dim" style=${{fontSize:"11.5px"}}>Leadทั้งหมดที่ยังไม่ถูกแปลงเป็นลูกค้า</div>
+        <div class="dim" style=${{fontSize:"11.5px"}}>${t("Leadทั้งหมดที่ยังไม่ถูกแปลงเป็นลูกค้า", "All Leads not yet converted to customers")}</div>
       </div>
       <div style=${cardSt}>
-        <div style=${capSt}><${Icon} name="gap" size=${15} color="#ff8f3c"/>อัตราส่วนLeadต่อลูกค้า</div>
+        <div style=${capSt}><${Icon} name="gap" size=${15} color="#ff8f3c"/>${t("อัตราส่วนLeadต่อลูกค้า", "Leads per customer")}</div>
         <div style=${bigSt}>${p2cRatio.toFixed(1)} : 1</div>
-        <div class="dim" style=${{fontSize:"11.5px"}}>ยิ่งสูง = โอกาสขยายฐานลูกค้ายิ่งมาก</div>
+        <div class="dim" style=${{fontSize:"11.5px"}}>${t("ยิ่งสูง = โอกาสขยายฐานลูกค้ายิ่งมาก", "The higher it is, the more room to grow the customer base")}</div>
       </div>
       <div style=${cardSt}>
-        <div style=${capSt}><${Icon} name="coverage" size=${15} color="#33d69f"/>อัตราความครอบคลุมรวม</div>
+        <div style=${capSt}><${Icon} name="coverage" size=${15} color="#33d69f"/>${t("อัตราความครอบคลุมรวม", "Overall coverage rate")}</div>
         <div style=${bigSt}>${provCoverage.toFixed(2)}%</div>
-        <div class="dim" style=${{fontSize:"11.5px"}}>ลูกค้า ÷ (ลูกค้า + Lead) × 100</div>
+        <div class="dim" style=${{fontSize:"11.5px"}}>${t("ลูกค้า ÷ (ลูกค้า + Lead) × 100", "customers ÷ (customers + Leads) × 100")}</div>
       </div>
     </div>
 
     <!-- ═════ ชั้น 3: Contextual Filter Bar — จังหวัด/ประเภทธุรกิจ/ขอบเขต Lead (ย้ายมาไว้ใต้ KPI ตาม pattern มาตรฐาน) ═════ -->
     <div class="gap-filters">
-      <label class="gap-lab">จังหวัด
+      <label class="gap-lab">${t("จังหวัด", "Province")}
         <select class="gap-sel" value=${province} onChange=${e=>{ setProvince(e.target.value); setSelDist(null); }}>
           ${GAP_PROVS.map(p=>html`<option key=${p} value=${p}>${provinceTH(p)}</option>`)}
         </select></label>
-      <label class="gap-lab">ประเภทธุรกิจ
+      <label class="gap-lab">${t("ประเภทธุรกิจ", "Business type")}
         <select class="gap-sel" value=${segment} onChange=${e=>setSegment(e.target.value)}>
-          <option value="All">ทุกกลุ่ม</option>
+          <option value="All">${t("ทุกกลุ่ม", "All segments")}</option>
           ${SEGMENTS.map(s=>html`<option key=${s} value=${s}>${segTH(s)}</option>`)}
         </select></label>
-      <label class="gap-lab">ขอบเขต Lead
+      <label class="gap-lab">${t("ขอบเขต Lead", "Lead scope")}
         <select class="gap-sel" value=${onlyGap} onChange=${e=>setOnlyGap(e.target.value)}>
-          <option value="All">ทุก Lead</option>
-          <option value="gap">เฉพาะหมวดที่ยังขาด</option>
+          <option value="All">${t("ทุก Lead", "All Leads")}</option>
+          <option value="gap">${t("เฉพาะหมวดที่ยังขาด", "Under-served categories only")}</option>
         </select></label>
-      <div class="gap-hint">${num(rows.length)} เขต/อำเภอ · จังหวัด${provinceTH(province)}</div>
+      <div class="gap-hint">${num(rows.length)} ${t("เขต/อำเภอ · จังหวัด", "District · province ")}${provinceTH(province)}</div>
     </div>
 
     <!-- ═════ ส่วนที่ 3: Heatmap + Heat Ranking Top 5 ═════ -->
     <div class="grid" style=${{gridTemplateColumns:"1fr 320px", gap:"16px", alignItems:"start", marginBottom:"16px"}}>
-      <${Card} title="แผนที่ความหนาแน่นช่องว่าง (White Space Heatmap)"
-        sub="หมุดลูกค้า (น้ำเงินเข้ม) ทับLead (น้ำเงินอ่อน) · โซนสีร้อน = Leadหนาแน่นแต่ลูกค้าน้อย · คลิกหมุดเพื่อโฟกัสเขต">
+      <${Card} title=${t("แผนที่ความหนาแน่นช่องว่าง (White Space Heatmap)", "White-space heatmap")}
+        sub=${t("หมุดลูกค้า (น้ำเงินเข้ม) ทับLead (น้ำเงินอ่อน) · โซนสีร้อน = Leadหนาแน่นแต่ลูกค้าน้อย · คลิกหมุดเพื่อโฟกัสเขต", "Customer pins (dark blue) over Lead pins (light blue) · hot zones are dense with Leads but thin on customers · click a pin to focus that district")}>
         <div class="gap-layers">
-          <label class="gap-lyr"><span class="gap-sw" style=${{background:STATUS_COLOR.Existing}}></span><span>ลูกค้าปัจจุบัน</span>
+          <label class="gap-lyr"><span class="gap-sw" style=${{background:STATUS_COLOR.Existing}}></span><span>${t("ลูกค้าปัจจุบัน", "Existing customers")}</span>
             <${Toggle} on=${layers.existing} onChange=${()=>setLayers(x=>({...x,existing:!x.existing}))}/></label>
           <label class="gap-lyr"><span class="gap-sw" style=${{background:STATUS_COLOR.Prospect}}></span><span>Lead</span>
             <${Toggle} on=${layers.prospect} onChange=${()=>setLayers(x=>({...x,prospect:!x.prospect}))}/></label>
-          <label class="gap-lyr"><span class="gap-sw" style=${{background:"linear-gradient(90deg,#2b6fff,#26e07a,#ffb02e,#ff3b1e)"}}></span><span>ความหนาแน่น (Heatmap)</span>
+          <label class="gap-lyr"><span class="gap-sw" style=${{background:"linear-gradient(90deg,#2b6fff,#26e07a,#ffb02e,#ff3b1e)"}}></span><span>${t("ความหนาแน่น (Heatmap)", "Density (heatmap)")}</span>
             <${Toggle} on=${layers.heat} onChange=${()=>setLayers(x=>({...x,heat:!x.heat}))}/></label>
         </div>
         ${sel && html`<div class="gap-focus">
           <${Icon} name="pin" size=${14} color="var(--accent)"/>
-          <span>โฟกัส <b>${districtTH(sel.district)}</b> · ลูกค้า ${num(sel.existing)} · Lead ${num(sel.prospect)} · ครอบคลุม ${sel.coverage.toFixed(1)}% · Heat ${sel.heatScore}</span>
-          <button class="gap-focus-x" onClick=${()=>setSelDist(null)} aria-label="ล้าง">✕</button>
+          <span>${t("โฟกัส", "Focused on")} <b>${districtTH(sel.district)}</b> ${t("· ลูกค้า", "· customers")} ${num(sel.existing)} · Lead ${num(sel.prospect)} ${t("· ครอบคลุม", "· coverage")} ${sel.coverage.toFixed(1)}% · Heat ${sel.heatScore}</span>
+          <button class="gap-focus-x" onClick=${()=>setSelDist(null)} aria-label=${t("ล้าง", "Clear")}>✕</button>
         </div>`}
         <div class="gap-map">
           <${LeafletMap} db=${db} filters=${mapFilters} layers=${mapLayers} country="Thailand"
             onPickArea=${()=>{}} onPickCustomer=${rec=>setSelDist(rec.district)}/>
         </div>
       </${Card}>
-      <${Card} title="5 อันดับพื้นที่ควรขยาย" sub="Heat Ranking Score สูงสุด" pad0=${true}>
+      <${Card} title=${t("5 อันดับพื้นที่ควรขยาย", "Top 5 areas to expand into")} sub=${t("Heat Ranking Score สูงสุด", "Highest heat ranking score")} pad0=${true}>
         ${heatTop5.map((r,i)=>html`<div key=${r.district} class=${"gap-hr"+(selDist===r.district?" on":"")} onClick=${()=>setSelDist(r.district)}>
           <span class="gap-hr-rank">${i+1}</span>
           <div style=${{flex:1,minWidth:0}}>
             <div class="gap-hr-nm">${districtTH(r.district)}</div>
-            <div class="gap-hr-meta">Lead ${num(r.prospect)} · ครอบคลุม ${r.coverage.toFixed(0)}%</div>
+            <div class="gap-hr-meta">Lead ${num(r.prospect)} ${t("· ครอบคลุม", "· coverage")} ${r.coverage.toFixed(0)}%</div>
           </div>
           <span class="gap-hr-score" style=${{color:r.priority===1?"#ff5a3c":"var(--accent)"}}>${r.heatScore}</span>
         </div>`)}
-        ${heatTop5.length===0 && html`<div class="dim" style=${{padding:"16px",fontSize:"13px"}}>ไม่มีข้อมูล</div>`}
+        ${heatTop5.length===0 && html`<div class="dim" style=${{padding:"16px",fontSize:"13px"}}>${t("ไม่มีข้อมูล", "No data")}</div>`}
       </${Card}>
     </div>
 
     <!-- ═════ ส่วนที่ 4-5 (ใหม่): Opportunity Matrix (Bubble) + Master Table + View Toggle ═════ -->
     <div class="gap-viewbar">
       <div>
-        <div class="gap-viewtitle">การวิเคราะห์ช่องว่างเชิงลึก</div>
-        <div class="gap-viewsub">Bubble Matrix แบ่ง 4 quadrant ด้วยมัธยฐานจริงของจังหวัด · ตารางเดียวรวมทุกมิติ (Density + Heat + กลยุทธ์)</div>
+        <div class="gap-viewtitle">${t("การวิเคราะห์ช่องว่างเชิงลึก", "In-depth gap analysis")}</div>
+        <div class="gap-viewsub">${t("Bubble Matrix แบ่ง 4 quadrant ด้วยมัธยฐานจริงของจังหวัด · ตารางเดียวรวมทุกมิติ (Density + Heat + กลยุทธ์)", "A bubble matrix split into four quadrants by the province's real medians · one table covering every dimension (density + heat + strategy)")}</div>
       </div>
-      <div class="gap-toggle" role="group" aria-label="สลับมุมมอง">
-        <button class=${view==="both"?"on":""} onClick=${()=>setView("both")}>ทั้งคู่</button>
-        <button class=${view==="matrix"?"on":""} onClick=${()=>setView("matrix")}>มุมมองภาพรวม</button>
-        <button class=${view==="table"?"on":""} onClick=${()=>setView("table")}>มุมมองตาราง</button>
+      <div class="gap-toggle" role="group" aria-label=${t("สลับมุมมอง", "Switch view")}>
+        <button class=${view==="both"?"on":""} onClick=${()=>setView("both")}>${t("ทั้งคู่", "Both")}</button>
+        <button class=${view==="matrix"?"on":""} onClick=${()=>setView("matrix")}>${t("มุมมองภาพรวม", "Overview")}</button>
+        <button class=${view==="table"?"on":""} onClick=${()=>setView("table")}>${t("มุมมองตาราง", "Table")}</button>
       </div>
     </div>
 
-    ${(view==="both"||view==="matrix") && html`<${Card} title="เมทริกซ์ Lead รายเขต/อำเภอ"
-      sub="แกน X = ลูกค้าปัจจุบัน · แกน Y = Lead · ขนาดวงกลม = ดัชนี Lead · เส้นแบ่งที่มัธยฐาน (median) จริง · คลิกวงเพื่อโฟกัส" style=${{marginBottom:"16px"}}>
+    ${(view==="both"||view==="matrix") && html`<${Card} title=${t("เมทริกซ์ Lead รายเขต/อำเภอ", "Lead matrix by district")}
+      sub=${t("แกน X = ลูกค้าปัจจุบัน · แกน Y = Lead · ขนาดวงกลม = ดัชนี Lead · เส้นแบ่งที่มัธยฐาน (median) จริง · คลิกวงเพื่อโฟกัส", "X = existing customers · Y = Leads · bubble size = Lead index · dividers sit at the real medians · click a bubble to focus")} style=${{marginBottom:"16px"}}>
       ${gapBubbleMatrix(rows, selDist, setSelDist)}
     </${Card}>`}
 
-    ${(view==="both"||view==="table") && html`<${Card} title="ตารางวิเคราะห์รวม (Master Table)"
-      sub="รวม 3 ตารางเดิมเป็นตารางเดียว · เรียงตาม Density Score สูง→ต่ำ · คลิกแถวเพื่อโฟกัส" pad0=${true} style=${{marginBottom:"16px"}}>
+    ${(view==="both"||view==="table") && html`<${Card} title=${t("ตารางวิเคราะห์รวม (Master Table)", "Combined analysis table")}
+      sub=${t("รวม 3 ตารางเดิมเป็นตารางเดียว · เรียงตาม Density Score สูง→ต่ำ · คลิกแถวเพื่อโฟกัส", "Three former tables merged into one · sorted by density score, highest first · click a row to focus")} pad0=${true} style=${{marginBottom:"16px"}}>
       <${Table} onRow=${r=>setSelDist(r.district)} cols=${[
-        {h:"ลำดับ", render:(r,i)=>html`<b>${i+1}</b>`},
-        {h:"เขตพื้นที่", render:r=>html`<b style=${{color:selDist===r.district?"var(--accent)":"var(--txt)"}}>${districtTH(r.district)}</b>`},
+        {h:t("ลำดับ", "Order"), render:(r,i)=>html`<b>${i+1}</b>`},
+        {h:t("เขตพื้นที่", "District"), render:r=>html`<b style=${{color:selDist===r.district?"var(--accent)":"var(--txt)"}}>${districtTH(r.district)}</b>`},
         {h:"Density Score", render:r=>html`<${Badge} tone=${densityTier(r.densityScore).tone}>${r.densityScore}</${Badge}>`},
-        {h:"ลูกค้า / Lead", render:r=>html`<span><b>${num(r.existing)}</b> <span class="dim">/</span> <b style=${{color:STATUS_COLOR.Prospect}}>${num(r.prospect)}</b></span>`},
-        {h:"ความครอบคลุม", render:r=>html`<div style=${{minWidth:"66px"}}>
+        {h:t("ลูกค้า / Lead", "Customers / Leads"), render:r=>html`<span><b>${num(r.existing)}</b> <span class="dim">/</span> <b style=${{color:STATUS_COLOR.Prospect}}>${num(r.prospect)}</b></span>`},
+        {h:t("ความครอบคลุม", "Coverage"), render:r=>html`<div style=${{minWidth:"66px"}}>
           <b style=${{fontSize:"12.5px"}}>${r.coverage.toFixed(1)}%</b>
           <div class="gap-covbar"><div class="gap-covbar-f" style=${{width:Math.min(100,r.coverage)+"%"}}></div></div></div>`},
-        {h:"สถานะช่องว่าง", render:r=>html`<${Badge} tone=${r.priority===1?"bad":"neutral"}>${r.priority===1?"Priority 1 · ขยายทันที":"Priority 2 · เป้าหมายรอง"}</${Badge}>`},
-        {h:"กลยุทธ์การขยายที่แนะนำ", render:r=>html`<span style=${{fontSize:"12.5px"}}>${expansionGuidance(r.priority, r.topSegment, r.coverage)}</span>`},
+        {h:t("สถานะช่องว่าง", "Gap status"), render:r=>html`<${Badge} tone=${r.priority===1?"bad":"neutral"}>${r.priority===1?t("Priority 1 · ขยายทันที", "Priority 1 · expand now"):t("Priority 2 · เป้าหมายรอง", "Priority 2 · secondary target")}</${Badge}>`},
+        {h:t("กลยุทธ์การขยายที่แนะนำ", "Recommended expansion strategy"), render:r=>html`<span style=${{fontSize:"12.5px"}}>${expansionGuidance(r.priority, r.topSegment, r.coverage)}</span>`},
       ]} rows=${master}/>
     </${Card}>`}
 
     ${matrix.length>0 && html`<div class="gap-insight">
-      <div class="gap-ins-h"><${Icon} name="bolt" size=${15} color="#33d69f"/> ข้อเสนอเชิงปฏิบัติอัตโนมัติ</div>
+      <div class="gap-ins-h"><${Icon} name="bolt" size=${15} color="#33d69f"/> ${t("ข้อเสนอเชิงปฏิบัติอัตโนมัติ", "Automatic practical recommendations")}</div>
       <div class="gap-ins-body">
-        <div>• <b>จัดสรรทรัพยากรทีมขาย:</b> พบพื้นที่ Priority 1 จำนวน ${num(p1.length)} จาก ${num(matrix.length)} เขต (คิดเป็น ${p1Pct}%) — ควรมุ่งทีมขายหลักไปยังกลุ่มนี้ก่อน เพราะ Heat สูงจากLeadหนาแน่น + ความครอบคลุมต่ำ</div>
-        ${microZone && html`<div style=${{marginTop:"6px"}}>• <b>เจาะพื้นที่ที่ขาดมากสุด:</b> ${districtTH(microZone.district)} ยังขาด ${num(microZone.gapCount)} ราย ใน ${microZone.gapBreadth} หมวด (หมวดที่ขาดสุด: ${microZone.topGapSegment?segTH(microZone.topGapSegment):"—"} · Density ${microZone.densityScore}) ควรตั้งเป็นเป้าหมายเจาะแรก</div>`}
-        <div style=${{marginTop:"6px"}}>• <b>จัดเขตทีมขาย:</b> แบ่งความรับผิดชอบตามลำดับ Heat Ranking โดยแยกทีมดูแล Priority 1 (${num(p1.length)} เขต) ออกจาก Priority 2 เพื่อลดการทับซ้อนและใช้กำลังคนคุ้มค่า</div>
+        <div>• <b>${t("จัดสรรทรัพยากรทีมขาย:", "Allocate sales resources:")}</b> ${t("พบพื้นที่ Priority 1 จำนวน", "found")} ${num(p1.length)} ${t("จาก", "of")} ${num(matrix.length)} ${t("เขต (คิดเป็น", "Priority 1 districts (")} ${p1Pct}${t("%) — ควรมุ่งทีมขายหลักไปยังกลุ่มนี้ก่อน เพราะ Heat สูงจากLeadหนาแน่น + ความครอบคลุมต่ำ", "%) — point the main sales team here first: high heat from dense Leads plus low coverage")}</div>
+        ${microZone && html`<div style=${{marginTop:"6px"}}>• <b>${t("เจาะพื้นที่ที่ขาดมากสุด:", "Target the biggest gaps:")}</b> ${districtTH(microZone.district)} ${t("ยังขาด", "still short")} ${num(microZone.gapCount)} ${t("ราย ใน", "businesses across")} ${microZone.gapBreadth} ${t("หมวด (หมวดที่ขาดสุด:", "categories (the largest gap:")} ${microZone.topGapSegment?segTH(microZone.topGapSegment):"—"} · Density ${microZone.densityScore}${t(") ควรตั้งเป็นเป้าหมายเจาะแรก", ") should be the first target")}</div>`}
+        <div style=${{marginTop:"6px"}}>• <b>${t("จัดเขตทีมขาย:", "Structure the sales territories:")}</b> ${t("แบ่งความรับผิดชอบตามลำดับ Heat Ranking โดยแยกทีมดูแล Priority 1 (", "split ownership by heat ranking, with a separate team on Priority 1 (")}${num(p1.length)} ${t("เขต) ออกจาก Priority 2 เพื่อลดการทับซ้อนและใช้กำลังคนคุ้มค่า", "districts) apart from Priority 2, to reduce overlap and use people well")}</div>
       </div>
     </div>`}
     <style>${GAP_CSS}</style>
@@ -1300,14 +1305,14 @@ const GAP_CSS = `
    (buildClusters ใน data.js) รองรับ 4 จังหวัดที่มีข้อมูลระดับเขต · จำนวนกลุ่มไม่ตายตัว */
 const CLUSTER_PROVS = ["Bangkok Metropolis","Chiang Mai","Phuket","Pattaya"];
 // ชื่อกลุ่มแบบ auto-generate จากเขตหนาแน่นสุดในกลุ่ม (ไม่ hardcode ชื่อเฉพาะ)
-const clusterName = c => c.memberCount>1 ? `กลุ่มพื้นที่${districtTH(c.anchor)}และใกล้เคียง` : `กลุ่มพื้นที่${districtTH(c.anchor)}`;
+const clusterName = c => c.memberCount>1 ? `${t("กลุ่มพื้นที่", "Area cluster ")}${districtTH(c.anchor)}${t("และใกล้เคียง", " and nearby")}` : `${t("กลุ่มพื้นที่", "Area cluster ")}${districtTH(c.anchor)}`;
 
 // กราฟแท่งคู่: ลูกค้าปัจจุบัน vs Lead แยกตาม cluster (แกน X = รหัสกลุ่ม, แกน Y = จำนวนราย)
 function geoGroupedBar(clusters){
   const max = Math.max(1, ...clusters.flatMap(c=>[c.existing, c.prospect]));
   return html`<div>
     <div class="geo-gb-legend">
-      <span><span class="geo-dot" style=${{background:STATUS_COLOR.Existing}}></span>ลูกค้าปัจจุบัน</span>
+      <span><span class="geo-dot" style=${{background:STATUS_COLOR.Existing}}></span>${t("ลูกค้าปัจจุบัน", "Existing customers")}</span>
       <span><span class="geo-dot" style=${{background:STATUS_COLOR.Prospect}}></span>Lead</span>
     </div>
     <div class="geo-gb">
@@ -1336,7 +1341,7 @@ function geoStacked100(clusters){
             ${t>0 ? SEGMENTS.map(s=>{ const w=c.segCounts[s]/t*100;
               return w>0 ? html`<div key=${s} class="geo-st-seg" style=${{width:w+"%",background:SEG_COLOR[s]}}
                 title=${segTH(s)+" "+num(c.segCounts[s])+" ("+Math.round(w)+"%)"}></div>` : ""; })
-              : html`<div class="geo-st-empty">ไม่มีข้อมูล</div>`}
+              : html`<div class="geo-st-empty">${t("ไม่มีข้อมูล", "No data")}</div>`}
           </div>
         </div>`; })}
     </div>
@@ -1349,8 +1354,12 @@ function geoStacked100(clusters){
 // เป้าหมายอัตราความครอบคลุม (ปรับได้จุดเดียว) — ใช้เทียบใน KPI "อัตราความครอบคลุม"
 const COVERAGE_TARGET = 80;
 // ระดับความหนาแน่นของโซน คิดจากขนาดตลาดรวม (ลูกค้า+Lead) เทียบกับโซนที่ใหญ่สุดในจังหวัด
+// k = คีย์ไว้เทียบในโค้ด (ห้ามแปล) · t = ป้ายที่แสดง เป็น getter เพราะผลลัพธ์ถูกเก็บใน useMemo
+// ถ้าเก็บเป็นสตริงตรง ๆ ค่าที่ memo ไว้จะค้างภาษาเดิมตอนสลับภาษา
 const densityLabel = (market, maxMarket)=>{ const r = maxMarket? market/maxMarket : 0;
-  return r>=0.66 ? {t:"สูง",tone:"bad"} : r>=0.33 ? {t:"ปานกลาง",tone:"warn"} : {t:"ต่ำ",tone:"neutral"}; };
+  return r>=0.66 ? {k:"high",   tone:"bad",     get t(){ return t("สูง","High"); }}
+       : r>=0.33 ? {k:"medium", tone:"warn",    get t(){ return t("ปานกลาง","Medium"); }}
+       :           {k:"low",    tone:"neutral", get t(){ return t("ต่ำ","Low"); }}; };
 
 // รายงานสรุปข้อมูลรายพื้นที่ — รีดีไซน์เป็น 3 ส่วน (KPI / แผนที่+กราฟ / ตารางเชิงปฏิบัติ)
 // วิเคราะห์ทีละจังหวัด (จัดกลุ่มพื้นที่ภายในจังหวัดด้วย buildClusters) จึงยึด 4 จังหวัดที่มีข้อมูลระดับเขต
@@ -1397,7 +1406,7 @@ function AreaSummaryReport({db, f, k, nav, tab, setTab, province, setProvince, s
 
   // ── Section 1: KPI ──
   // 1) โซนโอกาสหนาแน่นสูง = จำนวนกลุ่มพื้นที่ที่มีความหนาแน่น (ลูกค้า+Lead) ระดับ "สูง"
-  const highZones = zoneRows.filter(z=>z.density.t==="สูง").length;
+  const highZones = zoneRows.filter(z=>z.density.k==="high").length;
   // 2) อัตราความครอบคลุม (จากสูตรเดิมของ analyzeArea) เทียบเป้าหมาย
   const coverage = provStat.coverage;
   // 3) ช่องว่างที่ยังไม่เข้าถึง = Lead ในหมวดที่จังหวัดนี้ "ยังขาด" และยังไม่เข้าพบ
@@ -1425,67 +1434,67 @@ function AreaSummaryReport({db, f, k, nav, tab, setTab, province, setProvince, s
   return html`<div class="fade-in">
     <!-- ═════ Header ═════ -->
     <div class="as-head">
-      <div><div class="as-head-t">สรุปข่าวกรองเชิงพื้นที่</div>
-        <div class="as-head-s">ภาพรวมโอกาส ความครอบคลุม และสถานะการเข้าพบ รายกลุ่มพื้นที่ในจังหวัด${provinceTH(geoProv)}</div></div>
+      <div><div class="as-head-t">${t("สรุปข่าวกรองเชิงพื้นที่", "Spatial intelligence summary")}</div>
+        <div class="as-head-s">${t("ภาพรวมโอกาส ความครอบคลุม และสถานะการเข้าพบ รายกลุ่มพื้นที่ในจังหวัด", "Opportunity, coverage and visit status by area cluster within the province ")}${provinceTH(geoProv)}</div></div>
     </div>
 
     <!-- ═════ ชั้นที่ 3: แถบตัวกรอง (จังหวัด · ช่วงวันที่ · TC) ═════ -->
     <div class="op-slicers">
-      <label class="op-lab">จังหวัด
+      <label class="op-lab">${t("จังหวัด", "Province")}
         <select class="op-sel" value=${province} onChange=${e=>setProvince(e.target.value)}>
-          <option value="All">ทั้งประเทศ</option>
+          <option value="All">${t("ทั้งประเทศ", "Nationwide")}</option>
           ${CLUSTER_PROVS.map(p=>html`<option key=${p} value=${p}>${provinceTH(p)}</option>`)}
         </select></label>
-      <label class="op-lab">กลุ่มธุรกิจ
+      <label class="op-lab">${t("กลุ่มธุรกิจ", "Business segment")}
         <select class="op-sel" value=${segment} onChange=${e=>setSegment(e.target.value)}>
-          <option value="All">ทุกกลุ่ม</option>
+          <option value="All">${t("ทุกกลุ่ม", "All segments")}</option>
           ${SEGMENTS.map(s=>html`<option key=${s} value=${s}>${segTH(s)}</option>`)}
         </select></label>
       <${QuickRange} db=${db} from=${from} to=${to} setFrom=${setFrom} setTo=${setTo}/>
-      <label class="op-lab">ตั้งแต่วันที่
+      <label class="op-lab">${t("ตั้งแต่วันที่", "From")}
         <${DateField} className="op-sel" value=${from} onChange=${setFrom}/></label>
-      <label class="op-lab">ถึงวันที่
+      <label class="op-lab">${t("ถึงวันที่", "To")}
         <${DateField} className="op-sel" value=${to} onChange=${setTo}/></label>
-      <label class="op-lab">ผู้ประสานงาน (TC)
+      <label class="op-lab">${t("ผู้ประสานงาน (TC)", "Coordinator (TC)")}
         <select class="op-sel" value=${tc} onChange=${e=>setTc(e.target.value)}>
-          <option value="All">ทุกคน</option>
+          <option value="All">${t("ทุกคน", "Everyone")}</option>
           ${tcList.map(t=>html`<option key=${t} value=${t}>${t}</option>`)}
         </select></label>
-      ${(tc!=="All"||from||to) && html`<button class="op-clear" onClick=${clearFilters}>ล้างตัวกรอง</button>`}
+      ${(tc!=="All"||from||to) && html`<button class="op-clear" onClick=${clearFilters}>${t("ล้างตัวกรอง", "Clear filters")}</button>`}
       <div class="rpt-daterange-note">
-        ${swapped ? html`<span style=${{color:"#b45309"}}>สลับช่วงวันที่ให้อัตโนมัติแล้ว (วันที่ถึงมาก่อนวันที่ตั้งแต่)</span><br/>` : ""}
-        ${geoFallback ? html`วิเคราะห์ทีละจังหวัด — กำลังแสดง <b>${provinceTH(geoProv)}</b> · ` : ""}
-        ลูกค้า ${num(provStat.customerCount)} · Lead ${num(provStat.prospectCount)}
+        ${swapped ? html`<span style=${{color:"#b45309"}}>${t("สลับช่วงวันที่ให้อัตโนมัติแล้ว (วันที่ถึงมาก่อนวันที่ตั้งแต่)", "The date range was swapped automatically (the end date came before the start date)")}</span><br/>` : ""}
+        ${geoFallback ? html`${t("วิเคราะห์ทีละจังหวัด — กำลังแสดง", "One province at a time — currently showing")} <b>${provinceTH(geoProv)}</b> · ` : ""}
+        ${t("ลูกค้า", "Customers")} ${num(provStat.customerCount)} · Lead ${num(provStat.prospectCount)}
       </div>
     </div>
 
     <!-- ═════ Section 1: KPI (3 การ์ด — ตัด Route Efficiency ออกตามที่กำหนด) ═════ -->
     <div class="grid g3" style=${{marginBottom:"16px"}}>
       <div style=${cardSt}>
-        <div style=${capSt}><${Icon} name="layers" size=${15} color="#8a5cf6"/>โซนโอกาสหนาแน่นสูง</div>
+        <div style=${capSt}><${Icon} name="layers" size=${15} color="#8a5cf6"/>${t("โซนโอกาสหนาแน่นสูง", "High-density opportunity zones")}</div>
         <div style=${bigSt}>${num(highZones)}</div>
-        <div class="dim" style=${{fontSize:"11.5px"}}>จากทั้งหมด ${num(clusters.length)} กลุ่มพื้นที่ (ความหนาแน่นระดับสูง)</div>
+        <div class="dim" style=${{fontSize:"11.5px"}}>${t("จากทั้งหมด", "out of")} ${num(clusters.length)} ${t("กลุ่มพื้นที่ (ความหนาแน่นระดับสูง)", "area clusters (high density)")}</div>
       </div>
       <div style=${cardSt}>
-        <div style=${capSt}><${Icon} name="coverage" size=${15} color="#33d69f"/>อัตราความครอบคลุม</div>
-        <div style=${bigSt}>${coverage}% <span style=${{fontSize:"13px",fontWeight:600,color:coverage>=COVERAGE_TARGET?"#33d69f":"var(--muted)"}}>(เป้าหมาย ${COVERAGE_TARGET}%)</span></div>
+        <div style=${capSt}><${Icon} name="coverage" size=${15} color="#33d69f"/>${t("อัตราความครอบคลุม", "Coverage rate")}</div>
+        <div style=${bigSt}>${coverage}% <span style=${{fontSize:"13px",fontWeight:600,color:coverage>=COVERAGE_TARGET?"#33d69f":"var(--muted)"}}>${t("(เป้าหมาย", "(target")} ${COVERAGE_TARGET}%)</span></div>
         <div class="as-target"><div class="as-target-f" style=${{width:Math.min(100,coverage)+"%",background:coverage>=COVERAGE_TARGET?"#33d69f":"#ffb02e"}}></div>
           <div class="as-target-goal" style=${{left:COVERAGE_TARGET+"%"}}></div></div>
       </div>
       <div style=${cardSt}>
-        <div style=${capSt}><${Icon} name="target" size=${15} color="#ff5a3c"/>ช่องว่างที่ยังไม่เข้าถึง</div>
+        <div style=${capSt}><${Icon} name="target" size=${15} color="#ff5a3c"/>${t("ช่องว่างที่ยังไม่เข้าถึง", "Gap not yet reached")}</div>
         <div style=${bigSt}>${num(unserved)}</div>
-        <div class="dim" style=${{fontSize:"11.5px"}}>Lead ในหมวดที่ยังขาด · ยังไม่เข้าพบ</div>
+        <div class="dim" style=${{fontSize:"11.5px"}}>${t("Lead ในหมวดที่ยังขาด · ยังไม่เข้าพบ", "Leads in under-served categories · not visited")}</div>
       </div>
     </div>
 
     <!-- ═════ Section 2: แผนที่สรุป (ซ้าย) + กราฟเปรียบเทียบรายโซน (ขวา) ═════ -->
     <div class="geo-2col" style=${{marginBottom:"16px"}}>
-      <${Card} title="แผนที่สรุปความหนาแน่นและช่องว่าง"
-        sub="แดง = Lead ในหมวดที่ยังขาด · เทา = ยังไม่เข้าพบ (ช่องว่าง) · ขอบเขตสี = กลุ่มพื้นที่">
+      <${Card} title=${t("แผนที่สรุปความหนาแน่นและช่องว่าง", "Density and gap summary map")}
+        sub=${t("แดง = Lead ในหมวดที่ยังขาด · เทา = ยังไม่เข้าพบ (ช่องว่าง) · ขอบเขตสี = กลุ่มพื้นที่", "Red = Leads in under-served categories · grey = not visited (the gap) · coloured outlines = area clusters")}>
         <div class="geo-layers">
           <label class="geo-lyr"><span class="geo-sw" style=${{background:STATUS_COLOR.Existing}}></span>
-            <span>ลูกค้าปัจจุบัน</span><${Toggle} on=${mlayers.existing} onChange=${()=>setMlayers(x=>({...x,existing:!x.existing}))}/></label>
+            <span>${t("ลูกค้าปัจจุบัน", "Existing customers")}</span><${Toggle} on=${mlayers.existing} onChange=${()=>setMlayers(x=>({...x,existing:!x.existing}))}/></label>
           <label class="geo-lyr"><span class="geo-sw" style=${{background:STATUS_COLOR.Prospect}}></span>
             <span>Lead</span><${Toggle} on=${mlayers.prospect} onChange=${()=>setMlayers(x=>({...x,prospect:!x.prospect}))}/></label>
           <label class="geo-lyr"><span class="geo-sw" style=${{background:"linear-gradient(90deg,#2b6fff,#26e07a,#ffb02e,#ff3b1e)"}}></span>
@@ -1493,9 +1502,9 @@ function AreaSummaryReport({db, f, k, nav, tab, setTab, province, setProvince, s
         </div>
         <!-- คำอธิบายสีเน้นสถานะการเข้าพบ -->
         <div class="as-vlegend">
-          <span><span class="as-vdot" style=${{background:"#ff3b1e"}}></span>อยู่ในหมวดที่ยังขาด (เข้าพบแล้ว)</span>
-          <span><span class="as-vdot" style=${{background:"#9aa4b2"}}></span>ยังไม่เข้าพบ ${num(provUnvisited)} ราย</span>
-          <span><span class="as-vdot" style=${{background:STATUS_COLOR.Existing}}></span>ลูกค้าปัจจุบัน</span>
+          <span><span class="as-vdot" style=${{background:"#ff3b1e"}}></span>${t("อยู่ในหมวดที่ยังขาด (เข้าพบแล้ว)", "in under-served categories (already visited)")}</span>
+          <span><span class="as-vdot" style=${{background:"#9aa4b2"}}></span>${t("ยังไม่เข้าพบ", "Not visited")} ${num(provUnvisited)} ${t("ราย", "businesses")}</span>
+          <span><span class="as-vdot" style=${{background:STATUS_COLOR.Existing}}></span>${t("ลูกค้าปัจจุบัน", "Existing customers")}</span>
         </div>
         <div class="geo-map">
           <${LeafletMap} db=${vdb} filters=${mapFilters} layers=${mapLayers} country="Thailand" clusters=${clusters}
@@ -1505,24 +1514,24 @@ function AreaSummaryReport({db, f, k, nav, tab, setTab, province, setProvince, s
           ${clusters.map(c=>html`<span key=${c.code} class="geo-cl"><span class="geo-cdot" style=${{background:c.color}}>${c.code}</span>${clusterName(c)}</span>`)}
         </div>
       </${Card}>
-      <${Card} title="เปรียบเทียบความครอบคลุมกับช่องว่างรายโซน"
-        sub="แท่งคู่ต่อกลุ่มพื้นที่ · ลูกค้าปัจจุบัน (ครอบคลุม) เทียบLead (ช่องว่างโอกาส)">
-        ${clusters.length ? geoGroupedBar(clusters) : html`<div class="emptybox">ไม่มีข้อมูลตามตัวกรองที่เลือก</div>`}
+      <${Card} title=${t("เปรียบเทียบความครอบคลุมกับช่องว่างรายโซน", "Coverage vs. gap by zone")}
+        sub=${t("แท่งคู่ต่อกลุ่มพื้นที่ · ลูกค้าปัจจุบัน (ครอบคลุม) เทียบLead (ช่องว่างโอกาส)", "Paired bars per area cluster · existing customers (coverage) against Leads (the opportunity gap)")}>
+        ${clusters.length ? geoGroupedBar(clusters) : html`<div class="emptybox">${t("ไม่มีข้อมูลตามตัวกรองที่เลือก", "No data matches the current filters")}</div>`}
       </${Card}>
     </div>
 
     <!-- ═════ Section 3: ตารางเชิงปฏิบัติ ═════ -->
-    <${Card} title="สรุปเชิงปฏิบัติรายกลุ่มพื้นที่" sub="เรียงตามคะแนนโอกาสสูง→ต่ำ" pad0=${true} style=${{marginBottom:"16px"}}>
+    <${Card} title=${t("สรุปเชิงปฏิบัติรายกลุ่มพื้นที่", "Actionable summary by area cluster")} sub=${t("เรียงตามคะแนนโอกาสสูง→ต่ำ", "Sorted by opportunity score, highest first")} pad0=${true} style=${{marginBottom:"16px"}}>
       ${zoneRows.length ? html`<${Table} cols=${[
-        {h:"กลุ่มพื้นที่", render:c=>html`<div class="row" style=${{gap:"8px"}}><span class="geo-cdot sm" style=${{background:c.color}}>${c.code}</span><b>${clusterName(c)}</b></div>`},
-        {h:"ระดับความหนาแน่น", render:c=>html`<${Badge} tone=${c.density.tone}>${c.density.t}</${Badge}> <span class="dim" style=${{fontSize:"11.5px"}}>${num(c.market)} ราย</span>`},
-        {h:"สถานะการเข้าพบ (Lead)", render:c=> c.psTotal ? html`<div style=${{minWidth:"150px"}}>
-          <div style=${{fontSize:"12px",marginBottom:"4px"}}><b style=${{color:"#0f7a3d"}}>ครอบคลุม ${num(c.covered)}</b> · <b style=${{color:"#b45309"}}>ยังไม่เข้าพบ ${num(c.uncovered)}</b></div>
+        {h:t("กลุ่มพื้นที่", "Area cluster"), render:c=>html`<div class="row" style=${{gap:"8px"}}><span class="geo-cdot sm" style=${{background:c.color}}>${c.code}</span><b>${clusterName(c)}</b></div>`},
+        {h:t("ระดับความหนาแน่น", "Density level"), render:c=>html`<${Badge} tone=${c.density.tone}>${c.density.t}</${Badge}> <span class="dim" style=${{fontSize:"11.5px"}}>${num(c.market)} ${t("ราย", "businesses")}</span>`},
+        {h:t("สถานะการเข้าพบ (Lead)", "Visit status (Leads)"), render:c=> c.psTotal ? html`<div style=${{minWidth:"150px"}}>
+          <div style=${{fontSize:"12px",marginBottom:"4px"}}><b style=${{color:"#0f7a3d"}}>${t("ครอบคลุม", "Coverage")} ${num(c.covered)}</b> · <b style=${{color:"#b45309"}}>${t("ยังไม่เข้าพบ", "Not visited")} ${num(c.uncovered)}</b></div>
           <div class="as-vbar"><div class="as-vbar-f" style=${{width:Math.round(c.covered/c.psTotal*100)+"%"}}></div></div>
         </div>` : html`<span class="dim">—</span>`},
-        {h:"ดัชนีช่องว่าง", render:c=>html`<b style=${{fontSize:"14px"}}>${c.gapScore}</b>`},
-        {h:"คำแนะนำ", render:c=>html`<span style=${{fontSize:"12px"}}>${expansionGuidance(c.priority, c.topSegment, c.coverage)}</span>`},
-      ]} rows=${zoneRows}/>` : html`<div class="emptybox" style=${{margin:"18px"}}>ไม่มีข้อมูลตามตัวกรองที่เลือก</div>`}
+        {h:t("ดัชนีช่องว่าง", "Gap index"), render:c=>html`<b style=${{fontSize:"14px"}}>${c.gapScore}</b>`},
+        {h:t("คำแนะนำ", "Recommendation"), render:c=>html`<span style=${{fontSize:"12px"}}>${expansionGuidance(c.priority, c.topSegment, c.coverage)}</span>`},
+      ]} rows=${zoneRows}/>` : html`<div class="emptybox" style=${{margin:"18px"}}>${t("ไม่มีข้อมูลตามตัวกรองที่เลือก", "No data matches the current filters")}</div>`}
     </${Card}>
 
     <style>${GEO_CSS}${AREA_SUM_CSS}</style>
@@ -1578,38 +1587,38 @@ function GeographicReport({db, f, province, segment}){
 
   // ข้อความข้อเสนอเชิงกลยุทธ์ (ใช้ทั้งแสดงผลและปุ่มคัดลอก — เป็นแหล่งเดียวกันไม่ให้หลุดจากกัน)
   const insightLines = (primary && topOpp) ? [
-    `ควรเร่งจัดสรรทีมขายเข้า ${clusterName(primary)} (กลุ่ม ${primary.code}) — มีLeadหนาแน่น ${num(primary.prospect)} ราย แต่ความครอบคลุมเพียง ${primary.coverage.toFixed(1)}% (ยังขาด ${num(primary.gapCount)} ราย ใน ${primary.gapBreadth} หมวด)`,
-    `กลุ่มที่มี Lead สูงสุดคือ ${clusterName(topOpp)} (ดัชนี ${topOpp.gapScore}) โดยหมวด${topOpp.topGapSegment?segTH(topOpp.topGapSegment):segTH(topOpp.topSegment)}ยังขาดมากที่สุด ควรออกแบบแคมเปญเจาะหมวดนี้เป็นหลัก`,
-    `แนะนำแบ่งเขตความรับผิดชอบทีมขายตาม ${num(clusters.length)} กลุ่มพื้นที่ที่จัดได้ในจังหวัด${provinceTH(province)} เพื่อให้ครอบคลุมทั่วถึงและลดการทับซ้อนของพื้นที่ดูแล`,
+    `${t("ควรเร่งจัดสรรทีมขายเข้า", "Send a sales team into")} ${clusterName(primary)} ${t("(กลุ่ม", "(cluster")} ${primary.code}${t(") — มีLeadหนาแน่น", ") urgently — it has")} ${num(primary.prospect)} ${t("ราย แต่ความครอบคลุมเพียง", "dense Leads but only")} ${primary.coverage.toFixed(1)}${t("% (ยังขาด", "% coverage (short by")} ${num(primary.gapCount)} ${t("ราย ใน", "businesses across")} ${primary.gapBreadth} ${t("หมวด)", "categories)")}`,
+    `${t("กลุ่มที่มี Lead สูงสุดคือ", "The cluster with the highest Lead index is")} ${clusterName(topOpp)} ${t("(ดัชนี", "(index")} ${topOpp.gapScore}${t(") โดยหมวด", ") and the category ")}${topOpp.topGapSegment?segTH(topOpp.topGapSegment):segTH(topOpp.topSegment)}${t("ยังขาดมากที่สุด ควรออกแบบแคมเปญเจาะหมวดนี้เป็นหลัก", " has the biggest gap — build the campaign around it")}`,
+    `${t("แนะนำแบ่งเขตความรับผิดชอบทีมขายตาม", "Consider splitting sales ownership across the")} ${num(clusters.length)} ${t("กลุ่มพื้นที่ที่จัดได้ในจังหวัด", "area clusters identified in ")}${provinceTH(province)} ${t("เพื่อให้ครอบคลุมทั่วถึงและลดการทับซ้อนของพื้นที่ดูแล", "for even coverage with less overlap")}`,
   ] : [];
   const copyInsight = ()=>{
-    const txt = `ข้อเสนอเชิงกลยุทธ์ · รายงานเชิงภูมิศาสตร์ · จังหวัด${provinceTH(province)}\n` + insightLines.map(l=>"• "+l).join("\n");
-    try{ navigator.clipboard.writeText(txt).then(()=>toast("คัดลอกข้อความแล้ว","good")).catch(()=>toast("คัดลอกไม่สำเร็จ","bad")); }
-    catch(e){ toast("คัดลอกไม่สำเร็จ","bad"); }
+    const txt = `${t("ข้อเสนอเชิงกลยุทธ์ · รายงานเชิงภูมิศาสตร์ · จังหวัด", "Strategic recommendations · geographic report · province ")}${provinceTH(province)}\n` + insightLines.map(l=>"• "+l).join("\n");
+    try{ navigator.clipboard.writeText(txt).then(()=>toast(t("คัดลอกข้อความแล้ว", "Text copied"),"good")).catch(()=>toast(t("คัดลอกไม่สำเร็จ", "Could not copy"),"bad")); }
+    catch(e){ toast(t("คัดลอกไม่สำเร็จ", "Could not copy"),"bad"); }
   };
 
   return html`<div class="fade-in">
     <!-- ═════ ชั้น 2: Top KPI Cards Summary (4 กล่อง) — ลำดับที่ 2 ใต้ Header ═════ -->
     <div class="grid g4" style=${{marginBottom:"16px"}}>
       <div style=${cardSt}>
-        <div style=${capSt}><${Icon} name="users" size=${15} color=${STATUS_COLOR.Existing}/>ลูกค้า + Lead</div>
+        <div style=${capSt}><${Icon} name="users" size=${15} color=${STATUS_COLOR.Existing}/>${t("ลูกค้า + Lead", "Customers + Leads")}</div>
         <div style=${bigSt}>${num(market)}</div>
-        <div class="dim" style=${{fontSize:"11.5px"}}>ลูกค้า ${num(existing)} · Lead ${num(prospect)}</div>
+        <div class="dim" style=${{fontSize:"11.5px"}}>${t("ลูกค้า", "Customers")} ${num(existing)} · Lead ${num(prospect)}</div>
       </div>
       <div style=${cardSt}>
-        <div style=${capSt}><${Icon} name="layers" size=${15} color="#8a5cf6"/>จำนวนกลุ่มพื้นที่หลัก</div>
+        <div style=${capSt}><${Icon} name="layers" size=${15} color="#8a5cf6"/>${t("จำนวนกลุ่มพื้นที่หลัก", "Main area clusters")}</div>
         <div style=${bigSt}>${num(clusters.length)}</div>
-        <div class="dim" style=${{fontSize:"11.5px"}}>กลุ่มที่จัดได้จาก ${num(clusters.reduce((a,c)=>a+c.memberCount,0))} เขต/อำเภอ</div>
+        <div class="dim" style=${{fontSize:"11.5px"}}>${t("กลุ่มที่จัดได้จาก", "clusters formed from")} ${num(clusters.reduce((a,c)=>a+c.memberCount,0))} ${t("เขต/อำเภอ", "districts")}</div>
       </div>
       <div style=${cardSt}>
-        <div style=${capSt}><${Icon} name="coverage" size=${15} color="#33d69f"/>อัตราความครอบคลุมรวม</div>
+        <div style=${capSt}><${Icon} name="coverage" size=${15} color="#33d69f"/>${t("อัตราความครอบคลุมรวม", "Overall coverage rate")}</div>
         <div style=${bigSt}>${coverage.toFixed(2)}%</div>
-        <div class="dim" style=${{fontSize:"11.5px"}}>ลูกค้า ÷ (ลูกค้า + Lead) × 100</div>
+        <div class="dim" style=${{fontSize:"11.5px"}}>${t("ลูกค้า ÷ (ลูกค้า + Lead) × 100", "customers ÷ (customers + Leads) × 100")}</div>
       </div>
       <div style=${cardSt}>
-        <div style=${capSt}><${Icon} name="bolt" size=${15} color="#ff8f3c"/>คลัสเตอร์เป้าหมายหลัก</div>
+        <div style=${capSt}><${Icon} name="bolt" size=${15} color="#ff8f3c"/>${t("คลัสเตอร์เป้าหมายหลัก", "Primary target cluster")}</div>
         ${primary ? html`<div style=${{fontSize:"15px",fontWeight:800,color:"var(--txt)",lineHeight:1.25}}>${primary.code} · ${clusterName(primary)}</div>
-          <div class="dim" style=${{fontSize:"11.5px"}}>Lead ${num(primary.prospect)} ราย · ยังขาด ${num(primary.gapCount)} ราย</div>`
+          <div class="dim" style=${{fontSize:"11.5px"}}>Lead ${num(primary.prospect)} ${t("ราย · ยังขาด", "businesses · short by")} ${num(primary.gapCount)} ${t("ราย", "businesses")}</div>`
           : html`<div class="dim">—</div>`}
       </div>
     </div>
@@ -1617,15 +1626,15 @@ function GeographicReport({db, f, province, segment}){
     <!-- ═════ ชั้น 3: Contextual Filter Bar — จังหวัด/ประเภทธุรกิจ (ย้ายมาไว้ใต้ KPI ตาม pattern มาตรฐาน) ═════ -->
     <!-- ตัวเลือกจังหวัด/ประเภทธุรกิจ ย้ายไปอยู่แถบตัวกรองร่วมด้านบนของหน้าแล้ว เหลือไว้แค่คำอธิบายการแบ่งกลุ่ม -->
     <div class="geo-filters">
-      <div class="geo-hint">แบ่งพื้นที่เป็น <b>${num(clusters.length)}</b> กลุ่มอัตโนมัติ (ตามความใกล้เชิงภูมิศาสตร์ + ความหนาแน่น)</div>
+      <div class="geo-hint">${t("แบ่งพื้นที่เป็น", "Splitting the area into")} <b>${num(clusters.length)}</b> ${t("กลุ่มอัตโนมัติ (ตามความใกล้เชิงภูมิศาสตร์ + ความหนาแน่น)", "clusters automatically (by geographic proximity and density)")}</div>
     </div>
 
     <!-- ═════ ส่วนที่ 3: Interactive Spatial Cluster Map ═════ -->
-    <${Card} title="แผนที่กลุ่มพื้นที่เชิงพื้นที่"
-      sub="ขอบเขตแต่ละกลุ่มแสดงด้วยสีต่างกัน · คลิกหมุดเพื่อดูรายละเอียด · เปิด/ปิดชั้นข้อมูลได้" style=${{marginBottom:"16px"}}>
+    <${Card} title=${t("แผนที่กลุ่มพื้นที่เชิงพื้นที่", "Area cluster map")}
+      sub=${t("ขอบเขตแต่ละกลุ่มแสดงด้วยสีต่างกัน · คลิกหมุดเพื่อดูรายละเอียด · เปิด/ปิดชั้นข้อมูลได้", "Each cluster has its own colour · click a pin for details · layers can be toggled")} style=${{marginBottom:"16px"}}>
       <div class="geo-layers">
         <label class="geo-lyr"><span class="geo-sw" style=${{background:STATUS_COLOR.Existing}}></span>
-          <span>ลูกค้าปัจจุบัน</span><${Toggle} on=${layers.existing} onChange=${()=>setLayers(x=>({...x,existing:!x.existing}))}/></label>
+          <span>${t("ลูกค้าปัจจุบัน", "Existing customers")}</span><${Toggle} on=${layers.existing} onChange=${()=>setLayers(x=>({...x,existing:!x.existing}))}/></label>
         <label class="geo-lyr"><span class="geo-sw" style=${{background:STATUS_COLOR.Prospect}}></span>
           <span>Lead</span><${Toggle} on=${layers.prospect} onChange=${()=>setLayers(x=>({...x,prospect:!x.prospect}))}/></label>
         <label class="geo-lyr"><span class="geo-sw" style=${{background:"linear-gradient(90deg,#2b6fff,#26e07a,#ffb02e,#ff3b1e)"}}></span>
@@ -1635,9 +1644,9 @@ function GeographicReport({db, f, province, segment}){
         <${Icon} name=${picked.status==="Existing"?"users":"target"} size=${15} color=${picked.status==="Existing"?STATUS_COLOR.Existing:STATUS_COLOR.Prospect}/>
         <span><b>${picked.businessName}</b> · ${segTH(picked.segment)} · ${districtTH(picked.district)}</span>
         <span class="geo-pick-tag">${picked.status==="Existing"
-          ? "ลูกค้าปัจจุบัน · เริ่มเป็นลูกค้า: "+(picked.dateJoin||"—")
-          : "Lead · หมวด"+segTH(picked.segment)+" — ธุรกิจที่ยังไม่อยู่ในเครือข่าย"}</span>
-        <button class="geo-pick-x" onClick=${()=>setPicked(null)} aria-label="ปิด">✕</button>
+          ? t("ลูกค้าปัจจุบัน · เริ่มเป็นลูกค้า: ", "Existing customer · since: ")+(picked.dateJoin||"—")
+          : t("Lead · หมวด", "Lead · category")+segTH(picked.segment)+t(" — ธุรกิจที่ยังไม่อยู่ในเครือข่าย", " — a business not yet in the network")}</span>
+        <button class="geo-pick-x" onClick=${()=>setPicked(null)} aria-label=${t("ปิด", "Close")}>✕</button>
       </div>`}
       <div class="geo-map">
         <${LeafletMap} db=${db} filters=${mapFilters} layers=${mapLayers} country="Thailand" clusters=${clusters}
@@ -1651,38 +1660,38 @@ function GeographicReport({db, f, province, segment}){
     <!-- ═════ ส่วนที่ 4 (จัดเรียงใหม่): กราฟ 2 คอลัมน์ ซ้าย-ขวา — แท่งคู่ / แท่งซ้อน 100%
          (กว้างเท่ากัน 50/50 บนจอกว้าง · สลับเรียงซ้อนแนวตั้งบนจอแคบ ผ่าน .geo-2col) ═════ -->
     <div class="geo-2col" style=${{marginBottom:"16px"}}>
-      <${Card} title="เปรียบเทียบลูกค้าปัจจุบันกับLeadรายกลุ่ม" sub="แท่งคู่ต่อกลุ่มพื้นที่ (จำนวนราย)">
-        ${clusters.length ? geoGroupedBar(clusters) : html`<div class="emptybox">ไม่มีข้อมูล</div>`}
+      <${Card} title=${t("เปรียบเทียบลูกค้าปัจจุบันกับLeadรายกลุ่ม", "Existing customers vs. Leads by cluster")} sub=${t("แท่งคู่ต่อกลุ่มพื้นที่ (จำนวนราย)", "Paired bars per area cluster (counts)")}>
+        ${clusters.length ? geoGroupedBar(clusters) : html`<div class="emptybox">${t("ไม่มีข้อมูล", "No data")}</div>`}
       </${Card}>
-      <${Card} title="สัดส่วนกลุ่มธุรกิจแยกตามกลุ่มพื้นที่" sub="แต่ละแท่ง = 1 กลุ่ม ยาวเต็ม 100% แบ่งสีตามประเภทธุรกิจ">
-        ${clusters.length ? geoStacked100(clusters) : html`<div class="emptybox">ไม่มีข้อมูล</div>`}
+      <${Card} title=${t("สัดส่วนกลุ่มธุรกิจแยกตามกลุ่มพื้นที่", "Business segment mix by area cluster")} sub=${t("แต่ละแท่ง = 1 กลุ่ม ยาวเต็ม 100% แบ่งสีตามประเภทธุรกิจ", "Each bar is one cluster at 100%, coloured by business type")}>
+        ${clusters.length ? geoStacked100(clusters) : html`<div class="emptybox">${t("ไม่มีข้อมูล", "No data")}</div>`}
       </${Card}>
     </div>
 
     <!-- ═════ ส่วนที่ 5 (จัดเรียงใหม่): ตารางเปรียบเทียบความหนาแน่นและการเจาะตลาด — เต็มความกว้าง หลังกราฟทั้งสอง ═════ -->
-    <${Card} title="เปรียบเทียบความหนาแน่นและการเจาะตลาดรายกลุ่ม" sub="เรียงตามคะแนนโอกาสสูง→ต่ำ" pad0=${true} style=${{marginBottom:"16px"}}>
+    <${Card} title=${t("เปรียบเทียบความหนาแน่นและการเจาะตลาดรายกลุ่ม", "Density and penetration by cluster")} sub=${t("เรียงตามคะแนนโอกาสสูง→ต่ำ", "Sorted by opportunity score, highest first")} pad0=${true} style=${{marginBottom:"16px"}}>
       <${Table} cols=${[
-        {h:"กลุ่มพื้นที่", render:c=>html`<div class="row" style=${{gap:"8px"}}><span class="geo-cdot sm" style=${{background:c.color}}>${c.code}</span><b>${clusterName(c)}</b></div>`},
-        {h:"เขตพื้นที่ครอบคลุม", render:c=>html`<span class="dim" style=${{fontSize:"12px"}}>${c.members.map(m=>districtTH(m.district)).join(", ")}</span>`},
-        {h:"ลูกค้าปัจจุบัน", render:c=>num(c.existing)},
+        {h:t("กลุ่มพื้นที่", "Area cluster"), render:c=>html`<div class="row" style=${{gap:"8px"}}><span class="geo-cdot sm" style=${{background:c.color}}>${c.code}</span><b>${clusterName(c)}</b></div>`},
+        {h:t("เขตพื้นที่ครอบคลุม", "Districts covered"), render:c=>html`<span class="dim" style=${{fontSize:"12px"}}>${c.members.map(m=>districtTH(m.district)).join(", ")}</span>`},
+        {h:t("ลูกค้าปัจจุบัน", "Existing customers"), render:c=>num(c.existing)},
         {h:"Lead", render:c=>num(c.prospect)},
-        {h:"รวมธุรกิจในพื้นที่", render:c=>num(c.market)},
-        {h:"ความครอบคลุม", render:c=>html`<div style=${{minWidth:"66px"}}>
+        {h:t("รวมธุรกิจในพื้นที่", "Total businesses in the area"), render:c=>num(c.market)},
+        {h:t("ความครอบคลุม", "Coverage"), render:c=>html`<div style=${{minWidth:"66px"}}>
           <b style=${{fontSize:"12.5px"}}>${c.coverage.toFixed(1)}%</b>
           <div class="geo-covbar"><div class="geo-covbar-f" style=${{width:Math.min(100,c.coverage)+"%"}}></div></div>
         </div>`},
-        {h:"ดัชนี Lead", render:c=>{ const lv=c.gapLevel;
+        {h:t("ดัชนี Lead", "Lead index"), render:c=>{ const lv=c.gapLevel;
           // Colored Status Badge ตามระดับช่องว่าง: สูง=แดง(ต้องเติมก่อน) ปานกลาง=เหลือง ต่ำ=เขียว(เครือข่ายค่อนข้างครบ)
-          return html`<${Badge} tone=${lv==="High"?"bad":lv==="Medium"?"warn":"good"}>${c.gapScore} · ${GAP_LV_TH[lv]}</${Badge}>`; }},
+          return html`<${Badge} tone=${lv==="High"?"bad":lv==="Medium"?"warn":"good"}>${c.gapScore} · ${gapTH(lv)}</${Badge}>`; }},
       ]} rows=${clusters}/>
     </${Card}>
 
     <!-- ═════ ส่วนที่ 6: Actionable Insights & Strategic Recommendations ═════ -->
     ${primary && topOpp && html`<div class="geo-insight">
       <div class="geo-ins-h">
-        <${Icon} name="bolt" size=${15} color="#33d69f"/> <span style=${{marginLeft:"6px"}}>ข้อเสนอเชิงกลยุทธ์</span>
-        <button class="geo-copy" onClick=${copyInsight} title="คัดลอกข้อเสนอทั้งหมดไปยังคลิปบอร์ด">
-          <${Icon} name="copy" size=${13}/> คัดลอกข้อความ</button>
+        <${Icon} name="bolt" size=${15} color="#33d69f"/> <span style=${{marginLeft:"6px"}}>${t("ข้อเสนอเชิงกลยุทธ์", "Strategic recommendations")}</span>
+        <button class="geo-copy" onClick=${copyInsight} title=${t("คัดลอกข้อเสนอทั้งหมดไปยังคลิปบอร์ด", "Copy all recommendations to the clipboard")}>
+          <${Icon} name="copy" size=${13}/> ${t("คัดลอกข้อความ", "Copy text")}</button>
       </div>
       <div class="geo-ins-body">
         ${insightLines.map((l,i)=>html`<div key=${i} style=${i>0?{marginTop:"6px"}:null}>• ${l}</div>`)}
@@ -1781,20 +1790,20 @@ const SUMMARY_CSS = `
 
 // จัดระดับพื้นที่ตาม % ความครอบคลุม เป็น 3 ระดับตามสเปก
 function covBand(cov){
-  if(cov>=70) return {label:"พื้นที่อิ่มตัว", color:"#33d69f", tone:"good"};
-  if(cov>=30) return {label:"พื้นที่ยังเติมได้อีก", color:"#ffb02e", tone:"warn"};
-  return {label:"พื้นที่ Lead สูง", color:"#ff5a3c", tone:"bad"};
+  if(cov>=70) return {label:t("พื้นที่อิ่มตัว", "Saturated area"), color:"#33d69f", tone:"good"};
+  if(cov>=30) return {label:t("พื้นที่ยังเติมได้อีก", "Room to fill"), color:"#ffb02e", tone:"warn"};
+  return {label:t("พื้นที่ Lead สูง", "High-Lead area"), color:"#ff5a3c", tone:"bad"};
 }
 
 // คำแนะนำเชิงปฏิบัติแบบ rule-based (ไม่ใช้ AI) — อิงระดับ Lead + % ความครอบคลุม
 // ใช้สำนวนแนวเดียวกับคำแนะนำที่มีอยู่แล้วใน buildDistrictInsight()
 function covRecommend(level, cov){
-  if(level==="High") return cov<30 ? "เร่งส่งทีมเข้าเติมหมวดที่ขาด"
-                        : cov<70 ? "จัดทำแผนการเข้าพบตามหมวดที่ขาด"
-                        : "รักษาสมาชิกเดิม พื้นที่อิ่มตัว";
-  if(level==="Medium") return cov<30 ? "วางแผนการตลาดเฉพาะหมวดที่ขาด"
-                        : "เพิ่มกิจกรรมกระตุ้นการแลกเปลี่ยน";
-  return "เฝ้าติดตามเป็นระยะ Lead เหลือน้อย";
+  if(level==="High") return cov<30 ? t("เร่งส่งทีมเข้าเติมหมวดที่ขาด", "Send a team in to fill the missing categories")
+                        : cov<70 ? t("จัดทำแผนการเข้าพบตามหมวดที่ขาด", "Build a visit plan around the missing categories")
+                        : t("รักษาสมาชิกเดิม พื้นที่อิ่มตัว", "Retain existing members — the area is saturated");
+  if(level==="Medium") return cov<30 ? t("วางแผนการตลาดเฉพาะหมวดที่ขาด", "Plan marketing for the missing categories only")
+                        : t("เพิ่มกิจกรรมกระตุ้นการแลกเปลี่ยน", "Run more activity to encourage exchanges");
+  return t("เฝ้าติดตามเป็นระยะ Lead เหลือน้อย", "Check in periodically — few Leads remain");
 }
 
 function CoverageReport({db, f, k, nav, scope, setScope}){
@@ -1849,7 +1858,7 @@ function CoverageReport({db, f, k, nav, scope, setScope}){
   // filters สำหรับแผนที่ (memo ไว้ไม่ให้ identity เปลี่ยนทุกเฟรมโดยไม่จำเป็น)
   const mapFilters = useMemo(()=>({...f, province: scope}), [f, scope]);
 
-  const areaWord = focused ? "เขต/อำเภอ" : "จังหวัด";
+  const areaWord = focused ? t("เขต/อำเภอ", "districts") : t("จังหวัด", "Province");
   const cardSt = {background:"var(--panel)",border:"1px solid var(--stroke)",borderRadius:"var(--r)",padding:"16px 18px",display:"flex",flexDirection:"column",gap:"7px"};
   const capSt  = {display:"flex",alignItems:"center",gap:"8px",color:"var(--muted)",fontSize:"12.5px",fontWeight:600};
   const bigSt  = {fontSize:"26px",fontWeight:800,color:"var(--txt)",lineHeight:1.1};
@@ -1858,63 +1867,63 @@ function CoverageReport({db, f, k, nav, scope, setScope}){
     <!-- ═════ ชั้น 2: Top KPI Cards Summary (4 กล่อง) — ลำดับที่ 2 ใต้ Header ═════ -->
     <div class="grid g4" style=${{marginBottom:"16px"}}>
       <div style=${cardSt}>
-        <div style=${capSt}><${Icon} name="users" size=${15} color=${STATUS_COLOR.Existing}/>ลูกค้าปัจจุบันทั้งหมด</div>
+        <div style=${capSt}><${Icon} name="users" size=${15} color=${STATUS_COLOR.Existing}/>${t("ลูกค้าปัจจุบันทั้งหมด", "All existing customers")}</div>
         <div style=${bigSt}>${num(existing)}</div>
-        <div class="dim" style=${{fontSize:"11.5px"}}>รายที่เป็นลูกค้าแล้วในขอบเขตนี้</div>
+        <div class="dim" style=${{fontSize:"11.5px"}}>${t("รายที่เป็นลูกค้าแล้วในขอบเขตนี้", "already customers within this scope")}</div>
       </div>
       <div style=${cardSt}>
-        <div style=${capSt}><${Icon} name="target" size=${15} color=${STATUS_COLOR.Prospect}/>Leadทั้งหมด</div>
+        <div style=${capSt}><${Icon} name="target" size=${15} color=${STATUS_COLOR.Prospect}/>${t("Leadทั้งหมด", "All Leads")}</div>
         <div style=${bigSt}>${num(prospects)}</div>
-        <div class="dim" style=${{fontSize:"11.5px"}}>ธุรกิจเป้าหมายที่ยังไม่เป็นลูกค้า</div>
+        <div class="dim" style=${{fontSize:"11.5px"}}>${t("ธุรกิจเป้าหมายที่ยังไม่เป็นลูกค้า", "Target businesses that are not customers yet")}</div>
       </div>
       <div style=${cardSt}>
-        <div style=${capSt}><${Icon} name="coverage" size=${15} color="#33d69f"/>อัตราความครอบคลุมตลาดโดยรวม</div>
+        <div style=${capSt}><${Icon} name="coverage" size=${15} color="#33d69f"/>${t("อัตราความครอบคลุมตลาดโดยรวม", "Overall market coverage rate")}</div>
         <div style=${bigSt}>${coverage.toFixed(2)}%</div>
-        <div class="dim" style=${{fontSize:"11.5px"}}>ลูกค้าปัจจุบัน ÷ (ลูกค้า + Lead) × 100</div>
+        <div class="dim" style=${{fontSize:"11.5px"}}>${t("ลูกค้าปัจจุบัน ÷ (ลูกค้า + Lead) × 100", "existing customers ÷ (customers + Leads) × 100")}</div>
       </div>
       <div style=${cardSt}>
-        <div style=${capSt}><${Icon} name="gap" size=${15} color="#ff8f3c"/>มูลค่าโอกาสที่ยังเข้าไม่ถึง</div>
-        <div style=${bigSt}>${num(prospects)} <span style=${{fontSize:"14px",fontWeight:600,color:"var(--muted)"}}>ราย</span></div>
+        <div style=${capSt}><${Icon} name="gap" size=${15} color="#ff8f3c"/>${t("มูลค่าโอกาสที่ยังเข้าไม่ถึง", "Opportunity not yet reached")}</div>
+        <div style=${bigSt}>${num(prospects)} <span style=${{fontSize:"14px",fontWeight:600,color:"var(--muted)"}}>${t("ราย", "businesses")}</span></div>
         <!-- ระบบไม่เก็บ "มูลค่าเป็นเงิน" ทั้งของ Lead และลูกค้า (ข้อมูลลูกค้าจริงจาก Barter ไม่มียอดขาย)
              จึงแสดงเป็นจำนวนLeadที่ยังไม่ถูกแปลงเป็นลูกค้าแทน — เป็นตัวเลขจริงที่วัดได้ ไม่ปั้นค่าเงินปลอม -->
-        <div class="dim" style=${{fontSize:"11.5px"}}>Leadที่ยังไม่ถูกแปลงเป็นลูกค้า (ยังไม่มีข้อมูลมูลค่าเงินในระบบ)</div>
+        <div class="dim" style=${{fontSize:"11.5px"}}>${t("Leadที่ยังไม่ถูกแปลงเป็นลูกค้า (ยังไม่มีข้อมูลมูลค่าเงินในระบบ)", "Leads not yet converted (the system holds no monetary values)")}</div>
       </div>
     </div>
 
     <!-- ═════ ชั้น 3: Contextual Bar — ขอบเขต (ทั้งประเทศ/จังหวัด) + ปุ่มกลับสู่ภาพรวม (ใต้ KPI ตาม pattern มาตรฐาน) ═════ -->
     <div class="cov-note">
       <${Icon} name="coverage" size=${15} color="var(--accent)"/>
-      <span>ขอบเขต: <b>${focused ? provinceTH(scope) : "ทั้งประเทศไทย"}</b> · ${num(rows.length)} ${areaWord}ที่มีข้อมูล</span>
-      ${focused && html`<button class="cov-back" onClick=${()=>setScope("All")}>← ดูภาพรวมทั้งประเทศ</button>`}
+      <span>${t("ขอบเขต:", "Scope:")} <b>${focused ? provinceTH(scope) : t("ทั้งประเทศไทย", "All of Thailand")}</b> · ${num(rows.length)} ${areaWord}${t("ที่มีข้อมูล", " with data")}</span>
+      ${focused && html`<button class="cov-back" onClick=${()=>setScope("All")}>${t("← ดูภาพรวมทั้งประเทศ", "← See the national overview")}</button>`}
     </div>
 
     <!-- ═════ ส่วนที่ 2: แผนที่วิเคราะห์ความครอบคลุมแบบโต้ตอบ ═════ -->
-    <${Card} title="แผนที่วิเคราะห์ความครอบคลุม"
-      sub="คลิกพื้นที่บนแผนที่เพื่อเจาะลึก ประเทศ → จังหวัด → เขต/อำเภอ · เปิด/ปิดชั้นข้อมูลได้ 3 ชั้น" style=${{marginBottom:"16px"}}>
+    <${Card} title=${t("แผนที่วิเคราะห์ความครอบคลุม", "Coverage analysis map")}
+      sub=${t("คลิกพื้นที่บนแผนที่เพื่อเจาะลึก ประเทศ → จังหวัด → เขต/อำเภอ · เปิด/ปิดชั้นข้อมูลได้ 3 ชั้น", "Click an area to drill in: country → province → district · three layers can be toggled")} style=${{marginBottom:"16px"}}>
       <div class="cov-layers">
         <label class="cov-lyr"><span class="cov-sw" style=${{background:STATUS_COLOR.Existing}}></span>
-          <span>ลูกค้าปัจจุบัน</span><${Toggle} on=${layers.existing!==false} onChange=${()=>setLayers(x=>({...x,existing:x.existing===false}))}/></label>
+          <span>${t("ลูกค้าปัจจุบัน", "Existing customers")}</span><${Toggle} on=${layers.existing!==false} onChange=${()=>setLayers(x=>({...x,existing:x.existing===false}))}/></label>
         <label class="cov-lyr"><span class="cov-sw" style=${{background:STATUS_COLOR.Prospect}}></span>
           <span>Lead</span><${Toggle} on=${layers.prospect!==false} onChange=${()=>setLayers(x=>({...x,prospect:x.prospect===false}))}/></label>
         <label class="cov-lyr"><span class="cov-sw" style=${{background:"linear-gradient(90deg,#2b6fff,#26e07a,#ffb02e,#ff3b1e)"}}></span>
-          <span>ความหนาแน่น (Heatmap)</span><${Toggle} on=${layers.heat!==false} onChange=${()=>setLayers(x=>({...x,heat:x.heat===false}))}/></label>
+          <span>${t("ความหนาแน่น (Heatmap)", "Density (heatmap)")}</span><${Toggle} on=${layers.heat!==false} onChange=${()=>setLayers(x=>({...x,heat:x.heat===false}))}/></label>
       </div>
       <div class="cov-map">
         <${LeafletMap} db=${db} filters=${mapFilters} layers=${layers} country="Thailand"
           onPickArea=${p=>setScope(p)} onPickCustomer=${()=>{}}/>
       </div>
       ${noDistrictData && html`<div class="cov-fallback">
-        <${Icon} name="info" size=${14} color="var(--muted)"/> ยังไม่มีข้อมูลระดับเขต/อำเภอสำหรับ${provinceTH(scope)} —
-        ปัจจุบันมีเฉพาะ กรุงเทพฯ, เชียงใหม่, ภูเก็ต และพัทยา</div>`}
+        <${Icon} name="info" size=${14} color="var(--muted)"/> ${t("ยังไม่มีข้อมูลระดับเขต/อำเภอสำหรับ", "No district-level data yet for ")}${provinceTH(scope)} —
+        ${t("ปัจจุบันมีเฉพาะ กรุงเทพฯ, เชียงใหม่, ภูเก็ต และพัทยา", "currently only Bangkok, Chiang Mai, Phuket and Pattaya are covered")}</div>`}
     </${Card}>
 
     <!-- ═════ ส่วนที่ 3: แผงวิเคราะห์เปรียบเทียบ (3 กราฟ) ═════ -->
-    ${chartAs.length===0 ? html`<div class="emptybox" style=${{marginBottom:"16px"}}>ไม่มีข้อมูลพื้นที่ตามตัวกรองปัจจุบัน</div>` : html`
+    ${chartAs.length===0 ? html`<div class="emptybox" style=${{marginBottom:"16px"}}>${t("ไม่มีข้อมูลพื้นที่ตามตัวกรองปัจจุบัน", "No area data matches the current filters")}</div>` : html`
     <div class="grid g2" style=${{marginBottom:"16px"}}>
       <!-- 3.1 กราฟแท่งคู่ Existing vs Prospect -->
-      <${Card} title="ลูกค้าปัจจุบันเทียบLead" sub=${"แยกราย"+areaWord+" · "+num(chartAs.length)+" พื้นที่ที่มีธุรกิจมากสุด"}>
+      <${Card} title=${t("ลูกค้าปัจจุบันเทียบLead", "Existing customers vs. Leads")} sub=${t("แยกราย", "By")+areaWord+" · "+num(chartAs.length)+t(" พื้นที่ที่มีธุรกิจมากสุด", " areas with the most businesses")}>
         <div class="cov-legend">
-          <span><span class="cov-dot" style=${{background:STATUS_COLOR.Existing}}></span>ลูกค้าปัจจุบัน</span>
+          <span><span class="cov-dot" style=${{background:STATUS_COLOR.Existing}}></span>${t("ลูกค้าปัจจุบัน", "Existing customers")}</span>
           <span><span class="cov-dot" style=${{background:STATUS_COLOR.Prospect}}></span>Lead</span>
         </div>
         <div class="cov-gb">
@@ -1928,7 +1937,7 @@ function CoverageReport({db, f, k, nav, scope, setScope}){
         </div>
       </${Card}>
       <!-- 3.2 การเจาะตลาด & ช่องว่างโอกาส (bullet) -->
-      <${Card} title="อัตราการเจาะตลาด & ช่องว่างโอกาส" sub="% ความครอบคลุมเทียบเป้าหมาย 100% · สีบอกระดับพื้นที่">
+      <${Card} title=${t("อัตราการเจาะตลาด & ช่องว่างโอกาส", "Penetration rate and opportunity gap")} sub=${t("% ความครอบคลุมเทียบเป้าหมาย 100% · สีบอกระดับพื้นที่", "% coverage against a 100% target · colour shows the area's level")}>
         <div class="cov-bullet">
           ${chartAs.map(r=>html`<div key=${r.key} class="cov-brow">
             <div class="cov-blabel" title=${r.name}>${r.name}</div>
@@ -1940,39 +1949,39 @@ function CoverageReport({db, f, k, nav, scope, setScope}){
       </${Card}>
     </div>
     <!-- 3.3 การกระจายกลุ่มธุรกิจ (Donut) -->
-    <${Card} title="การกระจายกลุ่มธุรกิจ" sub="รวมลูกค้าปัจจุบันและLeadในขอบเขตปัจจุบัน" style=${{marginBottom:"16px"}}>
-      ${segTotals.length ? html`<${Donut} data=${segTotals} center=${{value:market,label:"ธุรกิจ"}}/>`
-                         : html`<div class="emptybox">ไม่มีข้อมูล</div>`}
+    <${Card} title=${t("การกระจายกลุ่มธุรกิจ", "Business segment mix")} sub=${t("รวมลูกค้าปัจจุบันและLeadในขอบเขตปัจจุบัน", "Existing customers and Leads combined, within the current scope")} style=${{marginBottom:"16px"}}>
+      ${segTotals.length ? html`<${Donut} data=${segTotals} center=${{value:market,label:t("ธุรกิจ", "Business")}}/>`
+                         : html`<div class="emptybox">${t("ไม่มีข้อมูล", "No data")}</div>`}
     </${Card}>`}
 
     <!-- ═════ ส่วนที่ 4: ตารางจัดอันดับโอกาส ═════ -->
-    ${ranked.length>0 && html`<${Card} title="ตารางจัดอันดับ Lead"
-      sub=${"เรียงตามจำนวนที่ยังขาด สูง→ต่ำ · "+(focused?"คลิกไม่ได้ในระดับเขต":"คลิกแถวจังหวัดเพื่อเจาะลึก")} pad0=${true} style=${{marginBottom:"16px"}}>
+    ${ranked.length>0 && html`<${Card} title=${t("ตารางจัดอันดับ Lead", "Lead ranking table")}
+      sub=${t("เรียงตามจำนวนที่ยังขาด สูง→ต่ำ · ", "Sorted by the remaining gap, largest first · ")+(focused?t("คลิกไม่ได้ในระดับเขต", "not clickable at district level"):t("คลิกแถวจังหวัดเพื่อเจาะลึก", "click a province row to drill in"))} pad0=${true} style=${{marginBottom:"16px"}}>
       <${Table} onRow=${!focused ? (r=>setScope(r.province)) : undefined} cols=${[
-        {h: focused?"เขต/อำเภอ":"จังหวัด", render:r=>html`<b>${r.name}</b>`},
-        {h:"ลูกค้าปัจจุบัน", render:r=>num(r.cust)},
+        {h: focused?t("เขต/อำเภอ", "districts"):t("จังหวัด", "Province"), render:r=>html`<b>${r.name}</b>`},
+        {h:t("ลูกค้าปัจจุบัน", "Existing customers"), render:r=>num(r.cust)},
         {h:"Lead", render:r=>num(r.pros)},
-        {h:"รวมธุรกิจในพื้นที่", render:r=>num(r.market)},
-        {h:"% ความครอบคลุม", render:r=>html`<b>${r.cov}%</b>`},
-        {h:"ยังขาด (ราย)", render:r=>html`<span style=${{color:STATUS_COLOR.Prospect,fontWeight:700}}>+${num(r.gapRai)}</span>`},
-        {h:"ระดับช่องว่าง", render:r=>html`<${Badge} tone=${r.level==="High"?"bad":r.level==="Medium"?"warn":"good"}>${GAP_LV_TH[r.level]} · ${r.opp}</${Badge}>`},
-        {h:"คำแนะนำ", render:r=>html`<span style=${{fontSize:"12.5px"}}>${covRecommend(r.level, r.cov)}</span>`},
+        {h:t("รวมธุรกิจในพื้นที่", "Total businesses in the area"), render:r=>num(r.market)},
+        {h:t("% ความครอบคลุม", "% coverage"), render:r=>html`<b>${r.cov}%</b>`},
+        {h:t("ยังขาด (ราย)", "Still short"), render:r=>html`<span style=${{color:STATUS_COLOR.Prospect,fontWeight:700}}>+${num(r.gapRai)}</span>`},
+        {h:t("ระดับช่องว่าง", "Gap level"), render:r=>html`<${Badge} tone=${r.level==="High"?"bad":r.level==="Medium"?"warn":"good"}>${gapTH(r.level)} · ${r.opp}</${Badge}>`},
+        {h:t("คำแนะนำ", "Recommendation"), render:r=>html`<span style=${{fontSize:"12.5px"}}>${covRecommend(r.level, r.cov)}</span>`},
       ]} rows=${ranked}/>
     </${Card}>`}
 
     <!-- ═════ ส่วนที่ 5: กล่องสรุปข้อค้นพบ ═════ -->
     ${blind && html`<div class="cov-insight">
       <div class="cov-ins-block">
-        <div class="cov-ins-h"><${Icon} name="bolt" size=${15} color="#ffb02e"/> ข้อค้นพบสำคัญ</div>
-        <div class="cov-ins-body">อัตราความครอบคลุมตลาด${focused?("ใน"+provinceTH(scope)):"โดยรวมทั้งประเทศ"}อยู่ที่
-          <b>${coverage.toFixed(2)}%</b> — พื้นที่ที่มีLeadกระจุกตัวสูงแต่ความครอบคลุมยังต่ำที่สุดคือ
-          <b>${blind.name}</b> (Lead ${num(blind.pros)} ราย · ครอบคลุมเพียง ${blind.cov}%) จึงเป็นพื้นที่ที่ควรให้ความสำคัญเป็นอันดับต้น</div>
+        <div class="cov-ins-h"><${Icon} name="bolt" size=${15} color="#ffb02e"/> ${t("ข้อค้นพบสำคัญ", "Key findings")}</div>
+        <div class="cov-ins-body">${t("อัตราความครอบคลุมตลาด", "Market coverage ")}${focused?(t("ใน", "in")+provinceTH(scope)):t("โดยรวมทั้งประเทศ", "nationwide ")}${t("อยู่ที่", "stands at")}
+          <b>${coverage.toFixed(2)}%</b> ${t("— พื้นที่ที่มีLeadกระจุกตัวสูงแต่ความครอบคลุมยังต่ำที่สุดคือ", "— the area with the densest Leads but the lowest coverage is")}
+          <b>${blind.name}</b> (Lead ${num(blind.pros)} ${t("ราย · ครอบคลุมเพียง", "businesses · only")} ${blind.cov}${t("%) จึงเป็นพื้นที่ที่ควรให้ความสำคัญเป็นอันดับต้น", "% coverage), so it deserves top priority")}</div>
       </div>
       <div class="cov-ins-block">
-        <div class="cov-ins-h"><${Icon} name="target" size=${15} color="#33d69f"/> กลยุทธ์ที่แนะนำ</div>
+        <div class="cov-ins-h"><${Icon} name="target" size=${15} color="#33d69f"/> ${t("กลยุทธ์ที่แนะนำ", "Recommended strategy")}</div>
         <div class="cov-ins-body">
-          <div>• มุ่งพื้นที่ Lead สูงก่อน: มี <b>${num(highGap.length)}</b> ${areaWord}ที่อยู่ระดับสูง${highGap.length?html` เช่น ${highGap.slice(0,3).map(r=>r.name).join(", ")}`:""}</div>
-          <div style=${{marginTop:"4px"}}>• ลดงบพื้นที่อิ่มตัว: มี <b>${num(saturated.length)}</b> ${areaWord}ที่ความครอบคลุมเกิน 70%${saturated.length?html` (${saturated.slice(0,3).map(r=>r.name).join(", ")})`:""}</div>
+          <div>${t("• มุ่งพื้นที่ Lead สูงก่อน: มี", "• Go for high-Lead areas first: there are")} <b>${num(highGap.length)}</b> ${areaWord}${t("ที่อยู่ระดับสูง", " at a high level,")}${highGap.length?html` ${t("เช่น", "such as")} ${highGap.slice(0,3).map(r=>r.name).join(", ")}`:""}</div>
+          <div style=${{marginTop:"4px"}}>${t("• ลดงบพื้นที่อิ่มตัว: มี", "• Cut spend in saturated areas: there are")} <b>${num(saturated.length)}</b> ${areaWord}${t("ที่ความครอบคลุมเกิน 70%", " with coverage above 70%")}${saturated.length?html` (${saturated.slice(0,3).map(r=>r.name).join(", ")})`:""}</div>
         </div>
       </div>
     </div>`}
@@ -2047,7 +2056,7 @@ function OpportunityReport({db, f, k}){
   const gapOf = r => (gapByProv[r.province]||{})[r.segment]||0;
   const maxGap = Math.max(1, ...db.prospects.map(gapOf));
   // สถานะ/กำหนดปิด อิงขนาดช่องว่างของหมวดในจังหวัดนั้น (ยิ่งขาดมาก ยิ่งควรเร่ง)
-  const stOf = g => g>=maxGap*0.6 ? {th:"ควรเร่งเติม",tone:"good"} : g>=maxGap*0.25 ? {th:"เฝ้าติดตาม",tone:"warn"} : {th:"หมวดใกล้ครบ",tone:"info"};
+  const stOf = g => g>=maxGap*0.6 ? {th:t("ควรเร่งเติม", "Fill urgently"),tone:"good"} : g>=maxGap*0.25 ? {th:t("เฝ้าติดตาม", "Monitor"),tone:"warn"} : {th:t("หมวดใกล้ครบ", "Nearly complete"),tone:"info"};
   const closeOf = (g,idx)=>{ let mm = 6 + 1 + ((Math.round(120 - Math.min(120, g/maxGap*120)) + idx) % 6), yy = 2026;
     while(mm>11){ mm-=12; yy++; }
     return {iso:`${yy}-${String(mm+1).padStart(2,"0")}-15`, label:`${TH_MONTHS[mm]} ${yy}`}; };   // ใช้ตารางเดือนกลาง
@@ -2073,7 +2082,7 @@ function OpportunityReport({db, f, k}){
   // Viz 1 — โอกาสตามภูมิภาค (จังหวัดเมื่อดูรวม / อำเภอเมื่อเลือกจังหวัด)
   const gk = region==="All" ? "province" : "district";
   // นับ "จำนวน Lead" ต่อพื้นที่ แทนการรวมมูลค่าเป็นเงินแบบเดิม
-  const byReg = {}; openF.forEach(d=>{ const key=d[gk]||"อื่นๆ"; byReg[key]=(byReg[key]||0)+1; });
+  const byReg = {}; openF.forEach(d=>{ const key=d[gk]||t("อื่นๆ","Other"); byReg[key]=(byReg[key]||0)+1; });
   const regionData = Object.entries(byReg).sort((a,b)=>b[1]-a[1]).slice(0,8)
     .map(([key,v])=>({label: region==="All"?provinceTH(key):districtTH(key), value:v}));
   // Viz 2 — โอกาสตามกลุ่มลูกค้า
@@ -2109,77 +2118,77 @@ function OpportunityReport({db, f, k}){
     <!-- 1) การ์ดสรุป -->
     <div class="grid g4" style=${{marginBottom:"16px"}}>
       <div style=${cardSt}>
-        <div style=${capSt}><${Icon} name="gap" size=${15} color="#ffb02e"/>ยังขาด (ราย)</div>
+        <div style=${capSt}><${Icon} name="gap" size=${15} color="#ffb02e"/>${t("ยังขาด (ราย)", "Still short")}</div>
         <div style=${bigSt}>${num(areaGap.gapCount)}</div>
-        <div class="dim" style=${{fontSize:"11.5px"}}>ขนาด Lead รวมของพื้นที่ที่เลือก</div>
+        <div class="dim" style=${{fontSize:"11.5px"}}>${t("ขนาด Lead รวมของพื้นที่ที่เลือก", "Total Lead volume in the selected area")}</div>
       </div>
       <div style=${cardSt}>
-        <div style=${capSt}><${Icon} name="users" size=${15} color="#38bdf8"/>จำนวนโอกาส</div>
+        <div style=${capSt}><${Icon} name="users" size=${15} color="#38bdf8"/>${t("จำนวนโอกาส", "Opportunities")}</div>
         <div style=${bigSt}>${num(openF.length)}</div>
-        <div class="dim" style=${{fontSize:"11.5px"}}>ดีลที่ยังเปิดอยู่ (Lead)</div>
+        <div class="dim" style=${{fontSize:"11.5px"}}>${t("ดีลที่ยังเปิดอยู่ (Lead)", "Open deals (Leads)")}</div>
       </div>
       <div style=${cardSt}>
-        <div style=${capSt}><${Icon} name="target" size=${15} color="#33d69f"/>คะแนนโอกาส</div>
+        <div style=${capSt}><${Icon} name="target" size=${15} color="#33d69f"/>${t("คะแนนโอกาส", "Opportunity score")}</div>
         <div style=${{display:"grid",placeItems:"center"}}><${Gauge} value=${oppScore} size=${108}/></div>
       </div>
       <div style=${cardSt}>
-        <div style=${capSt}><${Icon} name="gap" size=${15} color="#8a7bff"/>ช่องว่าง</div>
+        <div style=${capSt}><${Icon} name="gap" size=${15} color="#8a7bff"/>${t("ช่องว่าง", "Gap")}</div>
         <div style=${{marginTop:"2px"}}><${Badge} tone=${gapTone}>${gapTH(gapKey)}</${Badge}></div>
-        <div class="dim" style=${{fontSize:"11.5px"}}>Leadต่อลูกค้า ${ratio.toFixed(1)} : 1</div>
+        <div class="dim" style=${{fontSize:"11.5px"}}>${t("Leadต่อลูกค้า", "Leads per customer")} ${ratio.toFixed(1)} : 1</div>
       </div>
     </div>
 
     <!-- 4) ตัวกรอง (slicers) -->
     <div class="op-slicers">
-      <label class="op-lab">ภูมิภาค
+      <label class="op-lab">${t("ภูมิภาค", "Region")}
         <select class="op-sel" value=${region} onChange=${e=>setRegion(e.target.value)}>
-          <option value="All">ทุกจังหวัด</option>
+          <option value="All">${t("ทุกจังหวัด", "All provinces")}</option>
           ${provinces.map(p=>html`<option key=${p} value=${p}>${provinceTH(p)}</option>`)}
         </select></label>
-      <label class="op-lab">กลุ่มธุรกิจ
+      <label class="op-lab">${t("กลุ่มธุรกิจ", "Business segment")}
         <select class="op-sel" value=${segment} onChange=${e=>setSegment(e.target.value)}>
-          <option value="All">ทุกกลุ่ม</option>
+          <option value="All">${t("ทุกกลุ่ม", "All segments")}</option>
           ${SEGMENTS.map(s=>html`<option key=${s} value=${s}>${segTH(s)}</option>`)}
         </select></label>
-      <label class="op-lab">คาดปิดตั้งแต่
+      <label class="op-lab">${t("คาดปิดตั้งแต่", "Expected to close from")}
         <${DateField} className="op-sel" value=${dFrom} onChange=${setDFrom}/></label>
-      <label class="op-lab">ถึง
+      <label class="op-lab">${t("ถึง", "to")}
         <${DateField} className="op-sel" value=${dTo} onChange=${setDTo}/></label>
-      ${(region!=="All"||segment!=="All"||dFrom||dTo) && html`<button class="op-clear" onClick=${()=>{setRegion("All");setSegment("All");setDFrom("");setDTo("");}}>ล้างตัวกรอง</button>`}
+      ${(region!=="All"||segment!=="All"||dFrom||dTo) && html`<button class="op-clear" onClick=${()=>{setRegion("All");setSegment("All");setDFrom("");setDTo("");}}>${t("ล้างตัวกรอง", "Clear filters")}</button>`}
     </div>
 
     <!-- 2) แผนภาพ (2 คอลัมน์) -->
     <div class="grid g2" style=${{marginBottom:"16px"}}>
-      <${Card} title="โอกาสตามภูมิภาค" sub=${region==="All"?"จำนวน Lead แยกตามจังหวัด":"แยกตามอำเภอใน "+provinceTH(region)}>
-        ${regionData.length ? html`<${BarChart} data=${regionData} horizontal=${true} format=${v=>num(v)+" ราย"}/>`
-                            : html`<div class="emptybox">ไม่มีข้อมูลตามตัวกรองที่เลือก</div>`}
+      <${Card} title=${t("โอกาสตามภูมิภาค", "Opportunity by region")} sub=${region==="All"?t("จำนวน Lead แยกตามจังหวัด", "Lead counts by province"):t("แยกตามอำเภอใน ", "By district in ")+provinceTH(region)}>
+        ${regionData.length ? html`<${BarChart} data=${regionData} horizontal=${true} format=${v=>num(v)+t(" ราย", " businesses")}/>`
+                            : html`<div class="emptybox">${t("ไม่มีข้อมูลตามตัวกรองที่เลือก", "No data matches the current filters")}</div>`}
       </${Card}>
-      <${Card} title="โอกาสตามกลุ่มลูกค้า" sub="สัดส่วนจำนวนดีลแยกตามประเภทธุรกิจ">
-        ${bySeg.length ? html`<${Donut} data=${bySeg} center=${{value:openF.length,label:"ดีล"}}/>`
-                       : html`<div class="emptybox">ไม่มีข้อมูลตามตัวกรองที่เลือก</div>`}
+      <${Card} title=${t("โอกาสตามกลุ่มลูกค้า", "Opportunity by customer segment")} sub=${t("สัดส่วนจำนวนดีลแยกตามประเภทธุรกิจ", "Share of deals by business type")}>
+        ${bySeg.length ? html`<${Donut} data=${bySeg} center=${{value:openF.length,label:t("ดีล", "deals")}}/>`
+                       : html`<div class="emptybox">${t("ไม่มีข้อมูลตามตัวกรองที่เลือก", "No data matches the current filters")}</div>`}
       </${Card}>
     </div>
 
     <!-- 3) ตารางจัดลำดับ Lead ตาม Lead ของหมวดในจังหวัดนั้น -->
-    <${Card} title="Lead จัดลำดับตาม Lead ของหมวดธุรกิจ"
-      sub=${`ช่องว่าง = จำนวน Lead ในหมวดนั้น − จำนวนสมาชิกเครือข่ายในหมวดเดียวกันของจังหวัดนั้น · เฉพาะ Lead · คลิกหัวคอลัมน์เพื่อเรียงลำดับ`} pad0=${true}>
+    <${Card} title=${t("Lead จัดลำดับตาม Lead ของหมวดธุรกิจ", "Leads ranked by their category's Lead index")}
+      sub=${`${t("ช่องว่าง = จำนวน Lead ในหมวดนั้น − จำนวนสมาชิกเครือข่ายในหมวดเดียวกันของจังหวัดนั้น · เฉพาะ Lead · คลิกหัวคอลัมน์เพื่อเรียงลำดับ", "Gap = Leads in that category − network members in the same category in that province · Leads only · click a column header to sort")}`} pad0=${true}>
       <!-- แถบควบคุม: ค้นหา + ขอบเขต + กลุ่มธุรกิจ + จำนวนต่อหน้า -->
       <div class="op-tbar">
         <div class="op-search">
           <${Icon} name="search" size=${15} color="var(--muted)"/>
-          <input placeholder="ค้นหาชื่อLead / รหัส…" value=${q} onInput=${e=>{setQ(e.target.value);setPage(1);}}/>
+          <input placeholder=${t("ค้นหาชื่อLead / รหัส…", "Search Lead name or ID…")} value=${q} onInput=${e=>{setQ(e.target.value);setPage(1);}}/>
         </div>
-        <label class="op-tf">ขอบเขต
+        <label class="op-tf">${t("ขอบเขต", "Scope")}
           <select value=${pGapOnly} onChange=${e=>{setPGapOnly(e.target.value);setPage(1);}}>
-            <option value="All">ทุก Lead</option>
-            <option value="gap">เฉพาะหมวดที่ยังขาด</option>
+            <option value="All">${t("ทุก Lead", "All Leads")}</option>
+            <option value="gap">${t("เฉพาะหมวดที่ยังขาด", "Under-served categories only")}</option>
           </select></label>
-        <label class="op-tf">กลุ่มธุรกิจ
+        <label class="op-tf">${t("กลุ่มธุรกิจ", "Business segment")}
           <select value=${pSeg} onChange=${e=>{setPSeg(e.target.value);setPage(1);}}>
-            <option value="All">ทุกกลุ่ม</option>
+            <option value="All">${t("ทุกกลุ่ม", "All segments")}</option>
             ${SEGMENTS.map(s=>html`<option key=${s} value=${s}>${segTH(s)}</option>`)}
           </select></label>
-        <label class="op-tf">แสดงต่อหน้า
+        <label class="op-tf">${t("แสดงต่อหน้า", "Per page")}
           <select value=${perPage} onChange=${e=>{setPerPage(+e.target.value);setPage(1);}}>
             ${[10,25,50,100].map(n=>html`<option key=${n} value=${n}>${n}</option>`)}
           </select></label>
@@ -2187,11 +2196,11 @@ function OpportunityReport({db, f, k}){
       <div style=${{overflowX:"auto"}}>
         <table class="op-table">
           <thead><tr>
-            <th onClick=${()=>proSortBy("businessName")}>ชื่อสถานที่${proArrow("businessName")}</th>
-            <th onClick=${()=>proSortBy("province")}>จังหวัด/เขต${proArrow("province")}</th>
-            <th onClick=${()=>proSortBy("segment")}>กลุ่มธุรกิจ${proArrow("segment")}</th>
-            <th onClick=${()=>proSortBy("email")}>อีเมล${proArrow("email")}</th>
-            <th onClick=${()=>proSortBy("segGap")} style=${{textAlign:"right"}}>หมวดนี้ยังขาด (ราย)${proArrow("segGap")}</th>
+            <th onClick=${()=>proSortBy("businessName")}>${t("ชื่อสถานที่", "Place name ")}${proArrow("businessName")}</th>
+            <th onClick=${()=>proSortBy("province")}>${t("จังหวัด/เขต", "Province / district ")}${proArrow("province")}</th>
+            <th onClick=${()=>proSortBy("segment")}>${t("กลุ่มธุรกิจ", "Business segment ")}${proArrow("segment")}</th>
+            <th onClick=${()=>proSortBy("email")}>${t("อีเมล", "Email ")}${proArrow("email")}</th>
+            <th onClick=${()=>proSortBy("segGap")} style=${{textAlign:"right"}}>${t("หมวดนี้ยังขาด (ราย)", "Category gap ")}${proArrow("segGap")}</th>
           </tr></thead>
           <tbody>
             ${proRows.map(p=>html`
@@ -2203,17 +2212,17 @@ function OpportunityReport({db, f, k}){
                 <td style=${{textAlign:"right",fontWeight:800,color:"var(--txt)"}}>${num(p.segGap)}</td>
               </tr>
             `)}
-            ${proRows.length===0 && html`<tr><td colspan="5"><div class="emptybox" style=${{margin:"14px"}}>ไม่พบLeadตามเงื่อนไขที่เลือก</div></td></tr>`}
+            ${proRows.length===0 && html`<tr><td colspan="5"><div class="emptybox" style=${{margin:"14px"}}>${t("ไม่พบLeadตามเงื่อนไขที่เลือก", "No Leads match the current filters")}</div></td></tr>`}
           </tbody>
         </table>
       </div>
       <!-- แถบเลื่อนหน้า -->
       <div class="op-pager">
-        <span class="dim" style=${{fontSize:"12px"}}>แสดง ${num(showFrom)}-${num(showTo)} จาก ${num(proTotal)} รายการ</span>
+        <span class="dim" style=${{fontSize:"12px"}}>${t("แสดง", "Showing")} ${num(showFrom)}-${num(showTo)} ${t("จาก", "of")} ${num(proTotal)} ${t("รายการ", "records")}</span>
         <div class="op-pg-grp">
-          <button class="op-pg" disabled=${curPage<=1} onClick=${()=>setPage(curPage-1)}>‹ ก่อนหน้า</button>
-          <span class="dim" style=${{fontSize:"12px"}}>หน้า ${curPage} / ${proPages}</span>
-          <button class="op-pg" disabled=${curPage>=proPages} onClick=${()=>setPage(curPage+1)}>ถัดไป ›</button>
+          <button class="op-pg" disabled=${curPage<=1} onClick=${()=>setPage(curPage-1)}>${t("‹ ก่อนหน้า", "‹ Previous")}</button>
+          <span class="dim" style=${{fontSize:"12px"}}>${t("หน้า", "Page")} ${curPage} / ${proPages}</span>
+          <button class="op-pg" disabled=${curPage>=proPages} onClick=${()=>setPage(curPage+1)}>${t("ถัดไป ›", "Next ›")}</button>
         </div>
       </div>
     </${Card}>
@@ -2260,27 +2269,27 @@ function renderReport(id, {db,f,k,rankOpp,rankCov,rankGap,rankOppDist,rankGapDis
     const gapAll = demandGap(cusF, prosF, GAP_REF.country);
     const GAP_ROW_COLORS = ["#dc2626","#ff6a1a","#ffb02e","#c8e622","#26e07a"];
     const gradeRows = gapAll.gapSegs.map((g,i)=>({g:g.seg,
-      label:`${segTH(g.seg)} (ขาด ${num(g.gap)} จากอุปสงค์ ${num(g.demand)})`,
+      label:`${segTH(g.seg)} ${t("(ขาด", "(short")} ${num(g.gap)} ${t("จากอุปสงค์", "of demand")} ${num(g.demand)})`,
       color:GAP_ROW_COLORS[i]||OTHER_COLOR, n:g.gap}));
     const gmax = Math.max(1, ...gradeRows.map(r=>r.n));
     return html`<div>
       <!-- ไอคอน 3 กล่องแรกใช้สีชมพูเข้ม (สีแบรนด์หลัก) บนพื้นวงกลมชมพูจางเดิม → contrast ผ่าน WCAG AA (~3.7:1)
            กล่อง "มูลค่าไปป์ไลน์" ไอคอนเขียวบนพื้นเขียว contrast ดีอยู่แล้ว จึงคงเดิม -->
       <div class="grid g4" style=${{marginBottom:"16px"}}>
-        <${Kpi} label="ลูกค้าทั้งหมด" value=${num(k.customers)} icon="users" iconColor="var(--accent)"/>
-        <${Kpi} label="Leadทั้งหมด" value=${num(k.prospects)} icon="target" iconColor="var(--accent)"/>
-        <${Kpi} label="ความครอบคลุม" value=${pct(k.coverage)} icon="coverage" iconColor="var(--accent)"/>
-        <${Kpi} label="ยังขาด (ราย)" value=${num(k.gapCount)} icon="gap" iconBg="rgba(255,176,46,.18)" iconColor="#ffb02e"/>
+        <${Kpi} label=${t("ลูกค้าทั้งหมด", "All customers")} value=${num(k.customers)} icon="users" iconColor="var(--accent)"/>
+        <${Kpi} label=${t("Leadทั้งหมด", "All Leads")} value=${num(k.prospects)} icon="target" iconColor="var(--accent)"/>
+        <${Kpi} label=${t("ความครอบคลุม", "Coverage")} value=${pct(k.coverage)} icon="coverage" iconColor="var(--accent)"/>
+        <${Kpi} label=${t("ยังขาด (ราย)", "Still short")} value=${num(k.gapCount)} icon="gap" iconBg="rgba(255,176,46,.18)" iconColor="#ffb02e"/>
       </div>
       <div class="grid g2">
         <!-- คอลัมน์ซ้าย: Donut เดิม (ไม่แตะ) + เส้นคั่น + กราฟคุณภาพกลุ่มเป้าหมายใหม่ · ทำเป็น flex column
              ให้กราฟหมวดที่ขาดยืดเติมพื้นที่ ความสูงคอลัมน์ซ้ายจึงเท่ากับตารางฝั่งขวาพอดี (grid stretch) -->
-        <${Card} title="การกระจายกลุ่มธุรกิจ" sub="รวมลูกค้าปัจจุบันและLead" className="sum-left">
+        <${Card} title=${t("การกระจายกลุ่มธุรกิจ", "Business segment mix")} sub=${t("รวมลูกค้าปัจจุบันและLead", "Existing customers and Leads combined")} className="sum-left">
           <div class="sum-body">
-            <${Donut} data=${segTotals} center=${{value:k.customers+k.prospects,label:"รายการ"}}/>
+            <${Donut} data=${segTotals} center=${{value:k.customers+k.prospects,label:t("รายการ", "records")}}/>
             <div class="sum-divider"></div>
-            <div class="sum-grade-h">หมวดธุรกิจที่เครือข่ายยังขาด</div>
-            <div class="sum-grade-sub">5 หมวดที่มี Lead มากที่สุด · ยังขาดรวม ${num(gapAll.gapCount)} ราย · ดัชนี ${gapAll.gapScore}/100 (${GAP_LV_TH[gapAll.gapLevel]})</div>
+            <div class="sum-grade-h">${t("หมวดธุรกิจที่เครือข่ายยังขาด", "Categories the network is short of")}</div>
+            <div class="sum-grade-sub">${t("5 หมวดที่มี Lead มากที่สุด · ยังขาดรวม", "The 5 categories with the highest Lead demand · short by")} ${num(gapAll.gapCount)} ${t("ราย · ดัชนี", "in total · index")} ${gapAll.gapScore}/100 (${gapTH(gapAll.gapLevel)})</div>
             <div class="sum-grade">
               ${gradeRows.map(r=>html`<div key=${r.g} class="sum-grade-row">
                 <span class="sum-grade-dot" style=${{background:r.color}}></span>
@@ -2291,7 +2300,7 @@ function renderReport(id, {db,f,k,rankOpp,rankCov,rankGap,rankOppDist,rankGapDis
             </div>
           </div>
         </${Card}>
-        <${Card} title="พื้นที่ Lead สูงสุด" sub="ระดับอำเภอ · กรุงเทพฯ, เชียงใหม่, ภูเก็ต, พัทยา" pad0=${true}>${distTable(rankOppDist.slice(0,8))}</${Card}>
+        <${Card} title=${t("พื้นที่ Lead สูงสุด", "Highest-Lead areas")} sub=${t("ระดับอำเภอ · กรุงเทพฯ, เชียงใหม่, ภูเก็ต, พัทยา", "District level · Bangkok, Chiang Mai, Phuket, Pattaya")} pad0=${true}>${distTable(rankOppDist.slice(0,8))}</${Card}>
       </div>
       <style>${SUMMARY_CSS}</style></div>`;
   }
@@ -2315,11 +2324,11 @@ function renderReport(id, {db,f,k,rankOpp,rankCov,rankGap,rankOppDist,rankGapDis
       return html`<div>
         <!-- ชั้น KPI: แสดง 0 ทั้งสองการ์ดเมื่อยังไม่มีแผน (ไม่มีการ์ดระยะทาง) -->
         <div class="grid g2" style=${{marginBottom:"16px"}}>
-          <${Kpi} label="แผนที่บันทึกไว้" value=${num(0)} icon="route"/>
-          <${Kpi} label="จุดแวะรวมทุกแผน" value=${num(0)} icon="users"/>
+          <${Kpi} label=${t("แผนที่บันทึกไว้", "Saved plans")} value=${num(0)} icon="route"/>
+          <${Kpi} label=${t("จุดแวะรวมทุกแผน", "Stops across all plans")} value=${num(0)} icon="users"/>
         </div>
-        <${Card} title="แผนการเข้าพบลูกค้า" sub="รายการแผนที่บันทึกไว้จากกล่องแผนการเข้าพบบนแผนที่">
-          <div class="emptybox">ยังไม่มีแผนที่บันทึกไว้ — ไปที่แผนที่ เลือกลูกค้า/Leadเข้าแผน แล้วกด "บันทึกแผนนี้" ข้อมูลจะมาแสดงที่นี่โดยอัตโนมัติ</div>
+        <${Card} title=${t("แผนการเข้าพบลูกค้า", "Customer visit plan")} sub=${t("รายการแผนที่บันทึกไว้จากกล่องแผนการเข้าพบบนแผนที่", "Plans saved from the visit-plan box on the map")}>
+          <div class="emptybox">${t("ยังไม่มีแผนที่บันทึกไว้ — ไปที่แผนที่ เลือกลูกค้า/Leadเข้าแผน แล้วกด \"บันทึกแผนนี้\" ข้อมูลจะมาแสดงที่นี่โดยอัตโนมัติ", "No saved plans yet — open the map, add customers or Leads to a plan, then press \"Save this plan\" and it will appear here automatically")}</div>
         </${Card}>
         <style>${ROUTE_CSS}</style>
       </div>`;
@@ -2328,8 +2337,8 @@ function renderReport(id, {db,f,k,rankOpp,rankCov,rankGap,rankOppDist,rankGapDis
     return html`<div>
       <!-- ชั้น KPI: 2 การ์ด (ตัดการ์ด "ระยะทางรวม" ออก — ไม่มีข้อมูลระยะทางจริงรองรับ) -->
       <div class="grid g2" style=${{marginBottom:"16px"}}>
-        <${Kpi} label="แผนที่บันทึกไว้" value=${num(savedPlans.length)} icon="route"/>
-        <${Kpi} label="จุดแวะรวมทุกแผน" value=${num(totalStops)} icon="users"/>
+        <${Kpi} label=${t("แผนที่บันทึกไว้", "Saved plans")} value=${num(savedPlans.length)} icon="route"/>
+        <${Kpi} label=${t("จุดแวะรวมทุกแผน", "Stops across all plans")} value=${num(totalStops)} icon="users"/>
       </div>
       ${savedPlans.map(p=>{ const isOpen = expandedPlanId===p.id; return html`
         <div key=${p.id} style=${{marginBottom:"12px"}}>
@@ -2338,18 +2347,18 @@ function renderReport(id, {db,f,k,rankOpp,rankCov,rankGap,rankOppDist,rankGapDis
           <div class=${"rp-head"+(isOpen?" open":"")}>
             <div class="rp-head-main" onClick=${()=>setExpandedPlanId(isOpen?null:p.id)}>
               <div style=${{fontSize:"14.5px",fontWeight:700}}>${p.name}</div>
-              <div class="dim" style=${{fontSize:"12.5px",marginTop:"3px"}}>${num(p.customers.length)} จุดแวะ</div>
+              <div class="dim" style=${{fontSize:"12.5px",marginTop:"3px"}}>${num(p.customers.length)} ${t("จุดแวะ", "stops")}</div>
             </div>
             <div class="rp-actions">
-              <button class="rp-btn" title="ส่งออกสรุปแผนเป็น PDF" onClick=${()=>printRoutePlan(p)}>
-                <${Icon} name="pdf" size=${15}/><span>ส่งออก PDF</span></button>
-              <button class="rp-btn" title="แก้ไขแผนบนแผนที่หลัก"
+              <button class="rp-btn" title=${t("ส่งออกสรุปแผนเป็น PDF", "Export the plan summary as PDF")} onClick=${()=>printRoutePlan(p)}>
+                <${Icon} name="pdf" size=${15}/><span>${t("ส่งออก PDF", "Export PDF")}</span></button>
+              <button class="rp-btn" title=${t("แก้ไขแผนบนแผนที่หลัก", "Edit the plan on the main map")}
                 onClick=${()=>{ if(setActivePlanId) setActivePlanId(p.id); nav("area",{province:(p.customers[0]&&p.customers[0].province)||undefined}); }}>
-                <${Icon} name="edit" size=${15}/><span>แก้ไขแผน</span></button>
-              <button class="rp-btn rp-danger" title="ลบแผนนี้"
-                onClick=${()=>{ if(deletePlan && confirm(`ต้องการลบแผน "${p.name}" ใช่หรือไม่?`)){ if(expandedPlanId===p.id) setExpandedPlanId(null); deletePlan(p.id); } }}>
-                <${Icon} name="trash" size=${15}/><span>ลบแผน</span></button>
-              <button class="rp-chev" title=${isOpen?"ย่อ":"ขยาย"} onClick=${()=>setExpandedPlanId(isOpen?null:p.id)}>
+                <${Icon} name="edit" size=${15}/><span>${t("แก้ไขแผน", "Edit plan")}</span></button>
+              <button class="rp-btn rp-danger" title=${t("ลบแผนนี้", "Delete this plan")}
+                onClick=${()=>{ if(deletePlan && confirm(`${t("ต้องการลบแผน \"", "Delete the plan \"")}${p.name}${t("\" ใช่หรือไม่?", "\"?")}`)){ if(expandedPlanId===p.id) setExpandedPlanId(null); deletePlan(p.id); } }}>
+                <${Icon} name="trash" size=${15}/><span>${t("ลบแผน", "Delete plan")}</span></button>
+              <button class="rp-chev" title=${isOpen?t("ย่อ", "Collapse"):t("ขยาย", "Expand")} onClick=${()=>setExpandedPlanId(isOpen?null:p.id)}>
                 <${Icon} name="chevron" size=${16} style=${{transform:isOpen?"rotate(180deg)":"none",transition:"transform .2s"}}/></button>
             </div>
           </div>
@@ -2365,18 +2374,18 @@ function renderReport(id, {db,f,k,rankOpp,rankCov,rankGap,rankOppDist,rankGapDis
                   <div class="rp-info">
                     <div class="rp-name">${c.businessName}</div>
                     <div class="rp-badges">
-                      <span class=${"rp-type"+(pros?" pros":" cust")}>${pros?"Lead":"ลูกค้าปัจจุบัน"}</span>
+                      <span class=${"rp-type"+(pros?" pros":" cust")}>${pros?"Lead":t("ลูกค้าปัจจุบัน", "Existing customers")}</span>
                     </div>
                     <div class="rp-addr">${c.address||"—"}${c.district?` · ${districtTH(c.district)}`:""} · ${provinceTH(c.province)}</div>
                     <a class="rp-gmap" href=${`https://www.google.com/maps?q=${c.latitude},${c.longitude}`} target="_blank" rel="noopener noreferrer">
-                      <${Icon} name="route" size=${13}/> เปิดใน Google Maps</a>
+                      <${Icon} name="route" size=${13}/> ${t("เปิดใน Google Maps", "Open in Google Maps")}</a>
                   </div>
                 </div>`; })}
             </div>
             <!-- ขวา 60%: แผนที่ย่อ หมุดมีเลขลำดับ + เส้นตรงเชื่อมจุด (ไม่ใช่เส้นถนนจริง) -->
             <div class="rp-mapcol">
               <${RoutePlanMiniMap} stops=${p.customers}/>
-              <div class="rp-mapnote">เส้นทางแสดงตำแหน่งโดยประมาณ ไม่ใช่เส้นทางถนนจริง กรุณาวางแผนเส้นทางจริงผ่าน Google Maps</div>
+              <div class="rp-mapnote">${t("เส้นทางแสดงตำแหน่งโดยประมาณ ไม่ใช่เส้นทางถนนจริง กรุณาวางแผนเส้นทางจริงผ่าน Google Maps", "The route shows approximate positions, not real roads — plan the actual route in Google Maps")}</div>
             </div>
           </div>`}
         </${Card}>
@@ -2389,11 +2398,12 @@ function renderReport(id, {db,f,k,rankOpp,rankCov,rankGap,rankOppDist,rankGapDis
 // ── แผนที่ย่อของแผนเดินทาง: หมุดเลขลำดับ + เส้นตรงเชื่อมจุด (ไม่เรียกบริการคำนวณเส้นทางใดๆ) ──
 function RoutePlanMiniMap({stops}){
   const ref = useRef();
+  const lang = useLang();   // สลับภาษา → สร้างแผนที่ย่อใหม่ (ป้ายชื่อสถานที่เปลี่ยนตาม)
   const sig = stops.map(c=>c.id).join(",");
   useEffect(()=>{
     if(!ref.current || typeof L==="undefined") return;
     const map = L.map(ref.current,{zoomControl:false,attributionControl:true});
-    basemap(map, "th");
+    basemap(map);
     const pts = stops.map(c=>[c.latitude,c.longitude]);
     // เส้นตรงเชื่อมจุดตามลำดับ ใช้เส้นประ ตอกย้ำว่าเป็นเส้นประมาณการ ไม่ใช่เส้นถนนจริง
     if(pts.length>1) L.polyline(pts,{color:"#e60023",weight:2,dashArray:"5 4",opacity:.8}).addTo(map);
@@ -2404,7 +2414,7 @@ function RoutePlanMiniMap({stops}){
     if(pts.length) map.fitBounds(L.latLngBounds(pts).pad(0.3));
     setTimeout(()=>map.invalidateSize(),60);
     return ()=>map.remove();
-  },[sig]);
+  },[sig,lang]);
   return html`<div ref=${ref} class="rp-minimap"></div>`;
 }
 
@@ -2433,10 +2443,10 @@ function printRoutePlan(plan){
   const stops = plan.customers||[];
   const rows = stops.map((c,i)=>{ const pros=c.status!=="Existing";
     const addr = `${escH(c.address||"—")}${c.district?" · "+escH(districtTH(c.district)):""} · ${escH(provinceTH(c.province))}`;
-    return `<tr><td class="n">${i+1}</td><td><b>${escH(c.businessName)}</b><div class="tp">${pros?"Lead":"ลูกค้าปัจจุบัน"} · ${escH(segTH(c.segment))}</div></td><td class="ad">${addr}</td></tr>`;
+    return `<tr><td class="n">${i+1}</td><td><b>${escH(c.businessName)}</b><div class="tp">${pros?"Lead":t("ลูกค้าปัจจุบัน", "Existing customers")} · ${escH(segTH(c.segment))}</div></td><td class="ad">${addr}</td></tr>`;
   }).join("");
   const w = window.open("", "_blank");
-  if(!w){ toast("เบราว์เซอร์บล็อกหน้าต่างใหม่ กรุณาอนุญาตป๊อปอัปเพื่อส่งออก PDF","warn"); return; }
+  if(!w){ toast(t("เบราว์เซอร์บล็อกหน้าต่างใหม่ กรุณาอนุญาตป๊อปอัปเพื่อส่งออก PDF", "The browser blocked a new window — allow pop-ups to export the PDF"),"warn"); return; }
   w.document.write(`<!doctype html><html lang="th"><head><meta charset="utf-8"><title>${escH(plan.name)}</title>
     <style>
       *{box-sizing:border-box} body{font-family:"Sarabun","Tahoma","Segoe UI",sans-serif;color:#1a1f2b;margin:28px;line-height:1.5}
@@ -2447,10 +2457,10 @@ function printRoutePlan(plan){
       .tp{color:#667085;font-size:12px;margin-top:2px} @media print{body{margin:14px}}
     </style></head><body>
     <h1>${escH(plan.name)}</h1>
-    <div class="sub">สรุปแผนการเข้าพบ · ${stops.length} จุดแวะ</div>
+    <div class="sub">${t("สรุปแผนการเข้าพบ ·", "Visit plan summary ·")} ${stops.length} ${t("จุดแวะ", "stops")}</div>
     <div class="map">${routePlanSVG(stops)}</div>
-    <div class="note">เส้นทางแสดงตำแหน่งโดยประมาณ ไม่ใช่เส้นทางถนนจริง กรุณาวางแผนเส้นทางจริงผ่าน Google Maps</div>
-    <table><thead><tr><th>ลำดับ</th><th>สถานที่</th><th>ที่อยู่</th></tr></thead><tbody>${rows}</tbody></table>
+    <div class="note">${t("เส้นทางแสดงตำแหน่งโดยประมาณ ไม่ใช่เส้นทางถนนจริง กรุณาวางแผนเส้นทางจริงผ่าน Google Maps", "The route shows approximate positions, not real roads — plan the actual route in Google Maps")}</div>
+    <table><thead><tr><th>${t("ลำดับ", "Order")}</th><th>${t("สถานที่", "places")}</th><th>${t("ที่อยู่", "Address")}</th></tr></thead><tbody>${rows}</tbody></table>
     </body></html>`);
   w.document.close();
   setTimeout(()=>{ try{ w.focus(); w.print(); }catch(e){} }, 400);
@@ -2500,11 +2510,11 @@ const ROUTE_CSS = `
 
 function provTable(rows){
   return html`<${Table} cols=${[
-    {h:"จังหวัด", render:r=>provinceTH(r.province)},
-    {h:"ลูกค้า", render:r=>num(r.customerCount)},
+    {h:t("จังหวัด", "Province"), render:r=>provinceTH(r.province)},
+    {h:t("ลูกค้า", "Customers"), render:r=>num(r.customerCount)},
     {h:"Lead", render:r=>num(r.prospectCount)},
-    {h:"ดัชนีช่องว่าง", render:r=>html`<b>${r.gapScore}</b>`},
-    {h:"ยังขาด", render:r=>html`<${Badge} tone=${r.gapLevel==="High"?"bad":r.gapLevel==="Medium"?"warn":"good"}>${num(r.gapCount)} ราย</${Badge}>`},
+    {h:t("ดัชนีช่องว่าง", "Gap index"), render:r=>html`<b>${r.gapScore}</b>`},
+    {h:t("ยังขาด", "still short"), render:r=>html`<${Badge} tone=${r.gapLevel==="High"?"bad":r.gapLevel==="Medium"?"warn":"good"}>${num(r.gapCount)} ${t("ราย", "businesses")}</${Badge}>`},
   ]} rows=${rows}/>`;
 }
 
@@ -2515,37 +2525,37 @@ function distTable(rows){
   const oppBar = v => { const frac=Math.max(0, Math.min(1, (v||0)/maxOpp));
     return {w: Math.round(frac*100), bg:`rgba(230, 0, 35,${(0.16+frac*0.5).toFixed(2)})`}; };
   return html`<${Table} cols=${[
-    {h:"จังหวัด", render:r=>provinceTH(r.province)},
-    {h:"อำเภอ/เขต", render:r=>districtTH(r.district)},
-    {h:"ลูกค้า", render:r=>num(r.customerCount)},
+    {h:t("จังหวัด", "Province"), render:r=>provinceTH(r.province)},
+    {h:t("อำเภอ/เขต", "District"), render:r=>districtTH(r.district)},
+    {h:t("ลูกค้า", "Customers"), render:r=>num(r.customerCount)},
     {h:"Lead", render:r=>num(r.prospectCount)},
-    {h:"ดัชนีช่องว่าง", render:r=>{ const b=oppBar(r.gapScore);
+    {h:t("ดัชนีช่องว่าง", "Gap index"), render:r=>{ const b=oppBar(r.gapScore);
       return html`<div style=${{position:"relative",display:"inline-flex",alignItems:"center",minWidth:"58px",height:"22px",
-        borderRadius:"6px",overflow:"hidden",background:"rgba(120,160,220,.10)"}} title=${"ดัชนี Lead "+r.gapScore+" (สูงสุดในตาราง "+maxOpp+")"}>
+        borderRadius:"6px",overflow:"hidden",background:"rgba(120,160,220,.10)"}} title=${t("ดัชนี Lead ", "Lead index ")+r.gapScore+t(" (สูงสุดในตาราง ", " (highest in the table ")+maxOpp+")"}>
         <div style=${{position:"absolute",left:0,top:0,bottom:0,width:b.w+"%",background:b.bg,borderRadius:"6px",transition:"width .4s"}}></div>
         <b style=${{position:"relative",padding:"0 10px",fontSize:"12.5px"}}>${r.gapScore}</b>
       </div>`; }},
-    {h:"ยังขาด", render:r=>html`<${Badge} tone=${r.gapLevel==="High"?"bad":r.gapLevel==="Medium"?"warn":"good"}>${num(r.gapCount)} ราย</${Badge}>`},
+    {h:t("ยังขาด", "still short"), render:r=>html`<${Badge} tone=${r.gapLevel==="High"?"bad":r.gapLevel==="Medium"?"warn":"good"}>${num(r.gapCount)} ${t("ราย", "businesses")}</${Badge}>`},
   ]} rows=${rows}/>`;
 }
 
 /* ============ EXPORT EXPERIENCE ============ */
 const FORMATS = [
-  {id:"pdf",   name:"รายงาน PDF",   ext:"PDF",    desc:"เหมาะสำหรับการพิมพ์และนำเสนอ",   icon:"pdf"},
-  {id:"excel", name:"Excel",         ext:".xlsx",  desc:"เหมาะสำหรับการวิเคราะห์ข้อมูลต่อ", icon:"excel"},
-  {id:"csv",   name:"CSV",           ext:".csv",   desc:"เหมาะสำหรับการนำเข้าระบบอื่น",    icon:"reports"},
+  {id:"pdf",   name:t("รายงาน PDF", "PDF report"),   ext:"PDF",    desc:t("เหมาะสำหรับการพิมพ์และนำเสนอ", "Best for printing and presenting"),   icon:"pdf"},
+  {id:"excel", name:"Excel",         ext:".xlsx",  desc:t("เหมาะสำหรับการวิเคราะห์ข้อมูลต่อ", "Best for further analysis"), icon:"excel"},
+  {id:"csv",   name:"CSV",           ext:".csv",   desc:t("เหมาะสำหรับการนำเข้าระบบอื่น", "Best for importing into another system"),    icon:"reports"},
 ];
 // ตัวเลือก "ภาพประกอบ" เท่านั้น — CSV เก็บข้อความล้วน จึงซ่อนทั้งกลุ่มนี้เมื่อเลือก CSV
 const EXPORT_OPTS = [
-  {id:"snapshot", label:"รวมภาพแผนที่"},
-  {id:"heat",     label:"รวมแผนที่ความร้อน"},
-  {id:"route",    label:"รวมเส้นทาง"},
+  {id:"snapshot", label:t("รวมภาพแผนที่", "Include the map image")},
+  {id:"heat",     label:t("รวมแผนที่ความร้อน", "Include the heatmap")},
+  {id:"route",    label:t("รวมเส้นทาง", "Include routes")},
 ];
 // ตัวเลือก "ข้อมูลที่ต้องการ" (ขอบเขตข้อมูลที่จะส่งออก)
 const DATA_SCOPE_OPTS = [
-  {id:"existing", label:"ลูกค้าปัจจุบันอย่างเดียว"},
-  {id:"prospect", label:"Lead อย่างเดียว"},
-  {id:"both",     label:"ทั้งลูกค้าและ Lead"},
+  {id:"existing", label:t("ลูกค้าปัจจุบันอย่างเดียว", "Existing customers only")},
+  {id:"prospect", label:t("Lead อย่างเดียว", "Leads only")},
+  {id:"both",     label:t("ทั้งลูกค้าและ Lead", "Both customers and Leads")},
 ];
 
 // ชื่อไฟล์เริ่มต้น: รายงาน_[ชื่อพื้นที่]_[ปีพุทธศักราช-เดือน-วัน] · ห้ามใช้ปี ค.ศ.
@@ -2553,8 +2563,8 @@ const DATA_SCOPE_OPTS = [
 function defaultReportName(scope){
   let iso; try{ iso=new Date().toISOString().slice(0,10); }catch{ iso="2026-08-02"; }
   const [y,m,d]=iso.split("-"); const be=(+y+543)+"-"+m+"-"+d;
-  const area=(scope&&scope.areaName)||"ทั้งประเทศ";
-  return "รายงาน_"+area+"_"+be;
+  const area=(scope&&scope.areaName)||t("ทั้งประเทศ","Nationwide");
+  return t("รายงาน_", "report_")+area+"_"+be;
 }
 export {defaultReportName};
 
@@ -2582,25 +2592,25 @@ export function ExportDialog({scope={}, role, buildPreviewRows, onClose, onExpor
 
   // กล่องแสดง "ขอบเขตข้อมูลที่จะส่งออก" — สืบจากตัวกรองบนหน้าจอเสมอ (แทน checkbox รวมตัวกรอง)
   const ScopeBox = ()=>html`<div class="xp-scope">
-    <div class="xp-scope-h">ขอบเขตข้อมูลที่จะส่งออก</div>
-    <div class="xp-scope-r">${scope.areaLabel||"ทั้งประเทศ"}</div>
-    <div class="xp-scope-r">หมวดธุรกิจ: ${scope.segLabel||"ทั้งหมด"}</div>
-    <div class="xp-scope-r">ช่วงเวลา: ${scope.dateLabel||"ทั้งหมด"}</div>
-    <div class="xp-scope-c">รวม ${num(count)} รายการ</div>
-    ${big?html`<div class="xp-scope-warn"><${Icon} name="gap" size=${13}/> ข้อมูลจำนวนมาก การส่งออกอาจใช้เวลาสักครู่</div>`:""}
+    <div class="xp-scope-h">${t("ขอบเขตข้อมูลที่จะส่งออก", "What will be exported")}</div>
+    <div class="xp-scope-r">${scope.areaLabel||t("ทั้งประเทศ","Nationwide")}</div>
+    <div class="xp-scope-r">${t("หมวดธุรกิจ:", "Business category:")} ${scope.segLabel||t("ทั้งหมด","All")}</div>
+    <div class="xp-scope-r">${t("ช่วงเวลา:", "Period:")} ${scope.dateLabel||t("ทั้งหมด","All")}</div>
+    <div class="xp-scope-c">${t("รวม", "Total")} ${num(count)} ${t("รายการ", "records")}</div>
+    ${big?html`<div class="xp-scope-warn"><${Icon} name="gap" size=${13}/> ${t("ข้อมูลจำนวนมาก การส่งออกอาจใช้เวลาสักครู่", "That's a lot of data — the export may take a moment")}</div>`:""}
   </div>`;
 
   if(step==="preview"){
     const previewRows = buildPreviewRows({...opts, dataSel});
     return createPortal(html`<div class="xp-backdrop" onMouseDown=${e=>{ e.currentTarget.dataset.down = e.target.classList.contains("xp-backdrop") ? "1" : ""; }}
       onMouseUp=${e=>{ const started=e.currentTarget.dataset.down; e.currentTarget.dataset.down=""; if(started==="1" && e.target.classList.contains("xp-backdrop")) onClose(); }}>
-      <div class="xp-card" role="dialog" aria-modal="true" aria-label="ดูตัวอย่างรายงานก่อนส่งออก" style=${{width:"620px"}}>
+      <div class="xp-card" role="dialog" aria-modal="true" aria-label=${t("ดูตัวอย่างรายงานก่อนส่งออก", "Preview the report before exporting")} style=${{width:"620px"}}>
         <div class="xp-head">
           <div>
-            <h2 class="xp-title">ดูตัวอย่างก่อนส่งออก</h2>
-            <div class="xp-desc">${filename}${extLbl} · ${num(count)} รายการ — ตรวจสอบให้แน่ใจก่อนยืนยัน</div>
+            <h2 class="xp-title">${t("ดูตัวอย่างก่อนส่งออก", "Preview before exporting")}</h2>
+            <div class="xp-desc">${filename}${extLbl} · ${num(count)} ${t("รายการ — ตรวจสอบให้แน่ใจก่อนยืนยัน", "records — check them before confirming")}</div>
           </div>
-          <button class="xp-x" onClick=${onClose} aria-label="ปิด"><${Icon} name="close" size=${16}/></button>
+          <button class="xp-x" onClick=${onClose} aria-label=${t("ปิด", "Close")}><${Icon} name="close" size=${16}/></button>
         </div>
         <div class="xp-body">
           <div class="xp-preview">
@@ -2610,9 +2620,9 @@ export function ExportDialog({scope={}, role, buildPreviewRows, onClose, onExpor
           </div>
         </div>
         <div class="xp-foot">
-          <button class="xp-btn ghost" onClick=${()=>setStep("options")}><${Icon} name="chevronR" size=${15} style=${{transform:"scaleX(-1)"}}/>ย้อนกลับ</button>
+          <button class="xp-btn ghost" onClick=${()=>setStep("options")}><${Icon} name="chevronR" size=${15} style=${{transform:"scaleX(-1)"}}/>${t("ย้อนกลับ", "Back")}</button>
           <button class="xp-btn primary" onClick=${()=>onExport(payload())}>
-            <${Icon} name="download" size=${15} color="#fff"/>ยืนยันส่งออก</button>
+            <${Icon} name="download" size=${15} color="#fff"/>${t("ยืนยันส่งออก", "Confirm export")}</button>
         </div>
         <style>${EXPORT_CSS}</style>
       </div>
@@ -2621,20 +2631,20 @@ export function ExportDialog({scope={}, role, buildPreviewRows, onClose, onExpor
 
   return createPortal(html`<div class="xp-backdrop" onMouseDown=${e=>{ e.currentTarget.dataset.down = e.target.classList.contains("xp-backdrop") ? "1" : ""; }}
       onMouseUp=${e=>{ const started=e.currentTarget.dataset.down; e.currentTarget.dataset.down=""; if(started==="1" && e.target.classList.contains("xp-backdrop")) onClose(); }}>
-    <div class="xp-card" role="dialog" aria-modal="true" aria-label="ส่งออกรายงาน">
+    <div class="xp-card" role="dialog" aria-modal="true" aria-label=${t("ส่งออกรายงาน", "Export report")}>
       <div class="xp-head">
         <div>
-          <h2 class="xp-title">ส่งออกรายงาน</h2>
-          <div class="xp-desc">ส่งออกตามขอบเขตของตัวกรองที่ตั้งไว้บนหน้าจอ</div>
+          <h2 class="xp-title">${t("ส่งออกรายงาน", "Export report")}</h2>
+          <div class="xp-desc">${t("ส่งออกตามขอบเขตของตัวกรองที่ตั้งไว้บนหน้าจอ", "Exports using the filters set on screen")}</div>
         </div>
-        <button class="xp-x" onClick=${onClose} aria-label="ปิด"><${Icon} name="close" size=${16}/></button>
+        <button class="xp-x" onClick=${onClose} aria-label=${t("ปิด", "Close")}><${Icon} name="close" size=${16}/></button>
       </div>
 
       <div class="xp-body">
         ${ScopeBox()}
 
-        ${allowed.length===0 ? html`<div class="xp-scope-warn" style=${{marginTop:"14px"}}><${Icon} name="gap" size=${13}/> บทบาทของคุณไม่มีสิทธิ์ส่งออกไฟล์ประเภทใด — ติดต่อผู้ดูแลระบบ</div>` : html`
-        <div class="xp-label" style=${{marginTop:"14px"}}>ประเภทไฟล์</div>
+        ${allowed.length===0 ? html`<div class="xp-scope-warn" style=${{marginTop:"14px"}}><${Icon} name="gap" size=${13}/> ${t("บทบาทของคุณไม่มีสิทธิ์ส่งออกไฟล์ประเภทใด — ติดต่อผู้ดูแลระบบ", "Your role cannot export any file type — contact an administrator")}</div>` : html`
+        <div class="xp-label" style=${{marginTop:"14px"}}>${t("ประเภทไฟล์", "File type")}</div>
         <div class="xp-formats">
           ${allowed.map(fmt=>html`<button key=${fmt.id} class=${"xp-fmt"+(format===fmt.id?" on":"")} onClick=${()=>setFormat(fmt.id)}>
             <span class="xp-fmt-ic"><${Icon} name=${fmt.icon} size=${18} color=${format===fmt.id?"#e60023":"var(--muted)"}/></span>
@@ -2646,14 +2656,14 @@ export function ExportDialog({scope={}, role, buildPreviewRows, onClose, onExpor
           </button>`)}
         </div>
 
-        <div class="xp-label" style=${{marginTop:"13px"}}>ชื่อไฟล์</div>
+        <div class="xp-label" style=${{marginTop:"13px"}}>${t("ชื่อไฟล์", "File name")}</div>
         <div class="xp-file">
           <input class="xp-input" value=${filename} onInput=${e=>setFilename(e.target.value)} spellcheck="false"/>
           <span class="xp-ext">${extLbl}</span>
         </div>
 
         ${simple ? "" : html`
-        <div class="xp-label" style=${{marginTop:"13px"}}>ข้อมูลที่ต้องการ</div>
+        <div class="xp-label" style=${{marginTop:"13px"}}>${t("ข้อมูลที่ต้องการ", "Data to include")}</div>
         <div class="xp-opts">
           ${DATA_SCOPE_OPTS.map(o=>html`<label key=${o.id} class="xp-opt" onClick=${()=>setDataSel(o.id)}>
             <span class=${"xp-radio2"+(dataSel===o.id?" on":"")}></span>
@@ -2661,9 +2671,9 @@ export function ExportDialog({scope={}, role, buildPreviewRows, onClose, onExpor
           </label>`)}
         </div>
 
-        <div class="xp-label" style=${{marginTop:"13px"}}>ภาพประกอบ</div>
+        <div class="xp-label" style=${{marginTop:"13px"}}>${t("ภาพประกอบ", "Images")}</div>
         ${isCsv
-          ? html`<div class="xp-csvnote"><${Icon} name="reports" size=${14} color="var(--muted)"/> ไฟล์ CSV เก็บข้อมูลตารางอย่างเดียว ไม่รองรับการแนบภาพ</div>`
+          ? html`<div class="xp-csvnote"><${Icon} name="reports" size=${14} color="var(--muted)"/> ${t("ไฟล์ CSV เก็บข้อมูลตารางอย่างเดียว ไม่รองรับการแนบภาพ", "CSV holds table data only — images cannot be attached")}</div>`
           : html`<div class="xp-opts">
               ${EXPORT_OPTS.map(o=>html`<label key=${o.id} class="xp-opt">
                 <span class=${"xp-check"+(opts[o.id]?" on":"")}>${opts[o.id]&&html`<${Icon} name="check" size=${12} color="#fff"/>`}</span>
@@ -2675,11 +2685,11 @@ export function ExportDialog({scope={}, role, buildPreviewRows, onClose, onExpor
       </div>
 
       <div class="xp-foot">
-        <button class="xp-btn ghost" onClick=${onClose}>ยกเลิก</button>
+        <button class="xp-btn ghost" onClick=${onClose}>${t("ยกเลิก", "Cancel")}</button>
         <button class="xp-btn secondary" disabled=${allowed.length===0} onClick=${()=>setStep("preview")}>
-          <${Icon} name="reports" size=${15} color="var(--accent)"/>ดูตัวอย่าง</button>
+          <${Icon} name="reports" size=${15} color="var(--accent)"/>${t("ดูตัวอย่าง", "Preview")}</button>
         <button class="xp-btn primary" disabled=${allowed.length===0} onClick=${()=>onExport(payload())}>
-          <${Icon} name="download" size=${15} color="#fff"/>ส่งออกรายงาน</button>
+          <${Icon} name="download" size=${15} color="#fff"/>${t("ส่งออกรายงาน", "Export report")}</button>
       </div>
       <style>${EXPORT_CSS}</style>
     </div>
@@ -2691,66 +2701,66 @@ function buildReportRows(active, {today, k, rankOpp, rankCov, rankGap, rankOppDi
   // active อาจเป็นชนิดย่อยของ "รายงานสรุปข้อมูลรายพื้นที่" (geographic/coverage) ซึ่งไม่มีในเมนูแล้ว
   // จึงต้องมีชื่อสำรองไว้ ไม่งั้นการค้นหาในเมนูจะได้ undefined
   const SUBVIEW_NAME = {
-    geographic:"รายงานสรุปข้อมูลรายพื้นที่ · มุมมองภูมิศาสตร์",
-    coverage:"รายงานสรุปข้อมูลรายพื้นที่ · มุมมองดัชนีการเจาะตลาด",
+    geographic:t("รายงานสรุปข้อมูลรายพื้นที่ · มุมมองภูมิศาสตร์", "Area summary report · geographic view"),
+    coverage:t("รายงานสรุปข้อมูลรายพื้นที่ · มุมมองดัชนีการเจาะตลาด", "Area summary report · penetration index view"),
   };
-  const reportName = (TYPES.find(t=>t.id===active)||{}).name || SUBVIEW_NAME[active] || "รายงาน";
-  const rows = [["รายงาน GeoIntel", reportName], ["จัดทำเมื่อ", today], []];
+  const reportName = (TYPES.find(t=>t.id===active)||{}).name || SUBVIEW_NAME[active] || t("รายงาน","Report");
+  const rows = [[t("รายงาน GeoIntel", "GeoIntel report"), reportName], [t("จัดทำเมื่อ", "Prepared on"), today], []];
   // ขอบเขตข้อมูลติดไปกับไฟล์เสมอ (บังคับตามตัวกรองบนหน้าจอ — ไม่มี checkbox ให้ปิด)
-  const dataSelTH = opts.dataSel==="existing"?"ลูกค้าปัจจุบันอย่างเดียว":opts.dataSel==="prospect"?"Lead อย่างเดียว":"ทั้งลูกค้าและ Lead";
-  rows.push(["ขอบเขตข้อมูลที่ส่งออก"]);
-  rows.push(["จังหวัด", filters.province==="All"?"ทุกจังหวัด":provinceTH(filters.province)]);
-  rows.push(["กลุ่มธุรกิจ", SEGMENTS.filter(s=>filters.segments[s]).map(segTH).join(", ")]);
-  rows.push(["ข้อมูลที่ส่งออก", dataSelTH]);
+  const dataSelTH = opts.dataSel==="existing"?t("ลูกค้าปัจจุบันอย่างเดียว", "Existing customers only"):opts.dataSel==="prospect"?t("Lead อย่างเดียว", "Leads only"):t("ทั้งลูกค้าและ Lead", "Both customers and Leads");
+  rows.push([t("ขอบเขตข้อมูลที่ส่งออก", "Scope of the export")]);
+  rows.push([t("จังหวัด", "Province"), filters.province==="All"?t("ทุกจังหวัด", "All provinces"):provinceTH(filters.province)]);
+  rows.push([t("กลุ่มธุรกิจ", "Business segment"), SEGMENTS.filter(s=>filters.segments[s]).map(segTH).join(", ")]);
+  rows.push([t("ข้อมูลที่ส่งออก", "Data exported"), dataSelTH]);
   rows.push([]);
-  const inc = [opts.snapshot&&"ภาพแผนที่", opts.heat&&"แผนที่ความร้อน", opts.route&&"เส้นทาง"].filter(Boolean);
-  if(inc.length){ rows.push(["ส่วนที่รวมในรายงาน", inc.join(", ")], []); }
+  const inc = [opts.snapshot&&t("ภาพแผนที่", "Map image"), opts.heat&&t("แผนที่ความร้อน", "Heatmap"), opts.route&&t("เส้นทาง", "Routes")].filter(Boolean);
+  if(inc.length){ rows.push([t("ส่วนที่รวมในรายงาน", "Sections included"), inc.join(", ")], []); }
 
   if(active==="summary"){
-    rows.push(["ตัวชี้วัด","ค่า"], ["ลูกค้า",k.customers], ["Lead",k.prospects],
-      ["ความครอบคลุม %",k.coverage], ["ดัชนี Lead",k.gapScore], ["ยังขาด (ราย)",k.gapCount]);
+    rows.push([t("ตัวชี้วัด", "Metric"),t("ค่า", "Value")], [t("ลูกค้า", "Customers"),k.customers], ["Lead",k.prospects],
+      [t("ความครอบคลุม %", "Coverage %"),k.coverage], [t("ดัชนี Lead", "Lead index"),k.gapScore], [t("ยังขาด (ราย)", "Still short"),k.gapCount]);
     if(rankOppDist?.length){
-      rows.push([],["พื้นที่ Lead สูงสุด (ระดับอำเภอ)"]);
-      rows.push(["จังหวัด","อำเภอ/เขต","ลูกค้า","Lead","ดัชนีช่องว่าง","ยังขาด (ราย)","ระดับ"]);
-      rankOppDist.slice(0,8).forEach(d=>rows.push([provinceTH(d.province), districtTH(d.district), d.customerCount, d.prospectCount, d.gapScore, d.gapCount, GAP_LV_TH[d.gapLevel]]));
+      rows.push([],[t("พื้นที่ Lead สูงสุด (ระดับอำเภอ)", "Highest-Lead areas (district level)")]);
+      rows.push([t("จังหวัด", "Province"),t("อำเภอ/เขต", "District"),t("ลูกค้า", "Customers"),"Lead",t("ดัชนีช่องว่าง", "Gap index"),t("ยังขาด (ราย)", "Still short"),t("ระดับ", "Priority")]);
+      rankOppDist.slice(0,8).forEach(d=>rows.push([provinceTH(d.province), districtTH(d.district), d.customerCount, d.prospectCount, d.gapScore, d.gapCount, gapTH(d.gapLevel)]));
     }
   } else if(active==="gap"){
     // Gap Analysis — full per-province demand-gap table (matches the on-screen columns).
-    rows.push(["วิเคราะห์ช่องว่าง (เรียงตามระดับสูง→ต่ำ)"]);
-    rows.push(["จังหวัด","ลูกค้าปัจจุบัน","Lead","อัตราส่วน","ช่องว่าง (ราย)","หมวดที่ขาด","หมวดที่ขาดมากสุด","ระดับช่องว่าง"]);
+    rows.push([t("วิเคราะห์ช่องว่าง (เรียงตามระดับสูง→ต่ำ)", "Gap analysis (highest first)")]);
+    rows.push([t("จังหวัด", "Province"),t("ลูกค้าปัจจุบัน", "Existing customers"),"Lead",t("อัตราส่วน", "Ratio"),t("ช่องว่าง (ราย)", "Gap (businesses)"),t("หมวดที่ขาด", "Categories short"),t("หมวดที่ขาดมากสุด", "Largest gap category"),t("ระดับช่องว่าง", "Gap level")]);
     rankGap.forEach(a=>rows.push([provinceTH(a.province), a.customerCount, a.prospectCount,
-      "1:"+a.ratio, a.gapCount, a.gapBreadth, a.topGapSegment?segTH(a.topGapSegment):"—", GAP_LV_TH[a.gapLevel]]));
+      "1:"+a.ratio, a.gapCount, a.gapBreadth, a.topGapSegment?segTH(a.topGapSegment):"—", gapTH(a.gapLevel)]));
     if(rankGapDist?.length){
-      rows.push([],["วิเคราะห์ช่องว่างระดับอำเภอ (กรุงเทพฯ, เชียงใหม่, ภูเก็ต, พัทยา)"]);
-      rows.push(["จังหวัด","อำเภอ/เขต","ลูกค้าปัจจุบัน","Lead","อัตราส่วน","ช่องว่าง (ราย)","หมวดที่ขาด","หมวดที่ขาดมากสุด","ระดับช่องว่าง"]);
+      rows.push([],[t("วิเคราะห์ช่องว่างระดับอำเภอ (กรุงเทพฯ, เชียงใหม่, ภูเก็ต, พัทยา)", "District-level gap analysis (Bangkok, Chiang Mai, Phuket, Pattaya)")]);
+      rows.push([t("จังหวัด", "Province"),t("อำเภอ/เขต", "District"),t("ลูกค้าปัจจุบัน", "Existing customers"),"Lead",t("อัตราส่วน", "Ratio"),t("ช่องว่าง (ราย)", "Gap (businesses)"),t("หมวดที่ขาด", "Categories short"),t("หมวดที่ขาดมากสุด", "Largest gap category"),t("ระดับช่องว่าง", "Gap level")]);
       rankGapDist.forEach(d=>rows.push([provinceTH(d.province), districtTH(d.district), d.customerCount, d.prospectCount,
-        "1:"+d.ratio, d.gapCount, d.gapBreadth, d.topGapSegment?segTH(d.topGapSegment):"—", GAP_LV_TH[d.gapLevel]]));
+        "1:"+d.ratio, d.gapCount, d.gapBreadth, d.topGapSegment?segTH(d.topGapSegment):"—", gapTH(d.gapLevel)]));
     }
   } else if(active==="geographic"){
     // Mirror the on-screen scoping: focused on one province → export only that province's district rows.
     if(filters.province && filters.province!=="All"){
       const distRowsForExport = (rankOppDist||[]).filter(d=>d.province===filters.province);
-      rows.push(["การกระจายลูกค้าระดับอำเภอ — "+provinceTH(filters.province)]);
+      rows.push([t("การกระจายลูกค้าระดับอำเภอ — ", "District-level customer distribution — ")+provinceTH(filters.province)]);
       if(distRowsForExport.length){
-        rows.push(["จังหวัด","อำเภอ/เขต","ลูกค้า","Lead","ความครอบคลุม%","อัตราส่วน","ดัชนีช่องว่าง","ยังขาด (ราย)","ระดับ"]);
-        distRowsForExport.forEach(d=>rows.push([provinceTH(d.province), districtTH(d.district), d.customerCount, d.prospectCount, d.coverage, d.ratio, d.gapScore, d.gapCount, GAP_LV_TH[d.gapLevel]]));
+        rows.push([t("จังหวัด", "Province"),t("อำเภอ/เขต", "District"),t("ลูกค้า", "Customers"),"Lead",t("ความครอบคลุม%", "Coverage %"),t("อัตราส่วน", "Ratio"),t("ดัชนีช่องว่าง", "Gap index"),t("ยังขาด (ราย)", "Still short"),t("ระดับ", "Priority")]);
+        distRowsForExport.forEach(d=>rows.push([provinceTH(d.province), districtTH(d.district), d.customerCount, d.prospectCount, d.coverage, d.ratio, d.gapScore, d.gapCount, gapTH(d.gapLevel)]));
       } else {
-        rows.push(["ยังไม่มีข้อมูลระดับอำเภอสำหรับจังหวัดนี้ในระบบ — ปัจจุบันมีเฉพาะกรุงเทพฯ, เชียงใหม่, ภูเก็ต และพัทยา"]);
+        rows.push([t("ยังไม่มีข้อมูลระดับอำเภอสำหรับจังหวัดนี้ในระบบ — ปัจจุบันมีเฉพาะกรุงเทพฯ, เชียงใหม่, ภูเก็ต และพัทยา", "No district-level data for this province yet — currently only Bangkok, Chiang Mai, Phuket and Pattaya")]);
       }
     } else {
-      rows.push(["ความครอบคลุมตลาดตามประเทศ"]);
-      rows.push(["จังหวัด","ลูกค้า","Lead","ความครอบคลุม%","อัตราส่วน","ดัชนีช่องว่าง","ยังขาด (ราย)","ระดับ"]);
-      rankOpp.forEach(a=>rows.push([provinceTH(a.province),a.customerCount,a.prospectCount,a.coverage,a.ratio,a.gapScore,a.gapCount,GAP_LV_TH[a.gapLevel]]));
+      rows.push([t("ความครอบคลุมตลาดตามประเทศ", "Market coverage by country")]);
+      rows.push([t("จังหวัด", "Province"),t("ลูกค้า", "Customers"),"Lead",t("ความครอบคลุม%", "Coverage %"),t("อัตราส่วน", "Ratio"),t("ดัชนีช่องว่าง", "Gap index"),t("ยังขาด (ราย)", "Still short"),t("ระดับ", "Priority")]);
+      rankOpp.forEach(a=>rows.push([provinceTH(a.province),a.customerCount,a.prospectCount,a.coverage,a.ratio,a.gapScore,a.gapCount,gapTH(a.gapLevel)]));
       if(rankOppDist?.length){
-        rows.push([],["การกระจายลูกค้าระดับอำเภอ"]);
-        rows.push(["จังหวัด","อำเภอ/เขต","ลูกค้า","Lead","ความครอบคลุม%","อัตราส่วน","ดัชนีช่องว่าง","ยังขาด (ราย)","ระดับ"]);
-        rankOppDist.forEach(d=>rows.push([provinceTH(d.province), districtTH(d.district), d.customerCount, d.prospectCount, d.coverage, d.ratio, d.gapScore, d.gapCount, GAP_LV_TH[d.gapLevel]]));
+        rows.push([],[t("การกระจายลูกค้าระดับอำเภอ", "District-level customer distribution")]);
+        rows.push([t("จังหวัด", "Province"),t("อำเภอ/เขต", "District"),t("ลูกค้า", "Customers"),"Lead",t("ความครอบคลุม%", "Coverage %"),t("อัตราส่วน", "Ratio"),t("ดัชนีช่องว่าง", "Gap index"),t("ยังขาด (ราย)", "Still short"),t("ระดับ", "Priority")]);
+        rankOppDist.forEach(d=>rows.push([provinceTH(d.province), districtTH(d.district), d.customerCount, d.prospectCount, d.coverage, d.ratio, d.gapScore, d.gapCount, gapTH(d.gapLevel)]));
       }
     }
   } else {
     const src = active==="coverage"?rankCov : rankOpp;
-    rows.push(["จังหวัด","ลูกค้า","Lead","ความครอบคลุม%","อัตราส่วน","ดัชนีช่องว่าง","ยังขาด (ราย)","ระดับ"]);
-    src.forEach(a=>rows.push([provinceTH(a.province),a.customerCount,a.prospectCount,a.coverage,a.ratio,a.gapScore,a.gapCount,GAP_LV_TH[a.gapLevel]]));
+    rows.push([t("จังหวัด", "Province"),t("ลูกค้า", "Customers"),"Lead",t("ความครอบคลุม%", "Coverage %"),t("อัตราส่วน", "Ratio"),t("ดัชนีช่องว่าง", "Gap index"),t("ยังขาด (ราย)", "Still short"),t("ระดับ", "Priority")]);
+    src.forEach(a=>rows.push([provinceTH(a.province),a.customerCount,a.prospectCount,a.coverage,a.ratio,a.gapScore,a.gapCount,gapTH(a.gapLevel)]));
   }
   return rows;
 }

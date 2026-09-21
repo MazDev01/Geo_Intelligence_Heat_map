@@ -1,3 +1,4 @@
+import {t} from "../i18n.js";   // สลับภาษา TH/EN — ดู src/i18n.js
 // ═══════════════════════════════════════════════════════════════════════════
 // src/pages/visit-plan-report.js — "รายงานแผนการเข้าพบ" (visit-plans)
 // รายการย่อยใต้เมนูรายงาน · route: /reports/visit-plans (?go=visit-plans)
@@ -11,10 +12,10 @@
 // แสดงข้อมูล ณ สภาพที่บันทึกไว้จริงในวันนั้น: ระดับ Lead ของหมวด/ย่านเป็น snapshot ณ วันวางแผน (ไม่คำนวณใหม่)
 // ห้ามเทียบ TC คนอื่น/ค่าเฉลี่ยทีม/จัดอันดับ · ห้ามแสดงจังหวัดอื่น · วันที่ทุกจุดเป็นพุทธศักราช
 // ═══════════════════════════════════════════════════════════════════════════
-import {html, useState, useMemo, useEffect, useRef, useApp, Icon, num, provinceTH, districtTH, segTH, thDate} from "../lib.js";
+import {html, useState, useMemo, useEffect, useRef, useApp, Icon, num, provinceTH, districtTH, segTH, thDate, getLang, gapTH} from "../lib.js";
 import {toast, DateField, TCReportNav} from "../ui.js";
 import {Dropdown} from "../select.js";
-import {gapBySegment, gapLevelOf, GAP_TH} from "../mock/geoData.js";
+import {gapBySegment, gapLevelOf} from "../mock/geoData.js";
 import {officeFor, haversine, fmtKm} from "../visit.js";
 import {pushAudit} from "../audit.js";
 import {ExportDialog, downloadXLS, defaultReportName} from "./reports.js";
@@ -33,9 +34,16 @@ const OUTCOMES = ["สนใจ ขอใบเสนอราคา","ต่อ
 const V_NOTES  = ["เจ้าของร้านสนใจแพ็กเกจแลกเปลี่ยน","ขอเปรียบเทียบกับเจ้าอื่นก่อน","ติดประชุม ให้ผู้จัดการรับเรื่องแทน","พร้อมเปิดบิลแรกเดือนหน้า","ขอให้ส่งเอกสารทางอีเมล","สนใจแต่ขอต่อรองค่าธรรมเนียม"];
 
 // สถานะแผนระดับรวม
-export const VP_STATUS_TH = {complete:"เสร็จสมบูรณ์", partial:"ทำได้บางส่วน", none:"ไม่ได้ออกพื้นที่"};
+// getter — ค่าคงที่ระดับโมดูลถูกประเมินครั้งเดียวตอนโหลด ห่อ t() ตรง ๆ จะค้างเป็นภาษาแรก
+export const VP_STATUS_TH = {
+  get complete(){ return t("เสร็จสมบูรณ์","Complete"); },
+  get partial(){ return t("ทำได้บางส่วน","Partly done"); },
+  get none(){ return t("ไม่ได้ออกพื้นที่","Did not go out"); } };
 // สถานะผู้ถูกนัดรายจุด
-const VP_TARGET_TH = {visited:"เข้าพบแล้ว", missed:"ไม่ได้เข้าพบ", cancelled:"ยกเลิก"};
+const VP_TARGET_TH = {
+  get visited(){ return t("เข้าพบแล้ว","Visited"); },
+  get missed(){ return t("ไม่ได้เข้าพบ","Missed"); },
+  get cancelled(){ return t("ยกเลิก","Cancelled"); } };
 
 // ─────────────────────────────────────────────────────────────────────────────
 // สร้างประวัติแผนการเข้าพบจาก "ข้อมูลจริง" ในจังหวัดของ TC (Lead ในจังหวัดนั้น)
@@ -122,13 +130,13 @@ export function VisitPlanReport(){
   const firstRun = useRef(true); const popping = useRef(false);
 
   // ── redirect บทบาทที่ไม่ใช่ TC ออกจากหน้านี้ (กันเข้า URL ตรง) ──
-  useEffect(()=>{ if(!isTC){ toast("หน้านี้สำหรับผู้ประสานงานการค้าเท่านั้น","bad"); nav && nav("workspace"); } }, [isTC]);
+  useEffect(()=>{ if(!isTC){ toast(t("หน้านี้สำหรับผู้ประสานงานการค้าเท่านั้น", "This page is for Trade Coordinators only"),"bad"); nav && nav("workspace"); } }, [isTC]);
 
   // ── บังคับสิทธิ์ที่เซิร์ฟเวอร์จาก token: ขอแผนของตัวเอง = 200 · ของคนอื่น = 403 ──
   useEffect(()=>{ if(!isTC) return; let alive=true;
     const tok = btoa(unescape(encodeURIComponent(JSON.stringify({email:user.email, role:user.role, province}))));
     fetch(`/api/visit-plans?owner=${encodeURIComponent(user.email)}`, {headers:{Authorization:"Bearer "+tok}})
-      .then(r=>{ if(!alive) return; if(r.status===403||r.status===401){ setDenied(true); toast("เซิร์ฟเวอร์ปฏิเสธการเข้าถึงแผนนี้ (403)","bad"); } })
+      .then(r=>{ if(!alive) return; if(r.status===403||r.status===401){ setDenied(true); toast(t("เซิร์ฟเวอร์ปฏิเสธการเข้าถึงแผนนี้ (403)", "The server refused access to this plan (403)"),"bad"); } })
       .catch(()=>{});   // เซิร์ฟเวอร์รุ่นเก่า/ออฟไลน์: ไม่บล็อกการแสดงผล (data มาจากข้อมูลจริงในเครื่องอยู่แล้ว)
     return ()=>{ alive=false; };
   }, [isTC, province]);
@@ -137,7 +145,7 @@ export function VisitPlanReport(){
   const plans = useMemo(()=> isTC ? genVisitPlans(db.prospects||[], province, user.email, db.customers||[]) : [], [isTC, db.prospects, db.customers, province, user && user.email]);
   // อำเภอทั้งหมดที่ปรากฏในแผน (ตัวเลือกตัวกรองอำเภอ) — จากข้อมูลจริง
   const distOpts = useMemo(()=>{ const s=new Set(); plans.forEach(pl=>pl.districts.forEach(d=>s.add(d)));
-    return [["all","ทุกอำเภอ"], ...[...s].sort().map(d=>[d, districtTH(d)])]; }, [plans]);
+    return [["all",t("ทุกอำเภอ", "All districts")], ...[...s].sort().map(d=>[d, districtTH(d)])]; }, [plans, getLang()]);
 
   // ── กรอง ──
   const fPlans = useMemo(()=> plans.filter(pl=>{
@@ -180,55 +188,56 @@ export function VisitPlanReport(){
   const anyFilter = from||to||dist!=="all"||status!=="all";
 
   // ── ช่วงเวลาเป็นข้อความ พ.ศ. ──
-  const rangeText = (from||to) ? (from?beDateVP(from):"เริ่มต้น")+" – "+(to?beDateVP(to):"ล่าสุด") : "ทุกช่วงเวลา";
+  const rangeText = (from||to) ? (from?beDateVP(from):t("เริ่มต้น", "Start"))+" – "+(to?beDateVP(to):t("ล่าสุด", "Latest")) : t("ทุกช่วงเวลา", "All periods");
 
   // ── ส่งออก (ใช้หน้าต่างส่งออกเดียวกับรายงานอื่น · PDF + Excel) ──
-  const exportScope = { areaName: province?provinceTH(province):"", areaLabel: province?("จังหวัด"+provinceTH(province)):"",
-    segLabel:"ทุกหมวดธุรกิจ", dateLabel: rangeText, counts:{total: fPlans.length} };
+  const exportScope = { areaName: province?provinceTH(province):"", areaLabel: province?(t("จังหวัด", "provinces")+provinceTH(province)):"",
+    segLabel:t("ทุกหมวดธุรกิจ", "All business categories"), dateLabel: rangeText, counts:{total: fPlans.length} };
   const buildVpRows = ()=>{ const rows=[];
-    rows.push(["รายงานแผนการเข้าพบ · จังหวัด"+provinceTH(province)+" · ผู้จัดทำ "+((user&&user.name)||"")]);
-    rows.push(["ช่วงเวลา: "+rangeText]);
-    rows.push(["สรุป: พบ "+summary.n+" แผน · วางแผนไว้ "+summary.planned+" แห่ง · เข้าพบจริง "+summary.visited+" แห่ง · อัตราทำตามแผน "+summary.rate+"%"]);
+    rows.push([t("รายงานแผนการเข้าพบ · จังหวัด", "Visit plan report · province")+provinceTH(province)+t(" · ผู้จัดทำ ", " · prepared by ")+((user&&user.name)||"")]);
+    rows.push([t("ช่วงเวลา: ", "Period: ")+rangeText]);
+    rows.push([t("สรุป: พบ ", "Summary: ")+summary.n+t(" แผน · วางแผนไว้ ", " plans · planned ")+summary.planned+t(" แห่ง · เข้าพบจริง ", " places · actually visited ")+summary.visited+t(" แห่ง · อัตราทำตามแผน ", " places · plan completion ")+summary.rate+"%"]);
     rows.push([]);
-    rows.push(["ตารางสรุปแผน"]);
-    rows.push(["วันที่","อำเภอที่ครอบคลุม","วางแผน","เข้าพบจริง","อัตรา (%)","สถานะ"]);
+    rows.push([t("ตารางสรุปแผน", "Plan summary")]);
+    rows.push([t("วันที่", "Date"),t("อำเภอที่ครอบคลุม", "Districts covered"),t("วางแผน", "Planned"),t("เข้าพบจริง", "Visited"),t("อัตรา (%)", "Rate (%)"),t("สถานะ", "Status")]);
     fPlans.forEach(pl=>rows.push([beDateVP(pl.dateISO), pl.districts.map(districtTH).join(", "), pl.planned, pl.visited, pl.rate, VP_STATUS_TH[pl.status]]));
     rows.push([]);
-    rows.push(["รายละเอียดผู้ถูกนัดในแต่ละแผน"]);
+    rows.push([t("รายละเอียดผู้ถูกนัดในแต่ละแผน", "Per-plan visit details")]);
     fPlans.forEach(pl=>{ rows.push([]);
-      rows.push(["แผนวันที่ "+beDateVP(pl.dateISO)+" · จุดเริ่มต้น "+pl.office.businessName+" · วางแผน "+pl.planned+" · เข้าพบ "+pl.visited]);
-      rows.push(["ลำดับ","ธุรกิจ","Lead ของหมวด (ณ วันนั้น)","หมวดธุรกิจ","อำเภอ","สถานะ","เวลา","ผลการเข้าพบ","บันทึก","ระยะจากจุดก่อน (เส้นตรง)"]);
-      pl.targets.forEach((t,i)=>rows.push([i+1, t.businessName, GAP_TH[t.gapLevel_at]+" · ขาด "+t.gap_at+" ราย", segTH(t.segment), districtTH(t.district),
-        VP_TARGET_TH[t.status], t.time||"—", t.outcome||"—", t.note||"—", fmtKm(t.distFromPrev)]));
+      rows.push([t("แผนวันที่ ", "Plan for ")+beDateVP(pl.dateISO)+t(" · จุดเริ่มต้น ", " · starting at ")+pl.office.businessName+t(" · วางแผน ", " · planned ")+pl.planned+t(" · เข้าพบ ", " · visited ")+pl.visited]);
+      rows.push([t("ลำดับ", "Order"),t("ธุรกิจ", "Business"),t("Lead ของหมวด (ณ วันนั้น)", "Category Lead index (on the day)"),t("หมวดธุรกิจ", "Business category"),t("อำเภอ", "District"),t("สถานะ", "Status"),t("เวลา", "Time"),t("ผลการเข้าพบ", "Visit outcome"),t("บันทึก", "Note"),t("ระยะจากจุดก่อน (เส้นตรง)", "Distance from previous (straight line)")]);
+      // ⚠ ตัวแปรวนลูปห้ามชื่อ t — จะบัง t() ของ i18n ที่เรียกอยู่ในบรรทัดเดียวกัน
+      pl.targets.forEach((tg,i)=>rows.push([i+1, tg.businessName, gapTH(tg.gapLevel_at)+t(" · ขาด ", " · short by ")+tg.gap_at+t(" ราย", " businesses"), segTH(tg.segment), districtTH(tg.district),
+        VP_TARGET_TH[tg.status], tg.time||"—", tg.outcome||"—", tg.note||"—", fmtKm(tg.distFromPrev)]));
     });
     return rows; };
   const doExport = ({format, filename})=>{
     const name = (filename||"").trim().replace(/[\\/:*?"<>|]+/g,"_") || defaultReportName(exportScope);
     const rows = buildVpRows();
     setExportOpen(false);
-    if(format==="excel"){ downloadXLS(name+".xls", rows); toast("ส่งออกไฟล์ Excel แล้ว","good"); }
-    else { toast("กำลังเตรียมไฟล์ PDF…","info"); setTimeout(()=>window.print(),350); }
-    pushAudit({user:(user&&user.name)||"", action:"ส่งออกรายงานแผนการเข้าพบ", category:"ส่งออก",
-      detail:`${format==="excel"?"Excel":"PDF"} · ${name} · จังหวัด${provinceTH(province)} · ${rangeText} · ${fPlans.length} แผน`});
+    if(format==="excel"){ downloadXLS(name+".xls", rows); toast(t("ส่งออกไฟล์ Excel แล้ว", "Excel file exported"),"good"); }
+    else { toast(t("กำลังเตรียมไฟล์ PDF…", "Preparing the PDF…"),"info"); setTimeout(()=>window.print(),350); }
+    pushAudit({user:(user&&user.name)||"", action:t("ส่งออกรายงานแผนการเข้าพบ", "Exported the visit plan report"), category:"ส่งออก",
+      detail:`${format==="excel"?"Excel":"PDF"} · ${name} ${t("· จังหวัด", "· province ")}${provinceTH(province)} · ${rangeText} · ${fPlans.length} ${t("แผน", "plans")}`});
   };
 
-  if(!isTC) return html`<div class="page"><div class="vp-denied"><${Icon} name="lock" size=${18} color="var(--accent)"/> หน้านี้สำหรับผู้ประสานงานการค้าเท่านั้น กำลังนำคุณออก…</div><style>${VP_CSS}</style></div>`;
-  if(!db.prospects) return html`<div class="page"><div class="emptybox">กำลังโหลดข้อมูลแผนการเข้าพบ…</div><style>${VP_CSS}</style></div>`;
-  if(denied) return html`<div class="page"><div class="vp-denied"><${Icon} name="lock" size=${18} color="var(--accent)"/> เซิร์ฟเวอร์ปฏิเสธการเข้าถึง (403) — คุณเรียกดูได้เฉพาะแผนของตนเองในพื้นที่ที่รับผิดชอบ</div><style>${VP_CSS}</style></div>`;
+  if(!isTC) return html`<div class="page"><div class="vp-denied"><${Icon} name="lock" size=${18} color="var(--accent)"/> ${t("หน้านี้สำหรับผู้ประสานงานการค้าเท่านั้น กำลังนำคุณออก…", "This page is for Trade Coordinators only — redirecting you…")}</div><style>${VP_CSS}</style></div>`;
+  if(!db.prospects) return html`<div class="page"><div class="emptybox">${t("กำลังโหลดข้อมูลแผนการเข้าพบ…", "Loading visit plan data…")}</div><style>${VP_CSS}</style></div>`;
+  if(denied) return html`<div class="page"><div class="vp-denied"><${Icon} name="lock" size=${18} color="var(--accent)"/> ${t("เซิร์ฟเวอร์ปฏิเสธการเข้าถึง (403) — คุณเรียกดูได้เฉพาะแผนของตนเองในพื้นที่ที่รับผิดชอบ", "The server refused access (403) — you may only view your own plans within your territory")}</div><style>${VP_CSS}</style></div>`;
 
-  const STATUS_OPTS = [["all","ทุกสถานะ"],["complete","เสร็จสมบูรณ์"],["partial","ทำได้บางส่วน"],["none","ไม่ได้ออกพื้นที่"]];
+  const STATUS_OPTS = [["all",t("ทุกสถานะ", "All statuses")],["complete",t("เสร็จสมบูรณ์", "Complete")],["partial",t("ทำได้บางส่วน", "Partly done")],["none",t("ไม่ได้ออกพื้นที่", "Did not go out")]];
 
   return html`<div class="page fade-in vp-page tcrp-wrap">
     <${TCReportNav} active="visit-plans" nav=${nav}/>
 
     <div class="page-head vp-head">
       <div>
-        <div class="eyebrow">รายงาน · แผนการเข้าพบ</div>
-        <h1>รายงานแผนการเข้าพบ · จังหวัด${provinceTH(province)}</h1>
-        <div class="sub">แผนที่คุณสร้างเองในพื้นที่รับผิดชอบ · ${(user&&user.name)||""} · อ่านอย่างเดียว (วางแผนทำที่หน้าแผนที่)</div>
+        <div class="eyebrow">${t("รายงาน · แผนการเข้าพบ", "Reports · visit plans")}</div>
+        <h1>${t("รายงานแผนการเข้าพบ · จังหวัด", "Visit plan report · province ")}${provinceTH(province)}</h1>
+        <div class="sub">${t("แผนที่คุณสร้างเองในพื้นที่รับผิดชอบ ·", "Plans you created in your own territory ·")} ${(user&&user.name)||""} ${t("· อ่านอย่างเดียว (วางแผนทำที่หน้าแผนที่)", "· read-only (plan on the map page)")}</div>
       </div>
       <div class="ph-right">
-        <button class="vp-btn primary" onClick=${()=>setExportOpen(true)}><${Icon} name="download" size=${15} color="#fff"/> ส่งออกรายงาน</button>
+        <button class="vp-btn primary" onClick=${()=>setExportOpen(true)}><${Icon} name="download" size=${15} color="#fff"/> ${t("ส่งออกรายงาน", "Export report")}</button>
       </div>
     </div>
 
@@ -236,32 +245,32 @@ export function VisitPlanReport(){
     <div class="vp-filters">
       <!-- ตัวกรองทั้งหมดอยู่แถวเดียว · "ช่วงที่เลือก" กับปุ่มล้างถูกดันไปชิดขวาด้วย margin-left:auto -->
       <div class="vp-frow">
-        <div class="vp-f vp-date"><label>ช่วงเวลา (ตั้งแต่)</label>
+        <div class="vp-f vp-date"><label>${t("ช่วงเวลา (ตั้งแต่)", "Period (from)")}</label>
           <${DateField} value=${from} max=${to||undefined} onChange=${setFrom}/></div>
-        <div class="vp-f vp-date"><label>ถึง</label>
+        <div class="vp-f vp-date"><label>${t("ถึง", "to")}</label>
           <${DateField} value=${to} min=${from||undefined} onChange=${setTo}/></div>
-        <div class="vp-f vp-dd"><label>อำเภอ</label><${Dropdown} value=${dist} onChange=${setDist} options=${distOpts}/></div>
-        <div class="vp-f vp-dd"><label>สถานะแผน</label><${Dropdown} value=${status} onChange=${setStatus} options=${STATUS_OPTS}/></div>
-        <div class="vp-range-txt">ช่วงที่เลือก: <b>${rangeText}</b></div>
-        ${anyFilter?html`<button class="vp-btn ghost" onClick=${clearFilters}><${Icon} name="close" size=${14}/> ล้างตัวกรอง</button>`:""}
+        <div class="vp-f vp-dd"><label>${t("อำเภอ", "districts")}</label><${Dropdown} value=${dist} onChange=${setDist} options=${distOpts}/></div>
+        <div class="vp-f vp-dd"><label>${t("สถานะแผน", "Plan status")}</label><${Dropdown} value=${status} onChange=${setStatus} options=${STATUS_OPTS}/></div>
+        <div class="vp-range-txt">${t("ช่วงที่เลือก:", "Selected range:")} <b>${rangeText}</b></div>
+        ${anyFilter?html`<button class="vp-btn ghost" onClick=${clearFilters}><${Icon} name="close" size=${14}/> ${t("ล้างตัวกรอง", "Clear filters")}</button>`:""}
       </div>
       <div class="vp-summary">
-        พบ <b>${num(summary.n)}</b> แผน · วางแผนไว้ <b>${num(summary.planned)}</b> แห่ง · เข้าพบจริง <b>${num(summary.visited)}</b> แห่ง · อัตราทำตามแผน <b class=${summary.rate<50?"vp-warn-t":""}>${summary.rate}%</b>
+        ${t("พบ", "Found")} <b>${num(summary.n)}</b> ${t("แผน · วางแผนไว้", "plans · planned")} <b>${num(summary.planned)}</b> ${t("แห่ง · เข้าพบจริง", "places · actually visited")} <b>${num(summary.visited)}</b> ${t("แห่ง · อัตราทำตามแผน", "places · plan completion")} <b class=${summary.rate<50?"vp-warn-t":""}>${summary.rate}%</b>
       </div>
     </div>
 
     ${fPlans.length===0 ? html`<div class="vp-empty">
-        <${Icon} name="info" size=${18} color="var(--accent)"/> ไม่พบแผนตามเงื่อนไขที่เลือก
-        <button class="vp-btn ghost" onClick=${clearFilters}>ล้างตัวกรอง</button>
+        <${Icon} name="info" size=${18} color="var(--accent)"/> ${t("ไม่พบแผนตามเงื่อนไขที่เลือก", "No plans match the current filters")}
+        <button class="vp-btn ghost" onClick=${clearFilters}>${t("ล้างตัวกรอง", "Clear filters")}</button>
       </div>` : html`
     <div class="vp-cols">
       <!-- ═══ ส่วนที่ 2: ตารางแผน ═══ -->
       <div class="vp-card vp-tablecard">
-        <div class="vp-card-h">ตารางแผนการเข้าพบ <span class="vp-dim">(${num(fPlans.length)} แผน · เรียงใหม่→เก่า)</span></div>
+        <div class="vp-card-h">${t("ตารางแผนการเข้าพบ", "Visit plans")} <span class="vp-dim">(${num(fPlans.length)} ${t("แผน · เรียงใหม่→เก่า)", "plans · newest first)")}</span></div>
         <div class="vp-tablewrap">
           <table class="vp-table">
             <thead><tr>
-              <th>วันที่</th><th>อำเภอที่ครอบคลุม</th><th class="rt">วางแผน</th><th class="rt">เข้าพบจริง</th><th class="rt">อัตรา</th><th>สถานะ</th>
+              <th>${t("วันที่", "Date")}</th><th>${t("อำเภอที่ครอบคลุม", "Districts covered")}</th><th class="rt">${t("วางแผน", "Planned")}</th><th class="rt">${t("เข้าพบจริง", "Visited")}</th><th class="rt">${t("อัตรา", "Rate")}</th><th>${t("สถานะ", "Status")}</th>
             </tr></thead>
             <tbody>
               ${pageRows.map(pl=>html`<tr key=${pl.id} class=${"vp-trow"+(selected&&selected.id===pl.id?" sel":"")+(pl.rate<50?" low":"")} onClick=${()=>setPlanId(pl.id)}>
@@ -276,37 +285,37 @@ export function VisitPlanReport(){
           </table>
         </div>
         ${totalPages>1?html`<div class="vp-pager">
-          <button class="vp-pg" disabled=${pageSafe<=1} onClick=${()=>setPage(p=>Math.max(1,p-1))}>‹ ก่อนหน้า</button>
-          <span>หน้า ${pageSafe}/${totalPages}</span>
-          <button class="vp-pg" disabled=${pageSafe>=totalPages} onClick=${()=>setPage(p=>Math.min(totalPages,p+1))}>ถัดไป ›</button>
+          <button class="vp-pg" disabled=${pageSafe<=1} onClick=${()=>setPage(p=>Math.max(1,p-1))}>${t("‹ ก่อนหน้า", "‹ Previous")}</button>
+          <span>${t("หน้า", "Page")} ${pageSafe}/${totalPages}</span>
+          <button class="vp-pg" disabled=${pageSafe>=totalPages} onClick=${()=>setPage(p=>Math.min(totalPages,p+1))}>${t("ถัดไป ›", "Next ›")}</button>
         </div>`:""}
       </div>
 
       <!-- ═══ ส่วนที่ 3: รายละเอียดแผนที่เลือก ═══ -->
       <div class="vp-card vp-detailcard">
         ${selected?html`
-        <div class="vp-card-h">แผนวันที่ ${beDateVP(selected.dateISO)}</div>
-        <div class="vp-detail-sub">จุดเริ่มต้น <b>${selected.office.businessName}</b> · วางแผน ${num(selected.planned)} แห่ง · เข้าพบ ${num(selected.visited)} แห่ง</div>
+        <div class="vp-card-h">${t("แผนวันที่", "Plan for")} ${beDateVP(selected.dateISO)}</div>
+        <div class="vp-detail-sub">${t("จุดเริ่มต้น", "Starting point")} <b>${selected.office.businessName}</b> ${t("· วางแผน", "· planned")} ${num(selected.planned)} ${t("แห่ง · เข้าพบ", "places · visited")} ${num(selected.visited)} ${t("แห่ง", "places")}</div>
         <div class="vp-cards">
-          ${selected.targets.map((t,i)=>html`<div key=${t.id} class=${"vp-tcard t-"+t.status} onClick=${()=>nav("customer",{id:t.id})} title="เปิดรายละเอียดธุรกิจ">
+          ${selected.targets.map((tg,i)=>html`<div key=${tg.id} class=${"vp-tcard t-"+tg.status} onClick=${()=>nav("customer",{id:tg.id})} title=${t("เปิดรายละเอียดธุรกิจ", "Open business details")}>
             <div class="vp-tc-top">
               <div class="vp-tc-seq">${i+1}</div>
               <div class="vp-tc-main">
-                <div class="vp-tc-nm">${t.businessName} <span class=${"vp-gap g-"+t.gapLevel_at}>ขาด ${t.gap_at} ราย</span></div>
-                <div class="vp-tc-meta">${segTH(t.segment)} · ${districtTH(t.district)}</div>
+                <div class="vp-tc-nm">${tg.businessName} <span class=${"vp-gap g-"+tg.gapLevel_at}>${t("ขาด", "Short")} ${tg.gap_at} ${t("ราย", "businesses")}</span></div>
+                <div class="vp-tc-meta">${segTH(tg.segment)} · ${districtTH(tg.district)}</div>
               </div>
-              <span class=${"vp-tbadge tb-"+t.status}>${VP_TARGET_TH[t.status]}</span>
+              <span class=${"vp-tbadge tb-"+tg.status}>${VP_TARGET_TH[tg.status]}</span>
             </div>
-            ${t.status==="visited" ? html`<div class="vp-tc-body">
-                <div class="vp-tc-line"><span>เวลาที่บันทึก</span><b>${t.time} น.</b></div>
-                <div class="vp-tc-line"><span>ผลการเข้าพบ</span><b>${t.outcome}</b></div>
-                <div class="vp-tc-note">“${t.note}”</div>
+            ${tg.status==="visited" ? html`<div class="vp-tc-body">
+                <div class="vp-tc-line"><span>${t("เวลาที่บันทึก", "Recorded at")}</span><b>${tg.time} ${t("น.", "")}</b></div>
+                <div class="vp-tc-line"><span>${t("ผลการเข้าพบ", "Visit outcome")}</span><b>${tg.outcome}</b></div>
+                <div class="vp-tc-note">“${tg.note}”</div>
               </div>`
-             : t.status==="cancelled" ? html`<div class="vp-tc-flag">นัดถูกยกเลิก</div>`
-             : html`<div class="vp-tc-flag">ไม่ได้เข้าพบ — หลุดออกจากแผนเมื่อสิ้นวัน</div>`}
-            <div class="vp-tc-dist">ระยะจากจุดก่อนหน้า ${fmtKm(t.distFromPrev)} <span class="vp-dim">(เส้นตรง)</span></div>
+             : tg.status==="cancelled" ? html`<div class="vp-tc-flag">${t("นัดถูกยกเลิก", "Appointment cancelled")}</div>`
+             : html`<div class="vp-tc-flag">${t("ไม่ได้เข้าพบ — หลุดออกจากแผนเมื่อสิ้นวัน", "Not visited — dropped from the plan at the end of the day")}</div>`}
+            <div class="vp-tc-dist">${t("ระยะจากจุดก่อนหน้า", "Distance from the previous stop")} ${fmtKm(tg.distFromPrev)} <span class="vp-dim">${t("(เส้นตรง)", "(straight line)")}</span></div>
           </div>`)}
-        </div>` : html`<div class="emptybox">เลือกแผนจากตารางเพื่อดูรายละเอียด</div>`}
+        </div>` : html`<div class="emptybox">${t("เลือกแผนจากตารางเพื่อดูรายละเอียด", "Pick a plan from the table to see its details")}</div>`}
       </div>
     </div>`}
 

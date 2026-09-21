@@ -1,3 +1,4 @@
+import {t} from "../i18n.js";   // สลับภาษา TH/EN — ดู src/i18n.js
 // ═══════════════════════════════════════════════════════════════════════════
 // หน้า "จัดการข้อมูล" (Data Management) — เฉพาะผู้ดูแลระบบ (Administrator)
 // แท็บ: นำเข้าไฟล์ Excel (wizard) · จัดการไฟล์นำเข้า (รวม "จัดการรายการค้าง" = ขั้นตอนที่ 3 ต่อไฟล์) · ข้อมูลที่ TC กรอก · ดีลรออนุมัติ
@@ -5,11 +6,12 @@
 // สแตกจริงของโปรเจกต์ = buildless htm/React (ไม่ใช่ Next.js/Tailwind/Supabase ตามหัว prompt) ใช้ token/คอมโพเนนต์เดิม
 // ทุกข้อความเป็นภาษาไทย · ทุก action ที่เปลี่ยนข้อมูลบันทึกลง Audit Log (src/audit.js)
 // ═══════════════════════════════════════════════════════════════════════════
-import {html, useState, useEffect, useMemo, useRef, useApp, Icon, num, provinceTH, districtTH, PROVINCE_TH, thDate, thDateTime} from "../lib.js";
+import {html, useState, useEffect, useMemo, useRef, useApp, Icon, num, provinceTH, districtTH, PROVINCE_TH, thDate, thDateTime, segTH, getLang, useLang, gapTH} from "../lib.js";
 import {basemap} from "../basemap.js";
 import {Card, Kpi, Btn, Badge, Toggle, Table, Tabs, Modal, Meter, toast} from "../ui.js";
-import {SEGMENTS, SEG_TH, PROVINCE_KEYS, GAP_TH} from "../mock/geoData.js";
+import {SEGMENTS, PROVINCE_KEYS, tcLabel, BKK, BKK_ZONES, zoneName} from "../mock/geoData.js";
 import {pushAudit} from "../audit.js";
+import {loadTerritory, saveTerritory} from "../territory-store.js";
 import {AddRecordsForm} from "../add-records.js";
 import {createPortal} from "react-dom";
 import {LeadManagement, genLeads} from "./lead-management.js";
@@ -142,24 +144,31 @@ function fieldProblem(k, v, all){
   const meta=SYS_FIELDS.find(f=>f.k===k); const req=meta&&meta.req;
   const empty = v==null || String(v).trim()==="";
   if(k==="lat"||k==="lng"){
-    if(empty) return req?"ไม่พบข้อมูลในไฟล์":"";
-    if(isNaN(Number(v))) return "ค่าที่พบไม่ใช่ตัวเลข";
+    if(empty) return req?t("ไม่พบข้อมูลในไฟล์", "Not found in the file"):"";
+    if(isNaN(Number(v))) return t("ค่าที่พบไม่ใช่ตัวเลข", "The value is not a number");
     const laN=Number(all.lat), lnN=Number(all.lng);
-    if(!isNaN(laN)&&!isNaN(lnN) && laN>=97&&laN<=106 && lnN>=5.5&&lnN<=20.6) return "ค่าละติจูดและลองจิจูดอาจสลับกัน";
-    if(k==="lat" && (Number(v)<5.5||Number(v)>20.6)) return "พิกัดอยู่นอกขอบเขตประเทศไทย";
-    if(k==="lng" && (Number(v)<97||Number(v)>106)) return "พิกัดอยู่นอกขอบเขตประเทศไทย";
+    if(!isNaN(laN)&&!isNaN(lnN) && laN>=97&&laN<=106 && lnN>=5.5&&lnN<=20.6) return t("ค่าละติจูดและลองจิจูดอาจสลับกัน", "Latitude and longitude may be swapped");
+    if(k==="lat" && (Number(v)<5.5||Number(v)>20.6)) return t("พิกัดอยู่นอกขอบเขตประเทศไทย", "The coordinates are outside Thailand");
+    if(k==="lng" && (Number(v)<97||Number(v)>106)) return t("พิกัดอยู่นอกขอบเขตประเทศไทย", "The coordinates are outside Thailand");
     return "";
   }
-  if(empty && req) return "ไม่พบข้อมูลในไฟล์";
+  if(empty && req) return t("ไม่พบข้อมูลในไฟล์", "Not found in the file");
   return "";
 }
 const EDIT_FIELDS=["name","address","province","district","lat","lng","segment","type","phone","email"];
 
 const SYS_FIELDS = [
-  {k:"name",label:"ชื่อธุรกิจ",req:true},{k:"address",label:"ที่อยู่",req:true},{k:"province",label:"จังหวัด",req:true},
-  {k:"lat",label:"Latitude",req:true},{k:"lng",label:"Longitude",req:true},{k:"segment",label:"หมวดหมู่ธุรกิจ (Segment)",req:true},
-  {k:"type",label:"ประเภท (ลูกค้า/Lead)",req:true},{k:"district",label:"อำเภอ/เขต"},{k:"phone",label:"เบอร์โทร"},
-  {k:"email",label:"อีเมล"},{k:"note",label:"หมายเหตุ"},{k:"__skip",label:"— ไม่นำเข้าคอลัมน์นี้ —"} ];
+  {k:"name",    get label(){ return t("ชื่อธุรกิจ","Business name"); }, req:true},
+  {k:"address", get label(){ return t("ที่อยู่","Address"); },          req:true},
+  {k:"province",get label(){ return t("จังหวัด","Province"); },         req:true},
+  {k:"lat",label:"Latitude",req:true},{k:"lng",label:"Longitude",req:true},
+  {k:"segment", get label(){ return t("หมวดหมู่ธุรกิจ (Segment)","Business category (segment)"); }, req:true},
+  {k:"type",    get label(){ return t("ประเภท (ลูกค้า/Lead)","Type (customer / Lead)"); }, req:true},
+  {k:"district",get label(){ return t("อำเภอ/เขต","District"); }},
+  {k:"phone",   get label(){ return t("เบอร์โทร","Phone"); }},
+  {k:"email",   get label(){ return t("อีเมล","Email"); }},
+  {k:"note",    get label(){ return t("หมายเหตุ","Note"); }},
+  {k:"__skip",  get label(){ return t("— ไม่นำเข้าคอลัมน์นี้ —","— don't import this column —"); }} ];
 // คอลัมน์ในไฟล์ mock + การจับคู่อัตโนมัติที่ระบบเดา · sample = ค่าจริง 3 แถวแรกในไฟล์ (ใช้แสดงตัวอย่าง + ตรวจความสมเหตุสมผล)
 const FILE_COLS = [
   {col:"ชื่อร้าน", sample:["ครัวคุณย่า","เดอะโค้ชโฮเทล","บิวตี้เฮาส์"], auto:"name"},
@@ -176,24 +185,30 @@ const FILE_COLS = [
 function mapWarn(field, samples){
   const nums = samples.map(v=>parseFloat(String(v).replace(/[^\d.\-]/g,""))).filter(v=>!isNaN(v));
   if(field==="lat"){
-    if(nums.length<samples.length) return "บางค่าไม่ใช่ตัวเลข — คอลัมน์นี้อาจไม่ใช่ละติจูด";
-    if(nums.some(v=>v<5||v>21)) return "ค่าที่พบอยู่นอกช่วงละติจูดของไทย (5–21) — ตรวจว่าสลับคอลัมน์กับลองจิจูดหรือไม่";
+    if(nums.length<samples.length) return t("บางค่าไม่ใช่ตัวเลข — คอลัมน์นี้อาจไม่ใช่ละติจูด", "Some values are not numbers — this column may not be latitude");
+    if(nums.some(v=>v<5||v>21)) return t("ค่าที่พบอยู่นอกช่วงละติจูดของไทย (5–21) — ตรวจว่าสลับคอลัมน์กับลองจิจูดหรือไม่", "Values fall outside Thailand's latitude range (5–21) — check whether this column is swapped with longitude");
   }
   if(field==="lng"){
-    if(nums.length<samples.length) return "บางค่าไม่ใช่ตัวเลข — คอลัมน์นี้อาจไม่ใช่ลองจิจูด";
-    if(nums.some(v=>v<97||v>106)) return "ค่าที่พบอยู่นอกช่วงลองจิจูดของไทย (97–106) — ตรวจว่าสลับคอลัมน์หรือไม่";
+    if(nums.length<samples.length) return t("บางค่าไม่ใช่ตัวเลข — คอลัมน์นี้อาจไม่ใช่ลองจิจูด", "Some values are not numbers — this column may not be longitude");
+    if(nums.some(v=>v<97||v>106)) return t("ค่าที่พบอยู่นอกช่วงลองจิจูดของไทย (97–106) — ตรวจว่าสลับคอลัมน์หรือไม่", "Values fall outside Thailand's longitude range (97–106) — check whether the columns are swapped");
   }
   return "";
 }
 
 const ISSUE_META = {
-  ok:{tone:"good",label:"ผ่าน"}, incomplete:{tone:"warn",label:"ข้อมูลไม่ครบ"},
-  badcoord:{tone:"bad",label:"พิกัดผิดพลาด"}, dup:{tone:"neutral",label:"ซ้ำกับข้อมูลเดิม"},
-  edited:{tone:"good",label:"แก้ไขแล้ว"}, skipped:{tone:"neutral",label:"ข้าม"} };
-const SEG_TH_OF = s => SEG_TH[s]||s;
+  ok:        {tone:"good",    get label(){ return t("ผ่าน","Passed"); }},
+  incomplete:{tone:"warn",    get label(){ return t("ข้อมูลไม่ครบ","Incomplete"); }},
+  badcoord:  {tone:"bad",     get label(){ return t("พิกัดผิดพลาด","Bad coordinates"); }},
+  dup:       {tone:"neutral", get label(){ return t("ซ้ำกับข้อมูลเดิม","Duplicate of an existing record"); }},
+  edited:    {tone:"good",    get label(){ return t("แก้ไขแล้ว","Edited"); }},
+  skipped:   {tone:"neutral", get label(){ return t("ข้าม","Skipped"); }} };
+const SEG_TH_OF = s => segTH(s);
 const IMP_STATUS = { "สำเร็จ":"good", "สำเร็จบางส่วน":"warn", "ล้มเหลว":"bad", "กำลังประมวลผล":"info" };
 const CHECK_TONE = { "รอตรวจสอบ":"warn", "ตรวจสอบแล้ว":"good", "ตีกลับ":"bad" };
-const SRC_TH = { manual_tc:"TC กรอกเอง", manual_admin:"Admin กรอกเอง", import_file:"นำเข้าจากไฟล์" };
+const SRC_TH = {
+  get manual_tc(){ return t("TC กรอกเอง","Entered by a TC"); },
+  get manual_admin(){ return t("Admin กรอกเอง","Entered by an admin"); },
+  get import_file(){ return t("นำเข้าจากไฟล์","Imported from a file"); } };
 const SRC_TONE = { manual_tc:"info", manual_admin:"neutral", import_file:"warn" };
 
 // ── Drawer แก้ไขแถว (ขั้นตอนที่ 3) — ฟอร์มแก้ได้จริง + ไฮไลต์ฟิลด์ที่ผิด · แถวซ้ำ = ตารางเทียบ ──
@@ -207,13 +222,13 @@ function EditRowDrawer({row, onClose, onSave, onSkip, onMerge, onNew}){
   const node = html`<div class="dm-erd-back" onMouseDown=${e=>{ if(e.target.classList.contains("dm-erd-back")) onClose(); }}>
     <div class="dm-erd">
       <div class="dm-erd-head">
-        <div><div class="dm-erd-nm">แถวที่ ${row.row}${row.name?" · "+row.name:""}</div>
-          <div class="dim" style=${{fontSize:"12px"}}>${isDup?"ซ้ำกับข้อมูลเดิม — เปรียบเทียบและตัดสินใจ":"แก้ไขค่าที่อ่านจากไฟล์ก่อนนำเข้า"}</div></div>
+        <div><div class="dm-erd-nm">${t("แถวที่", "Row")} ${row.row}${row.name?" · "+row.name:""}</div>
+          <div class="dim" style=${{fontSize:"12px"}}>${isDup?t("ซ้ำกับข้อมูลเดิม — เปรียบเทียบและตัดสินใจ", "Duplicate of an existing record — compare and decide"):t("แก้ไขค่าที่อ่านจากไฟล์ก่อนนำเข้า", "Edit the values read from the file before importing")}</div></div>
         <button class="dm-erd-x" onClick=${onClose}><${Icon} name="close" size=${16}/></button>
       </div>
       <div class="dm-erd-body">
         ${isDup ? html`
-          <div class="dm-cmp2 dm-cmp2-h"><span>ฟิลด์</span><span>ข้อมูลเดิมในระบบ</span><span>ข้อมูลใหม่จากไฟล์</span></div>
+          <div class="dm-cmp2 dm-cmp2-h"><span>${t("ฟิลด์", "Field")}</span><span>${t("ข้อมูลเดิมในระบบ", "Existing record")}</span><span>${t("ข้อมูลใหม่จากไฟล์", "New record from the file")}</span></div>
           ${["name","address","province","segment","phone","email","lat","lng"].map(k=>{
             const ov=k==="segment"?SEG_TH_OF(row.match[k]):(row.match[k]!=null&&row.match[k]!==""?String(row.match[k]):"—");
             const nv=k==="segment"?SEG_TH_OF(row[k]):(row[k]!=null&&row[k]!==""?String(row[k]):"—");
@@ -223,7 +238,7 @@ function EditRowDrawer({row, onClose, onSave, onSkip, onMerge, onNew}){
               <label class=${"dm-cmp2-c"+(sel==="old"?" on":"")}><input type="radio" name=${"c"+k} checked=${sel==="old"} onChange=${()=>setPick(p=>({...p,[k]:"old"}))}/> ${ov}</label>
               <label class=${"dm-cmp2-c"+(sel==="new"?" on":"")}><input type="radio" name=${"c"+k} checked=${sel==="new"} onChange=${()=>setPick(p=>({...p,[k]:"new"}))}/> ${nv}</label>
             </div>`; })}
-          <div class="dm-alert" style=${{marginTop:"12px"}}><${Icon} name="gap" size=${14}/> การรวมจะคงรหัสรายการเดิม <b>${row.match.id}</b> ไว้เสมอ · เลือกค่าที่จะเก็บได้รายช่อง (ไฮไลต์ = ค่าต่างกัน)</div>
+          <div class="dm-alert" style=${{marginTop:"12px"}}><${Icon} name="gap" size=${14}/> ${t("การรวมจะคงรหัสรายการเดิม", "Merging always keeps the existing record ID")} <b>${row.match.id}</b> ${t("ไว้เสมอ · เลือกค่าที่จะเก็บได้รายช่อง (ไฮไลต์ = ค่าต่างกัน)", "· pick which value to keep field by field (highlighted rows differ)")}</div>
         ` : html`
           <div class="dm-erd-grid">
           ${EDIT_FIELDS.map(k=>{ const err=fieldProblem(k, vals[k], vals); const meta=FM[k];
@@ -231,24 +246,24 @@ function EditRowDrawer({row, onClose, onSave, onSkip, onMerge, onNew}){
             return html`<div key=${k} class="dm-erd-f">
               <label>${meta?meta.label:k}${meta&&meta.req?" *":""}</label>
               ${k==="segment"?html`<select class=${"dm-input"+(err?" err":"")} value=${vals[k]} onChange=${e=>set(k,e.target.value)}>
-                  <option value="">— เลือก —</option>${SEGMENTS.map(s=>html`<option key=${s} value=${s}>${SEG_TH_OF(s)}</option>`)}</select>`
+                  <option value="">${t("— เลือก —", "— select —")}</option>${SEGMENTS.map(s=>html`<option key=${s} value=${s}>${SEG_TH_OF(s)}</option>`)}</select>`
               :k==="type"?html`<select class=${"dm-input"+(err?" err":"")} value=${vals[k]} onChange=${e=>set(k,e.target.value)}>
-                  <option value="">— เลือก —</option><option value="Existing">ลูกค้า</option><option value="Prospect">Lead</option></select>`
+                  <option value="">${t("— เลือก —", "— select —")}</option><option value="Existing">${t("ลูกค้า", "Customers")}</option><option value="Prospect">Lead</option></select>`
               :k==="province"?html`<select class=${"dm-input"+(err?" err":"")} value=${vals[k]} onChange=${e=>set(k,e.target.value)}>
-                  <option value="">— เลือก —</option>${PROV_TH.map(p=>html`<option key=${p} value=${p}>${provinceTH(p)}</option>`)}</select>`
+                  <option value="">${t("— เลือก —", "— select —")}</option>${PROV_TH.map(p=>html`<option key=${p} value=${p}>${provinceTH(p)}</option>`)}</select>`
               :html`<input class=${"dm-input"+(err?" err":"")} value=${vals[k]} onInput=${e=>set(k,e.target.value)}/>`}
-              ${err?html`<div class="dm-erd-err"><${Icon} name="gap" size=${12}/> ${err}${swap?html` <button class="dm-swap" onClick=${swapLatLng}>สลับค่า lat/lng</button>`:""}</div>`:""}
+              ${err?html`<div class="dm-erd-err"><${Icon} name="gap" size=${12}/> ${err}${swap?html` <button class="dm-swap" onClick=${swapLatLng}>${t("สลับค่า lat/lng", "Swap lat/lng")}</button>`:""}</div>`:""}
             </div>`; })}
           </div>`}
       </div>
       <div class="dm-erd-foot">
         ${isDup
-          ? html`<${Btn} variant="ghost" onClick=${onSkip}>ข้ามแถวนี้</${Btn}>
-              <${Btn} variant="outline" onClick=${onNew}>ถือเป็นรายการใหม่</${Btn}>
-              <${Btn} variant="primary" icon="check" onClick=${()=>onMerge(pick)}>รวมกับข้อมูลเดิม</${Btn}>`
-          : html`<${Btn} variant="ghost" onClick=${onClose}>ยกเลิก</${Btn}>
-              <${Btn} variant="ghost" onClick=${onSkip}>ข้ามแถวนี้</${Btn}>
-              <${Btn} variant="primary" icon="check" onClick=${()=>onSave(vals)}>บันทึกและนำเข้าแถวนี้</${Btn}>`}
+          ? html`<${Btn} variant="ghost" onClick=${onSkip}>${t("ข้ามแถวนี้", "Skip this row")}</${Btn}>
+              <${Btn} variant="outline" onClick=${onNew}>${t("ถือเป็นรายการใหม่", "Treat as a new record")}</${Btn}>
+              <${Btn} variant="primary" icon="check" onClick=${()=>onMerge(pick)}>${t("รวมกับข้อมูลเดิม", "Merge with the existing record")}</${Btn}>`
+          : html`<${Btn} variant="ghost" onClick=${onClose}>${t("ยกเลิก", "Cancel")}</${Btn}>
+              <${Btn} variant="ghost" onClick=${onSkip}>${t("ข้ามแถวนี้", "Skip this row")}</${Btn}>
+              <${Btn} variant="primary" icon="check" onClick=${()=>onSave(vals)}>${t("บันทึกและนำเข้าแถวนี้", "Save and import this row")}</${Btn}>`}
       </div>
     </div>
   </div>`;
@@ -276,7 +291,7 @@ function ImportWizard({resumeFile, staging, setStaging, onExitResume}={}){
   const OK_EXT=[".xlsx",".xls",".csv"];
   const pickFile=()=>{ // จำลองการเลือกไฟล์ (ไม่มี backend) — สุ่มไฟล์ตัวอย่างที่ถูกชนิด
     setFileErr(""); setFile({ name:"ลูกค้าใหม่_กรกฎาคม.xlsx", size:1863000, rows:300, cols:FILE_COLS.length }); };
-  const pickBad=()=>{ setFile(null); setFileErr("ไฟล์ .pdf ไม่รองรับ — ใช้ได้เฉพาะ .xlsx, .xls, .csv"); };
+  const pickBad=()=>{ setFile(null); setFileErr(t("ไฟล์ .pdf ไม่รองรับ — ใช้ได้เฉพาะ .xlsx, .xls, .csv", ".pdf is not supported — only .xlsx, .xls and .csv")); };
 
   const reqUnmapped = SYS_FIELDS.filter(f=>f.req).filter(f=> !Object.values(mapping).includes(f.k));
   const dupMap = Object.values(mapping).filter(v=>v!=="__skip").filter((v,i,a)=>a.indexOf(v)!==i);
@@ -288,19 +303,19 @@ function ImportWizard({resumeFile, staging, setStaging, onExitResume}={}){
 
   const runImport=()=>{ setImporting(true); setPct(0);
     const t=setInterval(()=>{ setPct(p=>{ if(p>=100){ clearInterval(t); setImporting(false); setDone(true);
-      const okN=counts.ok||0; pushAudit({action:"นำเข้าไฟล์ Excel", category:"นำเข้า", detail:`${file?file.name:"ไฟล์"} · สำเร็จ ${okN} รายการ`});
-      toast(`นำเข้าข้อมูลสำเร็จ ${okN} รายการ`,"good"); return 100; } return p+8; }); },90); };
+      const okN=counts.ok||0; pushAudit({action:t("นำเข้าไฟล์ Excel", "Import an Excel file"), category:"นำเข้า", detail:`${file?file.name:t("ไฟล์", "File")} ${t("· สำเร็จ", "· succeeded")} ${okN} ${t("รายการ", "records")}`});
+      toast(`${t("นำเข้าข้อมูลสำเร็จ", "Import finished")} ${okN} ${t("รายการ", "records")}`,"good"); return 100; } return p+8; }); },90); };
 
-  const STEPS=[[1,"เลือกไฟล์"],[2,"จับคู่คอลัมน์"],[3,"ตรวจสอบข้อมูล"],[4,"ยืนยันและนำเข้า"]];
+  const STEPS=[[1,t("เลือกไฟล์", "Choose a file")],[2,t("จับคู่คอลัมน์", "Map the columns")],[3,t("ตรวจสอบข้อมูล", "Review the data")],[4,t("ยืนยันและนำเข้า", "Confirm and import")]];
 
   // ── โหมด "จัดการรายการค้าง" — ทำงานต่อจากขั้นตอนที่ 3 ของไฟล์ที่เลือก (กรองเฉพาะแถวที่ยังไม่ตัดสินใจ) ──
   if(resumeFile){
     const s=fileStats(resumeFile, staging);
     return html`<div>
       <div class="dm-resume-bar">
-        <div><b>จัดการรายการค้าง · ${resumeFile.file}</b>
-          <div class="dim" style=${{fontSize:"12px",marginTop:"2px"}}>ทำงานต่อจากขั้นตอนที่ 3 ของการนำเข้า · แสดงเฉพาะแถวที่ยังไม่ได้ตัดสินใจ (เหลือ ${num(s.pending)} รายการ)</div></div>
-        <${Btn} size="sm" variant="ghost" onClick=${onExitResume}>← กลับไปจัดการไฟล์นำเข้า</${Btn}>
+        <div><b>${t("จัดการรายการค้าง ·", "Handle pending rows ·")} ${resumeFile.file}</b>
+          <div class="dim" style=${{fontSize:"12px",marginTop:"2px"}}>${t("ทำงานต่อจากขั้นตอนที่ 3 ของการนำเข้า · แสดงเฉพาะแถวที่ยังไม่ได้ตัดสินใจ (เหลือ", "Continues from step 3 of the import · only rows still undecided are shown (")} ${num(s.pending)} ${t("รายการ)", "records)")}</div></div>
+        <${Btn} size="sm" variant="ghost" onClick=${onExitResume}>${t("← กลับไปจัดการไฟล์นำเข้า", "← Back to import files")}</${Btn}>
       </div>
       <div class="dm-stepper">
         ${STEPS.map(([n,l])=>html`<div key=${n} class=${"dm-step"+(n===3?" on":n<3?" done":"")}>
@@ -320,117 +335,117 @@ function ImportWizard({resumeFile, staging, setStaging, onExitResume}={}){
     ${step===1 ? html`<div>
       <div class=${"dm-drop"+(fileErr?" err":"")} onClick=${pickFile}>
         <${Icon} name="upload" size=${30} color="var(--muted)"/>
-        <div style=${{fontWeight:700,marginTop:"8px"}}>ลากไฟล์มาวาง หรือคลิกเพื่อเลือกไฟล์</div>
-        <div class="dim" style=${{fontSize:"12.5px",marginTop:"4px"}}>รองรับ .xlsx, .xls, .csv · ไม่เกิน 25 MB ต่อไฟล์</div>
+        <div style=${{fontWeight:700,marginTop:"8px"}}>${t("ลากไฟล์มาวาง หรือคลิกเพื่อเลือกไฟล์", "Drop a file here, or click to choose one")}</div>
+        <div class="dim" style=${{fontSize:"12.5px",marginTop:"4px"}}>${t("รองรับ .xlsx, .xls, .csv · ไม่เกิน 25 MB ต่อไฟล์", "Supports .xlsx, .xls, .csv · up to 25 MB per file")}</div>
         ${fileErr?html`<div class="dm-fileerr">${fileErr}</div>`:""}
       </div>
       <div class="row" style=${{gap:"10px",marginTop:"10px",flexWrap:"wrap"}}>
-        <${Btn} variant="outline" size="sm" icon="download" onClick=${()=>toast("กำลังดาวน์โหลดไฟล์ตัวอย่าง (Template)","info")}>ดาวน์โหลดไฟล์ตัวอย่าง (Template)</${Btn}>
-        <${Btn} variant="ghost" size="sm" onClick=${pickBad}>ทดสอบไฟล์ผิดชนิด</${Btn}>
+        <${Btn} variant="outline" size="sm" icon="download" onClick=${()=>toast(t("กำลังดาวน์โหลดไฟล์ตัวอย่าง (Template)", "Downloading the template file"),"info")}>${t("ดาวน์โหลดไฟล์ตัวอย่าง (Template)", "Download the template file")}</${Btn}>
+        <${Btn} variant="ghost" size="sm" onClick=${pickBad}>${t("ทดสอบไฟล์ผิดชนิด", "Test a wrong file type")}</${Btn}>
       </div>
       ${file?html`<div class="dm-filecard">
         <${Icon} name="reports" size=${22} color="var(--accent)"/>
         <div style=${{flex:1,minWidth:0}}><b>${file.name}</b>
-          <div class="dim" style=${{fontSize:"12px"}}>${fmtBytes(file.size)} · ${num(file.rows)} แถว · ${file.cols} คอลัมน์</div></div>
-        <button class="icon-btn" onClick=${()=>setFile(null)} aria-label="ลบไฟล์"><${Icon} name="trash" size=${15}/></button>
+          <div class="dim" style=${{fontSize:"12px"}}>${fmtBytes(file.size)} · ${num(file.rows)} ${t("แถว ·", "rows ·")} ${file.cols} ${t("คอลัมน์", "columns")}</div></div>
+        <button class="icon-btn" onClick=${()=>setFile(null)} aria-label=${t("ลบไฟล์", "Remove the file")}><${Icon} name="trash" size=${15}/></button>
       </div>`:""}
     </div>` : ""}
 
     ${step===2 ? html`<div>
       ${tplBanner?html`<div class="dm-alert" style=${{marginBottom:"12px",justifyContent:"space-between",flexWrap:"wrap",gap:"10px"}}>
-        <span class="row" style=${{gap:"8px"}}><${Icon} name="check" size=${15} color="var(--good)"/> พบผังการจับคู่เดิมที่ตรงกับรูปแบบไฟล์นี้: <b>ผังมาตรฐาน Barter</b></span>
+        <span class="row" style=${{gap:"8px"}}><${Icon} name="check" size=${15} color="var(--good)"/> ${t("พบผังการจับคู่เดิมที่ตรงกับรูปแบบไฟล์นี้:", "Found a saved mapping that matches this file's shape:")} <b>${t("ผังมาตรฐาน Barter", "Barter standard mapping")}</b></span>
         <span class="row" style=${{gap:"8px"}}>
-          <${Btn} size="sm" variant="outline" onClick=${()=>{setMapping(Object.fromEntries(FILE_COLS.map(c=>[c.col,c.auto])));setTplBanner(false);toast("ใช้ผังการจับคู่เดิมแล้ว","good");}}>ใช้เลย</${Btn}>
-          <${Btn} size="sm" variant="ghost" onClick=${()=>{setMapping(Object.fromEntries(FILE_COLS.map(c=>[c.col,"__skip"])));setTplBanner(false);}}>จับคู่ใหม่</${Btn}></span></div>`:""}
-      <div class="dim" style=${{fontSize:"12.5px",marginBottom:"12px"}}>ระบบจับคู่คอลัมน์อัตโนมัติแล้ว — ตรวจและแก้ไขได้ · ช่องที่มี <span class="dm-auto">จับคู่อัตโนมัติ</span> คือระบบเดาให้ · ดูตัวอย่างค่าจริงก่อนยืนยันได้</div>
+          <${Btn} size="sm" variant="outline" onClick=${()=>{setMapping(Object.fromEntries(FILE_COLS.map(c=>[c.col,c.auto])));setTplBanner(false);toast(t("ใช้ผังการจับคู่เดิมแล้ว", "Applied the saved mapping"),"good");}}>${t("ใช้เลย", "Use it")}</${Btn}>
+          <${Btn} size="sm" variant="ghost" onClick=${()=>{setMapping(Object.fromEntries(FILE_COLS.map(c=>[c.col,"__skip"])));setTplBanner(false);}}>${t("จับคู่ใหม่", "Map again")}</${Btn}></span></div>`:""}
+      <div class="dim" style=${{fontSize:"12.5px",marginBottom:"12px"}}>${t("ระบบจับคู่คอลัมน์อัตโนมัติแล้ว — ตรวจและแก้ไขได้ · ช่องที่มี", "Columns were mapped automatically — review and adjust · fields marked")} <span class="dm-auto">${t("จับคู่อัตโนมัติ", "auto-mapped")}</span> ${t("คือระบบเดาให้ · ดูตัวอย่างค่าจริงก่อนยืนยันได้", "were guessed · check the real sample values before confirming")}</div>
       <${Table} cols=${[
-        {h:"คอลัมน์ในไฟล์", render:r=>html`<div><b>${r.col}</b>
-          <div class="dim" style=${{fontSize:"11px",marginTop:"2px"}}>ตัวอย่าง: ${r.sample.slice(0,3).join(" · ")}</div></div>`},
-        {h:"จับคู่กับฟิลด์ในระบบ", render:r=>{ const w=mapWarn(mapping[r.col], r.sample);
+        {h:t("คอลัมน์ในไฟล์", "Column in the file"), render:r=>html`<div><b>${r.col}</b>
+          <div class="dim" style=${{fontSize:"11px",marginTop:"2px"}}>${t("ตัวอย่าง:", "Sample:")} ${r.sample.slice(0,3).join(" · ")}</div></div>`},
+        {h:t("จับคู่กับฟิลด์ในระบบ", "Maps to system field"), render:r=>{ const w=mapWarn(mapping[r.col], r.sample);
           return html`<div style=${{display:"flex",flexDirection:"column",gap:"6px"}}>
             <div class="row" style=${{gap:"8px"}}>
               <select class="dm-sel" value=${mapping[r.col]} onChange=${e=>setMapping(m=>({...m,[r.col]:e.target.value}))}>
                 ${SYS_FIELDS.map(f=>html`<option key=${f.k} value=${f.k}>${f.label}${f.req?" *":""}</option>`)}</select>
-              ${mapping[r.col]===r.auto&&r.auto!=="__skip"?html`<span class="dm-auto">จับคู่อัตโนมัติ</span>`:""}</div>
+              ${mapping[r.col]===r.auto&&r.auto!=="__skip"?html`<span class="dm-auto">${t("จับคู่อัตโนมัติ", "auto-mapped")}</span>`:""}</div>
             ${w?html`<div class="dm-alert warn" style=${{marginTop:0,padding:"7px 10px"}}><${Icon} name="gap" size=${14}/> ${w}</div>`:""}</div>`; }},
       ]} rows=${FILE_COLS}/>
-      ${reqUnmapped.length?html`<div class="dm-alert bad"><${Icon} name="gap" size=${15}/> ยังไม่ได้จับคู่ฟิลด์ที่จำเป็น: <b>${reqUnmapped.map(f=>f.label).join(", ")}</b></div>`:""}
-      ${dupMap.length?html`<div class="dm-alert warn"><${Icon} name="gap" size=${15}/> มีฟิลด์ถูกจับคู่ซ้ำ — แต่ละฟิลด์ควรจับคู่คอลัมน์เดียว</div>`:""}
+      ${reqUnmapped.length?html`<div class="dm-alert bad"><${Icon} name="gap" size=${15}/> ${t("ยังไม่ได้จับคู่ฟิลด์ที่จำเป็น:", "Required fields not mapped yet:")} <b>${reqUnmapped.map(f=>f.label).join(", ")}</b></div>`:""}
+      ${dupMap.length?html`<div class="dm-alert warn"><${Icon} name="gap" size=${15}/> ${t("มีฟิลด์ถูกจับคู่ซ้ำ — แต่ละฟิลด์ควรจับคู่คอลัมน์เดียว", "A field is mapped twice — each field should map to a single column")}</div>`:""}
 
       <!-- ตัวอย่างข้อมูลรวม: เห็นภาพว่าข้อมูลจะหน้าตาเป็นอย่างไรหลังนำเข้า -->
       ${(()=>{ const mc=FILE_COLS.filter(c=>mapping[c.col]&&mapping[c.col]!=="__skip");
         if(!mc.length) return "";
         return html`<div class="dm-preview">
-          <div class="dm-preview-h">ตัวอย่างข้อมูลที่จะเข้าระบบ (3 แถวแรก)</div>
+          <div class="dm-preview-h">${t("ตัวอย่างข้อมูลที่จะเข้าระบบ (3 แถวแรก)", "Preview of what will be imported (first 3 rows)")}</div>
           <div class="dm-preview-scroll"><table class="dm-preview-tbl">
             <thead><tr>${mc.map(c=>html`<th key=${c.col}>${(SYS_FIELDS.find(f=>f.k===mapping[c.col])||{}).label||mapping[c.col]}</th>`)}</tr></thead>
             <tbody>${[0,1,2].map(i=>html`<tr key=${i}>${mc.map(c=>html`<td key=${c.col}>${c.sample[i]||"—"}</td>`)}</tr>`)}</tbody>
           </table></div></div>`; })()}
 
-      <label class="dm-check"><input type="checkbox" checked=${saveTpl} onChange=${e=>setSaveTpl(e.target.checked)}/> จำรูปแบบการจับคู่นี้ไว้เป็นผังสำหรับครั้งถัดไป</label>
+      <label class="dm-check"><input type="checkbox" checked=${saveTpl} onChange=${e=>setSaveTpl(e.target.checked)}/> ${t("จำรูปแบบการจับคู่นี้ไว้เป็นผังสำหรับครั้งถัดไป", "Remember this mapping for next time")}</label>
     </div>` : ""}
 
     ${step===3 ? html`<div>
       <div class="grid g4" style=${{marginBottom:"14px"}}>
-        <${Kpi} label="ผ่าน" value=${counts.ok||0} icon="check"/>
-        <${Kpi} label="ข้อมูลไม่ครบ" value=${counts.incomplete||0} icon="gap"/>
-        <${Kpi} label="พิกัดผิดพลาด" value=${counts.badcoord||0} icon="pin"/>
-        <${Kpi} label="ซ้ำกับข้อมูลเดิม" value=${counts.dup||0} icon="users"/>
+        <${Kpi} label=${t("ผ่าน", "Passed")} value=${counts.ok||0} icon="check"/>
+        <${Kpi} label=${t("ข้อมูลไม่ครบ", "Incomplete")} value=${counts.incomplete||0} icon="gap"/>
+        <${Kpi} label=${t("พิกัดผิดพลาด", "Bad coordinates")} value=${counts.badcoord||0} icon="pin"/>
+        <${Kpi} label=${t("ซ้ำกับข้อมูลเดิม", "Duplicate")} value=${counts.dup||0} icon="users"/>
       </div>
       <div class="row" style=${{gap:"8px",marginBottom:"10px",flexWrap:"wrap"}}>
-        ${[["all","ทั้งหมด"],["ok","ผ่าน"],["incomplete","ไม่ครบ"],["badcoord","พิกัดผิด"],["dup","ซ้ำ"]].map(([v,l])=>
+        ${[["all",t("ทั้งหมด", "All")],["ok",t("ผ่าน", "Passed")],["incomplete",t("ไม่ครบ", "Incomplete")],["badcoord",t("พิกัดผิด", "Bad coords")],["dup",t("ซ้ำ", "Duplicate")]].map(([v,l])=>
           html`<button key=${v} class=${"dm-chip"+(valFilter===v?" on":"")} onClick=${()=>{setValFilter(v);setValPage(1);}}>${l}</button>`)}
       </div>
       <${Table} cols=${[
-        {h:"แถวที่", render:r=>r.row},
-        {h:"ชื่อธุรกิจ", render:r=>r.name||html`<span class="dim">(ไม่มีชื่อ)</span>`},
-        {h:"จังหวัดที่พบ", render:r=>r.province?provinceTH(r.province):html`<span class="dim">—</span>`},
-        {h:"สถานะ", render:r=>{ const m=r.edited?ISSUE_META.edited:ISSUE_META[r.issue]; return html`<${Badge} tone=${m.tone}>${m.label}</${Badge}>`; }},
-        {h:"การจัดการ", render:r=> (r.issue==="ok"||r.issue==="skipped") ? html`<span class="dim">—</span>` :
+        {h:t("แถวที่", "Row"), render:r=>r.row},
+        {h:t("ชื่อธุรกิจ", "Business name"), render:r=>r.name||html`<span class="dim">${t("(ไม่มีชื่อ)", "(no name)")}</span>`},
+        {h:t("จังหวัดที่พบ", "Province found"), render:r=>r.province?provinceTH(r.province):html`<span class="dim">—</span>`},
+        {h:t("สถานะ", "Status"), render:r=>{ const m=r.edited?ISSUE_META.edited:ISSUE_META[r.issue]; return html`<${Badge} tone=${m.tone}>${m.label}</${Badge}>`; }},
+        {h:t("การจัดการ", "Actions"), render:r=> (r.issue==="ok"||r.issue==="skipped") ? html`<span class="dim">—</span>` :
           html`<div class="row" style=${{gap:"6px"}}>
-            <${Btn} size="sm" variant="outline" onClick=${()=>setEditRow(r)}>แก้ไข</${Btn}>
-            <${Btn} size="sm" variant="ghost" onClick=${()=>{ patchVal(r.row,{issue:"skipped",edited:false}); toast("ข้ามแถวนี้แล้ว","warn"); }}>ข้ามแถวนี้</${Btn}></div>`},
+            <${Btn} size="sm" variant="outline" onClick=${()=>setEditRow(r)}>${t("แก้ไข", "Edit")}</${Btn}>
+            <${Btn} size="sm" variant="ghost" onClick=${()=>{ patchVal(r.row,{issue:"skipped",edited:false}); toast(t("ข้ามแถวนี้แล้ว", "Row skipped"),"warn"); }}>${t("ข้ามแถวนี้", "Skip this row")}</${Btn}></div>`},
       ]} rows=${pageRows}/>
-      ${totalPages>1?html`<div class="dm-pager"><span class="dim">แสดง ${(valPage-1)*PAGE+1}–${Math.min(valPage*PAGE,valList.length)} จาก ${valList.length} แถว</span>
+      ${totalPages>1?html`<div class="dm-pager"><span class="dim">${t("แสดง", "Showing")} ${(valPage-1)*PAGE+1}–${Math.min(valPage*PAGE,valList.length)} ${t("จาก", "of")} ${valList.length} ${t("แถว", "Row")}</span>
         <div class="row" style=${{gap:"5px"}}>${Array.from({length:totalPages},(_,i)=>i+1).map(p=>html`<button key=${p} class=${"dm-pg"+(p===valPage?" on":"")} onClick=${()=>setValPage(p)}>${p}</button>`)}</div></div>`:""}
 
       ${editRow?html`<${EditRowDrawer} row=${editRow} onClose=${()=>setEditRow(null)}
         onSave=${vals=>{ patchVal(editRow.row,{...vals,issue:"ok",edited:true}); setEditRow(null);
-          pushAudit({action:"แก้ไขและนำเข้าแถว (ตรวจสอบข้อมูล)", category:"แก้ไข", detail:`${vals.name||editRow.name} (แถว ${editRow.row})`});
-          toast("บันทึกและนำเข้าแถวนี้แล้ว","good"); }}
-        onSkip=${()=>{ patchVal(editRow.row,{issue:"skipped",edited:false}); setEditRow(null); toast("ข้ามแถวนี้แล้ว","warn"); }}
+          pushAudit({action:t("แก้ไขและนำเข้าแถว (ตรวจสอบข้อมูล)", "Edited and imported a row (data review)"), category:"แก้ไข", detail:`${vals.name||editRow.name} ${t("(แถว", "(row")} ${editRow.row})`});
+          toast(t("บันทึกและนำเข้าแถวนี้แล้ว", "Row saved and imported"),"good"); }}
+        onSkip=${()=>{ patchVal(editRow.row,{issue:"skipped",edited:false}); setEditRow(null); toast(t("ข้ามแถวนี้แล้ว", "Row skipped"),"warn"); }}
         onMerge=${()=>{ patchVal(editRow.row,{issue:"ok",edited:true}); setEditRow(null);
-          pushAudit({action:"รวมกับข้อมูลเดิม (ตรวจสอบข้อมูล)", category:"แก้ไข", detail:`${editRow.name} → คงรหัส ${editRow.match?editRow.match.id:"-"}`});
-          toast("รวมกับข้อมูลเดิมแล้ว — คงรหัสเดิม","good"); }}
-        onNew=${()=>{ patchVal(editRow.row,{issue:"ok",edited:true}); setEditRow(null); toast("ถือเป็นรายการใหม่แล้ว","good"); }}/>`:""}
+          pushAudit({action:t("รวมกับข้อมูลเดิม (ตรวจสอบข้อมูล)", "Merged with an existing record (data review)"), category:"แก้ไข", detail:`${editRow.name} ${t("→ คงรหัส", "→ keeping ID")} ${editRow.match?editRow.match.id:"-"}`});
+          toast(t("รวมกับข้อมูลเดิมแล้ว — คงรหัสเดิม", "Merged with the existing record — the original ID is kept"),"good"); }}
+        onNew=${()=>{ patchVal(editRow.row,{issue:"ok",edited:true}); setEditRow(null); toast(t("ถือเป็นรายการใหม่แล้ว", "Treated as a new record"),"good"); }}/>`:""}
     </div>` : ""}
 
     ${step===4 ? html`<div>
       ${!done?html`<div>
         <div class="dm-summary">
-          <div><span class="dim">ไฟล์</span><b>${file?file.name:"—"}</b></div>
-          <div><span class="dim">จะนำเข้า</span><b style=${{color:"var(--good)"}}>${counts.ok||0} รายการ</b></div>
-          <div><span class="dim">ข้าม (ไม่ครบ/พิกัดผิด)</span><b>${(counts.incomplete||0)+(counts.badcoord||0)} รายการ</b></div>
-          <div><span class="dim">รอตรวจ (ซ้ำ)</span><b style=${{color:"var(--warn)"}}>${counts.dup||0} รายการ</b></div>
+          <div><span class="dim">${t("ไฟล์", "File")}</span><b>${file?file.name:"—"}</b></div>
+          <div><span class="dim">${t("จะนำเข้า", "Will import")}</span><b style=${{color:"var(--good)"}}>${counts.ok||0} ${t("รายการ", "records")}</b></div>
+          <div><span class="dim">${t("ข้าม (ไม่ครบ/พิกัดผิด)", "Skipped (incomplete / bad coordinates)")}</span><b>${(counts.incomplete||0)+(counts.badcoord||0)} ${t("รายการ", "records")}</b></div>
+          <div><span class="dim">${t("รอตรวจ (ซ้ำ)", "Awaiting review (duplicate)")}</span><b style=${{color:"var(--warn)"}}>${counts.dup||0} ${t("รายการ", "records")}</b></div>
         </div>
-        ${((counts.dup||0)+(counts.incomplete||0)+(counts.badcoord||0))>0?html`<div class="dm-alert warn"><${Icon} name="gap" size=${15}/> มี ${(counts.dup||0)+(counts.incomplete||0)+(counts.badcoord||0)} รายการที่มีปัญหา — จะถูกพักไว้เป็น "รายการค้าง" ในแท็บ "จัดการไฟล์นำเข้า" โดยยังไม่เข้าระบบและไม่ถูกลบทิ้ง (จัดการต่อได้จากปุ่ม "จัดการรายการค้าง")</div>`:""}
-        ${importing?html`<div style=${{marginTop:"16px"}}><div class="row between" style=${{fontSize:"12.5px",marginBottom:"6px"}}><span>กำลังนำเข้า…</span><b>${pct}%</b></div><${Meter} value=${pct} height=${10}/></div>`
-          :html`<div style=${{marginTop:"16px"}}><${Btn} variant="outline" icon="check" onClick=${runImport}>ยืนยันนำเข้า ${counts.ok||0} รายการ</${Btn}></div>`}
+        ${((counts.dup||0)+(counts.incomplete||0)+(counts.badcoord||0))>0?html`<div class="dm-alert warn"><${Icon} name="gap" size=${15}/> ${t("มี", "There are")} ${(counts.dup||0)+(counts.incomplete||0)+(counts.badcoord||0)} ${t("รายการที่มีปัญหา — จะถูกพักไว้เป็น \"รายการค้าง\" ในแท็บ \"จัดการไฟล์นำเข้า\" โดยยังไม่เข้าระบบและไม่ถูกลบทิ้ง (จัดการต่อได้จากปุ่ม \"จัดการรายการค้าง\")", "Problem rows are parked as \"pending rows\" under the \"Import files\" tab — they don't enter the system and are not deleted (handle them from the \"Handle pending rows\" button)")}</div>`:""}
+        ${importing?html`<div style=${{marginTop:"16px"}}><div class="row between" style=${{fontSize:"12.5px",marginBottom:"6px"}}><span>${t("กำลังนำเข้า…", "Importing…")}</span><b>${pct}%</b></div><${Meter} value=${pct} height=${10}/></div>`
+          :html`<div style=${{marginTop:"16px"}}><${Btn} variant="outline" icon="check" onClick=${runImport}>${t("ยืนยันนำเข้า", "Confirm import")} ${counts.ok||0} ${t("รายการ", "records")}</${Btn}></div>`}
       </div>`:html`<div class="dm-result">
         <div class="dm-result-ic"><${Icon} name="check" size=${34} color="var(--good)"/></div>
-        <h3 style=${{margin:"10px 0 4px"}}>นำเข้าข้อมูลเรียบร้อย</h3>
-        <div class="dim">สำเร็จ ${counts.ok||0} · รอตรวจสอบ (ซ้ำ) ${counts.dup||0} · ข้าม ${(counts.incomplete||0)+(counts.badcoord||0)}</div>
+        <h3 style=${{margin:"10px 0 4px"}}>${t("นำเข้าข้อมูลเรียบร้อย", "Import complete")}</h3>
+        <div class="dim">${t("สำเร็จ", "Succeeded")} ${counts.ok||0} ${t("· รอตรวจสอบ (ซ้ำ)", "· awaiting review (duplicates)")} ${counts.dup||0} ${t("· ข้าม", "· skipped")} ${(counts.incomplete||0)+(counts.badcoord||0)}</div>
         <div class="row" style=${{gap:"10px",marginTop:"16px",justifyContent:"center"}}>
-          <${Btn} variant="outline" onClick=${()=>toast("ไปที่รายการข้อมูลที่นำเข้า","info")}>ดูข้อมูลที่นำเข้า</${Btn}>
-          <${Btn} variant="ghost" onClick=${()=>{setStep(1);setFile(null);setDone(false);setPct(0);}}>นำเข้าไฟล์ใหม่</${Btn}></div>
+          <${Btn} variant="outline" onClick=${()=>toast(t("ไปที่รายการข้อมูลที่นำเข้า", "Go to the imported records"),"info")}>${t("ดูข้อมูลที่นำเข้า", "View the imported data")}</${Btn}>
+          <${Btn} variant="ghost" onClick=${()=>{setStep(1);setFile(null);setDone(false);setPct(0);}}>${t("นำเข้าไฟล์ใหม่", "Import another file")}</${Btn}></div>
       </div>`}
     </div>` : ""}
 
     <!-- ปุ่มนำทาง wizard -->
     ${!done?html`<div class="dm-wiznav">
-      <${Btn} variant="ghost" disabled=${step===1} onClick=${()=>setStep(s=>Math.max(1,s-1))}>ย้อนกลับ</${Btn}>
+      <${Btn} variant="ghost" disabled=${step===1} onClick=${()=>setStep(s=>Math.max(1,s-1))}>${t("ย้อนกลับ", "Back")}</${Btn}>
       ${step<4?html`<${Btn} variant="outline" disabled=${(step===1&&!file)||(step===2&&(reqUnmapped.length>0||dupMap.length>0))}
-        onClick=${()=>setStep(s=>s+1)}>ถัดไป</${Btn}>`:""}
+        onClick=${()=>setStep(s=>s+1)}>${t("ถัดไป", "Next")}</${Btn}>`:""}
     </div>`:""}
   </div>`;
 }
@@ -454,65 +469,65 @@ function ImportFiles({staging, onManagePending}){
   const openRollback=b=>{ setConfirmTxt(""); setRollback(b); };
   const doRollback=b=>{ const withdrawn=Math.max(0,b.done-b.visited);   // รายการที่เข้าพบแล้วไม่ถูกถอน
     setRows(rs=>rs.map(x=>x.id===b.id?{...x,withdrawn:true,status:"ถอนออกแล้ว"}:x)); setRollback(null); setDrawer(null);
-    pushAudit({action:"ยกเลิกการนำเข้าทั้งชุด (Rollback)", category:"ลบ",
-      detail:`${b.file} · ถอน ${withdrawn} รายการ · คงไว้ ${b.visited} รายการที่เข้าพบแล้ว (ทำเครื่องหมายให้ตรวจสอบ)`});
-    toast(`ถอนการนำเข้า ${b.file} แล้ว — คงรายการที่เข้าพบแล้วไว้ ${b.visited} รายการ`,"warn"); };
-  const impCell=s=>html`<span class="dm-imp"><span class="dm-imp-ok">เข้าระบบ ${num(s.imported)}</span> · <span class=${"dm-imp-pend"+(s.pending?"":" zero")}>ค้าง ${num(s.pending)}</span> · <span class="dm-imp-skip">ข้าม ${num(s.skipped)}</span></span>`;
+    pushAudit({action:t("ยกเลิกการนำเข้าทั้งชุด (Rollback)", "Rolled back a whole import batch"), category:"ลบ",
+      detail:`${b.file} ${t("· ถอน", "· withdrew")} ${withdrawn} ${t("รายการ · คงไว้", "records · kept")} ${b.visited} ${t("รายการที่เข้าพบแล้ว (ทำเครื่องหมายให้ตรวจสอบ)", "records already visited (flagged for review)")}`});
+    toast(`${t("ถอนการนำเข้า", "Withdrew the import")} ${b.file} ${t("แล้ว — คงรายการที่เข้าพบแล้วไว้", "— records already visited were kept")} ${b.visited} ${t("รายการ", "records")}`,"warn"); };
+  const impCell=s=>html`<span class="dm-imp"><span class="dm-imp-ok">${t("เข้าระบบ", "imported")} ${num(s.imported)}</span> · <span class=${"dm-imp-pend"+(s.pending?"":" zero")}>${t("ค้าง", "pending")} ${num(s.pending)}</span> · <span class="dm-imp-skip">${t("ข้าม", "Skip")} ${num(s.skipped)}</span></span>`;
   const statCell=s=> s.hasPending
-    ? html`<div class="dm-fstat"><${Badge} tone="warn">มีรายการค้าง</${Badge}><span class=${"dm-fdays"+(s.days>7?" warn":"")}>ค้างมา ${s.days} วัน</span></div>`
-    : html`<${Badge} tone="good">เสร็จสมบูรณ์</${Badge}>`;
+    ? html`<div class="dm-fstat"><${Badge} tone="warn">${t("มีรายการค้าง", "pending rows")}</${Badge}><span class=${"dm-fdays"+(s.days>7?" warn":"")}>${t("ค้างมา", "pending for")} ${s.days} ${t("วัน", "days")}</span></div>`
+    : html`<${Badge} tone="good">${t("เสร็จสมบูรณ์", "Complete")}</${Badge}>`;
   return html`<div>
     <div class="dm-toolbar">
-      <input class="dm-input" placeholder="ค้นหาชื่อไฟล์…" value=${q} onInput=${e=>{setQ(e.target.value);setPage(1);}}/>
+      <input class="dm-input" placeholder=${t("ค้นหาชื่อไฟล์…", "Search file names…")} value=${q} onInput=${e=>{setQ(e.target.value);setPage(1);}}/>
       <div class="row" style=${{gap:"6px"}}>
-        ${[["all","ทั้งหมด"],["pending","มีรายการค้าง"],["done","เสร็จสมบูรณ์"]].map(([v,l])=>
+        ${[["all",t("ทั้งหมด", "All")],["pending",t("มีรายการค้าง", "pending rows")],["done",t("เสร็จสมบูรณ์", "Complete")]].map(([v,l])=>
           html`<button key=${v} class=${"dm-chip"+(f===v?" on":"")} onClick=${()=>{setF(v);setPage(1);}}>${l}</button>`)}
       </div>
     </div>
-    <${Table} empty="ไม่พบไฟล์นำเข้า" cols=${[
-      {h:"ชื่อไฟล์", render:r=>html`<button class="dm-link" onClick=${()=>setDrawer(r)}>${r.file}</button>`},
-      {h:"วันที่/เวลา", render:r=>beDate(r.dt,true)},
-      {h:"ผู้อัปโหลด", render:r=>r.by},
-      {h:"ผลการนำเข้า", render:r=>impCell(r.s)},
-      {h:"สถานะ", render:r=>statCell(r.s)},
-      {h:"การจัดการ", render:r=>html`<div class="row" style=${{gap:"6px"}}>
-        <${Btn} size="sm" variant="ghost" onClick=${()=>setDrawer(r)}>รายละเอียด</${Btn}>
-        ${r.s.hasPending?html`<${Btn} size="sm" variant="outline" onClick=${()=>onManagePending&&onManagePending(r.id)}>จัดการรายการค้าง</${Btn}>`:""}
+    <${Table} empty=${t("ไม่พบไฟล์นำเข้า", "No import files found")} cols=${[
+      {h:t("ชื่อไฟล์", "File name"), render:r=>html`<button class="dm-link" onClick=${()=>setDrawer(r)}>${r.file}</button>`},
+      {h:t("วันที่/เวลา", "Date / time"), render:r=>beDate(r.dt,true)},
+      {h:t("ผู้อัปโหลด", "Uploaded by"), render:r=>r.by},
+      {h:t("ผลการนำเข้า", "Import result"), render:r=>impCell(r.s)},
+      {h:t("สถานะ", "Status"), render:r=>statCell(r.s)},
+      {h:t("การจัดการ", "Actions"), render:r=>html`<div class="row" style=${{gap:"6px"}}>
+        <${Btn} size="sm" variant="ghost" onClick=${()=>setDrawer(r)}>${t("รายละเอียด", "Details")}</${Btn}>
+        ${r.s.hasPending?html`<${Btn} size="sm" variant="outline" onClick=${()=>onManagePending&&onManagePending(r.id)}>${t("จัดการรายการค้าง", "Handle pending rows")}</${Btn}>`:""}
         ${r.done>0?html`<${Btn} size="sm" variant="ghost" disabled=${!canRollback(r)}
-          title=${canRollback(r)?"":"ยกเลิกได้เฉพาะชุดที่นำเข้าไม่เกิน 7 วัน"}
-          onClick=${()=>openRollback(r)}>ยกเลิกการนำเข้าชุดนี้</${Btn}>`:""}</div>`},
+          title=${canRollback(r)?"":t("ยกเลิกได้เฉพาะชุดที่นำเข้าไม่เกิน 7 วัน", "Only batches imported within the last 7 days can be rolled back")}
+          onClick=${()=>openRollback(r)}>${t("ยกเลิกการนำเข้าชุดนี้", "Roll back this batch")}</${Btn}>`:""}</div>`},
     ]} rows=${pageRows}/>
-    ${totalPages>1?html`<div class="dm-pager"><span class="dim">แสดง ${(page-1)*PAGE+1}–${Math.min(page*PAGE,filtered.length)} จาก ${filtered.length} ไฟล์</span>
+    ${totalPages>1?html`<div class="dm-pager"><span class="dim">${t("แสดง", "Showing")} ${(page-1)*PAGE+1}–${Math.min(page*PAGE,filtered.length)} ${t("จาก", "of")} ${filtered.length} ${t("ไฟล์", "File")}</span>
       <div class="row" style=${{gap:"5px"}}>${Array.from({length:totalPages},(_,i)=>i+1).map(p=>html`<button key=${p} class=${"dm-pg"+(p===page?" on":"")} onClick=${()=>setPage(p)}>${p}</button>`)}</div></div>`:""}
 
     ${drawer?html`<${Modal} title=${drawer.file} onClose=${()=>setDrawer(null)}>
-        <div class="dm-kv"><span>สถานะ</span>${statCell(drawer.s)}</div>
-        <div class="dm-kv"><span>วันที่/เวลา</span><b>${beDate(drawer.dt,true)}</b></div>
-        <div class="dm-kv"><span>ผู้อัปโหลด</span><b>${drawer.by}</b></div>
-        <div class="dm-kv"><span>ผังการจับคู่</span><b>${drawer.template}</b></div>
-        <div class="dm-kv"><span>เข้าระบบแล้ว</span><b style=${{color:"var(--good)"}}>${num(drawer.s.imported)} รายการ</b></div>
-        <div class="dm-kv"><span>ค้างรอจัดการ</span><b style=${{color:drawer.s.pending?"#b45309":"var(--muted)"}}>${num(drawer.s.pending)} รายการ</b></div>
-        <div class="dm-kv"><span>ข้าม (เก็บอ้างอิง)</span><b>${num(drawer.s.skipped)} รายการ</b></div>
-        ${drawer.s.hasPending?html`<${Btn} variant="primary" style=${{marginTop:"14px"}} onClick=${()=>{setDrawer(null);onManagePending&&onManagePending(drawer.id);}}>จัดการรายการค้าง ${num(drawer.s.pending)} รายการ</${Btn}>`:""}
+        <div class="dm-kv"><span>${t("สถานะ", "Status")}</span>${statCell(drawer.s)}</div>
+        <div class="dm-kv"><span>${t("วันที่/เวลา", "Date / time")}</span><b>${beDate(drawer.dt,true)}</b></div>
+        <div class="dm-kv"><span>${t("ผู้อัปโหลด", "Uploaded by")}</span><b>${drawer.by}</b></div>
+        <div class="dm-kv"><span>${t("ผังการจับคู่", "Mapping")}</span><b>${drawer.template}</b></div>
+        <div class="dm-kv"><span>${t("เข้าระบบแล้ว", "Imported")}</span><b style=${{color:"var(--good)"}}>${num(drawer.s.imported)} ${t("รายการ", "records")}</b></div>
+        <div class="dm-kv"><span>${t("ค้างรอจัดการ", "Pending")}</span><b style=${{color:drawer.s.pending?"#b45309":"var(--muted)"}}>${num(drawer.s.pending)} ${t("รายการ", "records")}</b></div>
+        <div class="dm-kv"><span>${t("ข้าม (เก็บอ้างอิง)", "Skipped (kept for reference)")}</span><b>${num(drawer.s.skipped)} ${t("รายการ", "records")}</b></div>
+        ${drawer.s.hasPending?html`<${Btn} variant="primary" style=${{marginTop:"14px"}} onClick=${()=>{setDrawer(null);onManagePending&&onManagePending(drawer.id);}}>${t("จัดการรายการค้าง", "Handle pending rows")} ${num(drawer.s.pending)} ${t("รายการ", "records")}</${Btn}>`:""}
         ${drawer.done>0?html`<${Btn} variant="outline" icon="trash" disabled=${!canRollback(drawer)} style=${{marginTop:"10px"}}
-          onClick=${()=>openRollback(drawer)}>ยกเลิกการนำเข้าชุดนี้</${Btn}>
-          ${!canRollback(drawer)?html`<div class="dm-caption" style=${{marginTop:"8px"}}>ยกเลิกได้เฉพาะชุดที่นำเข้าไม่เกิน 7 วัน (ชุดนี้ผ่านมา ${Math.round(daysSince(drawer.dt))} วัน)</div>`:""}`:""}
+          onClick=${()=>openRollback(drawer)}>${t("ยกเลิกการนำเข้าชุดนี้", "Roll back this batch")}</${Btn}>
+          ${!canRollback(drawer)?html`<div class="dm-caption" style=${{marginTop:"8px"}}>${t("ยกเลิกได้เฉพาะชุดที่นำเข้าไม่เกิน 7 วัน (ชุดนี้ผ่านมา", "Only batches imported within the last 7 days can be rolled back (this one is")} ${Math.round(daysSince(drawer.dt))} ${t("วัน)", "days old)")}</div>`:""}`:""}
       </${Modal}>`:""}
 
-    ${rollback?html`<${Modal} title="ยกเลิกการนำเข้าทั้งชุด" onClose=${()=>setRollback(null)}
+    ${rollback?html`<${Modal} title=${t("ยกเลิกการนำเข้าทั้งชุด", "Roll back the whole batch")} onClose=${()=>setRollback(null)}
       footer=${html`<div class="row" style=${{gap:"10px",justifyContent:"flex-end"}}>
-        <${Btn} variant="ghost" onClick=${()=>setRollback(null)}>ยกเลิก</${Btn}>
-        <${Btn} variant="danger" disabled=${confirmTxt.trim()!=="ยืนยัน"} onClick=${()=>doRollback(rollback)}>ถอนการนำเข้า</${Btn}></div>`}>
-      <p>ยกเลิกการนำเข้าจากไฟล์ <b>${rollback.file}</b></p>
+        <${Btn} variant="ghost" onClick=${()=>setRollback(null)}>${t("ยกเลิก", "Cancel")}</${Btn}>
+        <${Btn} variant="danger" disabled=${confirmTxt.trim()!=="ยืนยัน"} onClick=${()=>doRollback(rollback)}>${t("ถอนการนำเข้า", "Withdrew the import")}</${Btn}></div>`}>
+      <p>${t("ยกเลิกการนำเข้าจากไฟล์", "Roll back the import from")} <b>${rollback.file}</b></p>
       <ul class="dm-impact">
-        <li>จะถอนรายการที่นำเข้าจากไฟล์นี้ <b>${num(Math.max(0,rollback.done-rollback.visited))} รายการ</b></li>
-        <li>ในจำนวนนี้มี <b>${num(rollback.editedAfter)} รายการ</b>ที่ถูกแก้ไขหลังนำเข้า และ <b>${num(rollback.visited)} รายการ</b>ที่มีการเข้าพบแล้ว</li>
-        <li>รายการที่มีการเข้าพบแล้ว <b>จะไม่ถูกถอน</b> แต่จะถูกทำเครื่องหมายให้ตรวจสอบ</li>
+        <li>${t("จะถอนรายการที่นำเข้าจากไฟล์นี้", "This withdraws the records imported from this file")} <b>${num(Math.max(0,rollback.done-rollback.visited))} ${t("รายการ", "records")}</b></li>
+        <li>${t("ในจำนวนนี้มี", "Of these,")} <b>${num(rollback.editedAfter)} ${t("รายการ", "records")}</b>${t("ที่ถูกแก้ไขหลังนำเข้า และ", "were edited after import and")} <b>${num(rollback.visited)} ${t("รายการ", "records")}</b>${t("ที่มีการเข้าพบแล้ว", "have already been visited")}</li>
+        <li>${t("รายการที่มีการเข้าพบแล้ว", "Records already visited")} <b>${t("จะไม่ถูกถอน", "are not withdrawn")}</b> ${t("แต่จะถูกทำเครื่องหมายให้ตรวจสอบ", "but are flagged for review")}</li>
       </ul>
-      <div class="dm-alert warn"><${Icon} name="gap" size=${15}/> ข้อมูลไม่ถูกลบถาวร — ชุดนี้จะเปลี่ยนสถานะเป็น "ถอนออกแล้ว" และซ่อนจากทุกหน้าจอ · บันทึกลงบันทึกการตรวจสอบ</div>
+      <div class="dm-alert warn"><${Icon} name="gap" size=${15}/> ${t("ข้อมูลไม่ถูกลบถาวร — ชุดนี้จะเปลี่ยนสถานะเป็น \"ถอนออกแล้ว\" และซ่อนจากทุกหน้าจอ · บันทึกลงบันทึกการตรวจสอบ", "Nothing is permanently deleted — the batch is marked \"withdrawn\" and hidden everywhere · written to the audit log")}</div>
       <label class="dm-frm-f" style=${{marginTop:"12px"}}>
-        <span class="dm-frm-lb">พิมพ์คำว่า "ยืนยัน" เพื่อดำเนินการต่อ</span>
-        <input class="dm-input" value=${confirmTxt} onInput=${e=>setConfirmTxt(e.target.value)} placeholder="ยืนยัน"/></label>
+        <span class="dm-frm-lb">${t("พิมพ์คำว่า \"ยืนยัน\" เพื่อดำเนินการต่อ", "Type \"ยืนยัน\" to continue")}</span>
+        <input class="dm-input" value=${confirmTxt} onInput=${e=>setConfirmTxt(e.target.value)} placeholder=${t("ยืนยัน", "Confirm")}/></label>
     </${Modal}>`:""}
   </div>`;
 }
@@ -521,18 +536,27 @@ function ImportFiles({staging, onManagePending}){
    คิว "รอแก้ไข" — แถวที่มีปัญหาจะพักไว้ที่นี่ ไม่เข้าระบบอัตโนมัติและไม่ถูกลบทิ้ง
    ผู้ดูแลตรวจทีละรายการ (ไม่ครบ / อาจซ้ำ / พิกัดผิด) แล้วเลือก แก้ไขนำเข้า · รวมกับรายการเดิม · หรือข้าม
    กติกา: "ข้าม" = เก็บไว้เป็นประวัติ (สถานะ skipped) ไม่ลบข้อมูลดิบ · ทุกการตัดสินใจบันทึกลง Audit Log */
-const FLD_TH={ name:"ชื่อธุรกิจ", address:"ที่อยู่", province:"จังหวัด", segment:"หมวดหมู่ธุรกิจ",
-  lat:"ละติจูด", lng:"ลองจิจูด", location:"พิกัด", phone:"เบอร์โทร", email:"อีเมล", type:"ประเภท" };
-const KIND_META={ incomplete:{label:"ข้อมูลไม่ครบ",tone:"warn"}, dup:{label:"อาจซ้ำ",tone:"neutral"}, badcoord:{label:"พิกัดผิด",tone:"bad"} };
+const FLD_TH={
+  get name(){ return t("ชื่อธุรกิจ","business name"); },      get address(){ return t("ที่อยู่","address"); },
+  get province(){ return t("จังหวัด","province"); },          get segment(){ return t("หมวดหมู่ธุรกิจ","business category"); },
+  get lat(){ return t("ละติจูด","latitude"); },               get lng(){ return t("ลองจิจูด","longitude"); },
+  get location(){ return t("พิกัด","coordinates"); },         get phone(){ return t("เบอร์โทร","phone"); },
+  get email(){ return t("อีเมล","email"); },                  get type(){ return t("ประเภท","type"); } };
+const KIND_META={
+  incomplete:{tone:"warn",    get label(){ return t("ข้อมูลไม่ครบ","Incomplete"); }},
+  dup:       {tone:"neutral", get label(){ return t("อาจซ้ำ","Possible duplicate"); }},
+  badcoord:  {tone:"bad",     get label(){ return t("พิกัดผิด","Bad coordinates"); }} };
 const issueSummary = r => r.issues.map(i=>{
-  if(i.type==="missing_required") return "ขาด"+(FLD_TH[i.field]||i.field);
-  if(i.type==="missing_optional") return "ไม่มี"+(FLD_TH[i.field]||i.field);
-  if(i.type==="invalid_coordinate") return i.detail||"พิกัดไม่ถูกต้อง";
-  if(i.type==="duplicate") return "อาจซ้ำกับรายการเดิม ("+Math.round(i.similarity*100)+"%)";
-  if(i.type==="unknown_value") return (FLD_TH[i.field]||i.field)+"ไม่รู้จัก";
+  const f = FLD_TH[i.field]||i.field;
+  if(i.type==="missing_required") return t("ขาด"+f, "missing "+f);
+  if(i.type==="missing_optional") return t("ไม่มี"+f, "no "+f);
+  if(i.type==="invalid_coordinate") return i.detail||t("พิกัดไม่ถูกต้อง","invalid coordinates");
+  if(i.type==="duplicate") return t("อาจซ้ำกับรายการเดิม ("+Math.round(i.similarity*100)+"%)",
+    "possible duplicate of an existing record ("+Math.round(i.similarity*100)+"%)");
+  if(i.type==="unknown_value") return t(f+"ไม่รู้จัก", "unrecognised "+f);
   return i.type; }).join(" · ");
 // ป้ายความรุนแรงเป็นภาษาไทย (ไม่ใช้คำอังกฤษ error/warning ใน UI)
-const SEV_TH={ error:"ต้องแก้ก่อน", warning:"ควรตรวจสอบ" };
+const SEV_TH={ get error(){ return t("ต้องแก้ก่อน","Must be fixed"); }, get warning(){ return t("ควรตรวจสอบ","Should be checked"); } };
 // จัดกลุ่มแถวรอแก้ไขตาม "ชนิดปัญหา + ค่าเจาะจง" — กลุ่มที่จัดการทั้งกลุ่มได้ (kind bulk/seg) แยกจากกลุ่มที่ต้องดูทีละรายการ (view)
 //  bulk = ขาดฟิลด์เสริม (นำเข้าทั้งกลุ่มได้) · seg = หมวดธุรกิจไม่รู้จัก (เลือกหมวดแล้วใช้ทั้งกลุ่ม) · view = error/ซ้ำ (ต้องดูทีละรายการ)
 // จุดกึ่งกลางจังหวัดโดยประมาณ — ใช้ตอนเติมพิกัดใหม่ให้แถวที่พิกัดเสีย (ไม่ได้ดึงจากภายนอก แค่เดาจากจังหวัด)
@@ -541,20 +565,20 @@ const PROV_CENTER={ "Bangkok Metropolis":[13.7563,100.5018], "Chiang Mai":[18.78
 
 /* ---- ป็อปอัพรวมรายการซ้ำ: เลือกค่าทีละช่องระหว่าง "นำเข้าใหม่" กับ "รายการเดิม" ---- */
 function DupMergeModal({row, onClose, onSave}){
-  const F=[["name","ชื่อธุรกิจ"],["address","ที่อยู่"],["phone","เบอร์โทร"],["segment","หมวดหมู่"],["province","จังหวัด"],["lat","ละติจูด"],["lng","ลองจิจูด"]];
+  const F=[["name",t("ชื่อธุรกิจ", "Business name")],["address",t("ที่อยู่", "Address")],["phone",t("เบอร์โทร", "Phone")],["segment",t("หมวดหมู่", "Category")],["province",t("จังหวัด", "Province")],["lat",t("ละติจูด", "Latitude")],["lng",t("ลองจิจูด", "Longitude")]];
   const [pick,setPick]=useState(()=>Object.fromEntries(F.map(([k])=> [k, String(row.raw[k])!==String(row.match[k]) ? "match" : "raw"])));
   const save=()=>{ const merged={...row.match}; F.forEach(([k])=>{ merged[k]= pick[k]==="raw" ? row.raw[k] : row.match[k]; }); onSave(merged); };
-  return html`<${Modal} wide=${true} title="รวมเป็นรายการเดียว — เลือกค่าทีละช่อง" onClose=${onClose}
+  return html`<${Modal} wide=${true} title=${t("รวมเป็นรายการเดียว — เลือกค่าทีละช่อง", "Merge into one record — pick each value")} onClose=${onClose}
     footer=${html`<div class="row" style=${{gap:"10px",justifyContent:"flex-end"}}>
-      <${Btn} variant="ghost" onClick=${onClose}>ยกเลิก</${Btn}>
-      <${Btn} variant="outline" onClick=${save}>บันทึกรายการที่รวมแล้ว</${Btn}></div>`}>
+      <${Btn} variant="ghost" onClick=${onClose}>${t("ยกเลิก", "Cancel")}</${Btn}>
+      <${Btn} variant="outline" onClick=${save}>${t("บันทึกรายการที่รวมแล้ว", "Save the merged record")}</${Btn}></div>`}>
     <div class="dm-cf-cols" style=${{marginBottom:"8px"}}>
-      <div class="dm-cf-lb"></div><span class="dm-src file">นำเข้าใหม่</span><span class="dm-src tc">รายการเดิมในระบบ (${row.match.id})</span></div>
+      <div class="dm-cf-lb"></div><span class="dm-src file">${t("นำเข้าใหม่", "New import")}</span><span class="dm-src tc">${t("รายการเดิมในระบบ (", "Existing record (")}${row.match.id})</span></div>
     ${F.map(([k,l])=>{ const diff=String(row.raw[k])!==String(row.match[k]);
       return html`<div key=${k} class=${"dm-merge-row"+(diff?" diff":"")}>
       <div class="dm-cf-lb">${l}</div>
-      <label class="dm-radio"><input type="radio" name=${"mg"+k} checked=${pick[k]==="raw"} onChange=${()=>setPick(p=>({...p,[k]:"raw"}))}/> ${row.raw[k]||"—"} <span class="dim">(ใหม่)</span></label>
-      <label class="dm-radio"><input type="radio" name=${"mg"+k} checked=${pick[k]==="match"} onChange=${()=>setPick(p=>({...p,[k]:"match"}))}/> ${row.match[k]||"—"} <span class="dim">(เดิม)</span></label>
+      <label class="dm-radio"><input type="radio" name=${"mg"+k} checked=${pick[k]==="raw"} onChange=${()=>setPick(p=>({...p,[k]:"raw"}))}/> ${row.raw[k]||"—"} <span class="dim">${t("(ใหม่)", "(new)")}</span></label>
+      <label class="dm-radio"><input type="radio" name=${"mg"+k} checked=${pick[k]==="match"} onChange=${()=>setPick(p=>({...p,[k]:"match"}))}/> ${row.match[k]||"—"} <span class="dim">${t("(เดิม)", "(existing)")}</span></label>
     </div>`;})}
   </${Modal}>`;
 }
@@ -579,56 +603,56 @@ function ReviewDrawer({row, onImport, onSkip, onMerge, onClose}){
     <input class=${"dm-input"+(REQ.includes(k)&&isMiss(k)?" miss":"")} type=${type||"text"} value=${form[k]==null?"":form[k]}
       onInput=${e=>set(k, type==="number"? (e.target.value===""?"":+e.target.value) : e.target.value)}/></label>`;
 
-  return html`<${Modal} wide=${r.kind==="dup"} title=${"ตรวจสอบแถวที่ "+r.row} onClose=${onClose}>
+  return html`<${Modal} wide=${r.kind==="dup"} title=${t("ตรวจสอบแถวที่ ", "Reviewing row ")+r.row} onClose=${onClose}>
     <div>
       <div class="row" style=${{gap:"6px",marginBottom:"12px",flexWrap:"wrap"}}>
         <${Badge} tone=${KIND_META[r.kind].tone}>${KIND_META[r.kind].label}</${Badge}>
-        <${Badge} tone=${rowSeverity(r)==="error"?"bad":"warn"}>${rowSeverity(r)==="error"?"ต้องแก้ก่อนนำเข้า":"ควรตรวจสอบก่อนนำเข้า"}</${Badge}></div>
+        <${Badge} tone=${rowSeverity(r)==="error"?"bad":"warn"}>${rowSeverity(r)==="error"?t("ต้องแก้ก่อนนำเข้า", "Must be fixed before import"):t("ควรตรวจสอบก่อนนำเข้า", "Should be checked before import")}</${Badge}></div>
       <div class="dm-issue-box">${r.issues.map((i,idx)=>html`<div key=${idx}>• ${issueSummary({issues:[i]})}</div>`)}</div>
 
       ${r.kind==="dup" ? html`<div>
-        <div class="dim" style=${{fontSize:"12px",margin:"12px 0 8px"}}>เทียบข้อมูลนำเข้าใหม่กับรายการที่มีอยู่แล้ว · ความคล้าย <b>${Math.round(r.similarity*100)}%</b></div>
+        <div class="dim" style=${{fontSize:"12px",margin:"12px 0 8px"}}>${t("เทียบข้อมูลนำเข้าใหม่กับรายการที่มีอยู่แล้ว · ความคล้าย", "Comparing the new import against an existing record · similarity")} <b>${Math.round(r.similarity*100)}%</b></div>
         <div class="dm-cf-cols" style=${{marginBottom:"4px"}}><div class="dm-cf-lb"></div>
-          <span class="dm-src file">นำเข้าใหม่</span><span class="dm-src tc">เดิม (${r.match.id})</span></div>
-        ${[["name","ชื่อธุรกิจ"],["address","ที่อยู่"],["phone","เบอร์โทร"],["segment","หมวดหมู่"],["lat","ละติจูด"],["lng","ลองจิจูด"]].map(([k,l])=>{
+          <span class="dm-src file">${t("นำเข้าใหม่", "New import")}</span><span class="dm-src tc">${t("เดิม (", "Existing (")}${r.match.id})</span></div>
+        ${[["name",t("ชื่อธุรกิจ", "Business name")],["address",t("ที่อยู่", "Address")],["phone",t("เบอร์โทร", "Phone")],["segment",t("หมวดหมู่", "Category")],["lat",t("ละติจูด", "Latitude")],["lng",t("ลองจิจูด", "Longitude")]].map(([k,l])=>{
           const diff=String(r.raw[k])!==String(r.match[k]);
           return html`<div key=${k} class=${"dm-cf-row"+(diff?" diff":"")}><div class="dm-cf-lb">${l}</div>
             <div>${r.raw[k]||"—"}</div><div>${r.match[k]||"—"}</div></div>`;})}
         <div class="dm-drawer-act">
-          <${Btn} size="sm" variant="outline" onClick=${()=>setMergeOpen(true)}>รวมเป็นรายการเดียว</${Btn}>
-          <${Btn} size="sm" variant="ghost" onClick=${()=>onImport(r,r.raw)}>เก็บทั้งสองรายการ (ไม่ซ้ำ)</${Btn}>
-          <${Btn} size="sm" variant="ghost" onClick=${()=>onSkip(r)}>ข้ามรายการใหม่</${Btn}></div>
+          <${Btn} size="sm" variant="outline" onClick=${()=>setMergeOpen(true)}>${t("รวมเป็นรายการเดียว", "Merge into one")}</${Btn}>
+          <${Btn} size="sm" variant="ghost" onClick=${()=>onImport(r,r.raw)}>${t("เก็บทั้งสองรายการ (ไม่ซ้ำ)", "Keep both (not a duplicate)")}</${Btn}>
+          <${Btn} size="sm" variant="ghost" onClick=${()=>onSkip(r)}>${t("ข้ามรายการใหม่", "Skip the new record")}</${Btn}></div>
         ${mergeOpen?html`<${DupMergeModal} row=${r} onClose=${()=>setMergeOpen(false)} onSave=${m=>{setMergeOpen(false);onMerge(r,m);}}/>`:""}
       </div>`
       : html`<div>
         ${r.kind==="badcoord"?html`<div class="dm-coordbox">
-          <div class="row between"><span class="dim">พิกัดที่อ่านได้จากไฟล์</span>
+          <div class="row between"><span class="dim">${t("พิกัดที่อ่านได้จากไฟล์", "Coordinates read from the file")}</span>
             <b style=${{color:coordOK?"var(--good)":"var(--bad)"}}>${r.raw.lat}, ${r.raw.lng}</b></div>
-          <div class="dm-coord-note"><${Icon} name="pin" size=${14} color="var(--bad)"/> ตำแหน่งนี้อยู่นอกขอบเขตประเทศไทย — แก้พิกัดให้ถูกต้องก่อนนำเข้า</div>
-          <${Btn} size="sm" variant="ghost" icon="pin" onClick=${fillFromProvince}>เติมพิกัดโดยประมาณจากจังหวัด</${Btn}>
+          <div class="dm-coord-note"><${Icon} name="pin" size=${14} color="var(--bad)"/> ${t("ตำแหน่งนี้อยู่นอกขอบเขตประเทศไทย — แก้พิกัดให้ถูกต้องก่อนนำเข้า", "This location is outside Thailand — fix the coordinates before importing")}</div>
+          <${Btn} size="sm" variant="ghost" icon="pin" onClick=${fillFromProvince}>${t("เติมพิกัดโดยประมาณจากจังหวัด", "Fill in approximate coordinates from the province")}</${Btn}>
         </div>`:""}
         <div class="dm-frm">
-          ${inp("name","ชื่อธุรกิจ")}
-          <label class="dm-frm-f"><span class="dm-frm-lb">ประเภท <b style=${{color:"var(--bad)"}}>*</b></span>
+          ${inp("name",t("ชื่อธุรกิจ", "Business name"))}
+          <label class="dm-frm-f"><span class="dm-frm-lb">${t("ประเภท", "Type")} <b style=${{color:"var(--bad)"}}>*</b></span>
             <select class=${"dm-sel"+(isMiss("type")?" miss":"")} value=${form.type} onChange=${e=>set("type",e.target.value)}>
-              <option value="">— เลือก —</option><option value="Existing">ลูกค้า</option><option value="Prospect">Lead</option></select></label>
-          <label class="dm-frm-f"><span class="dm-frm-lb">จังหวัด <b style=${{color:"var(--bad)"}}>*</b></span>
+              <option value="">${t("— เลือก —", "— select —")}</option><option value="Existing">${t("ลูกค้า", "Customers")}</option><option value="Prospect">Lead</option></select></label>
+          <label class="dm-frm-f"><span class="dm-frm-lb">${t("จังหวัด", "Province")} <b style=${{color:"var(--bad)"}}>*</b></span>
             <select class=${"dm-sel"+(isMiss("province")?" miss":"")} value=${form.province} onChange=${e=>set("province",e.target.value)}>
-              <option value="">— เลือก —</option>${PROV_TH.map(p=>html`<option key=${p} value=${p}>${provinceTH(p)}</option>`)}</select></label>
-          <label class="dm-frm-f"><span class="dm-frm-lb">หมวดหมู่ธุรกิจ <b style=${{color:"var(--bad)"}}>*</b></span>
+              <option value="">${t("— เลือก —", "— select —")}</option>${PROV_TH.map(p=>html`<option key=${p} value=${p}>${provinceTH(p)}</option>`)}</select></label>
+          <label class="dm-frm-f"><span class="dm-frm-lb">${t("หมวดหมู่ธุรกิจ", "Business category")} <b style=${{color:"var(--bad)"}}>*</b></span>
             <select class=${"dm-sel"+(!segKnown?" miss":"")} value=${segKnown?form.segment:""} onChange=${e=>set("segment",e.target.value)}>
-              <option value="">— เลือกหมวดหมู่ —</option>${SEGMENTS.map(s=>html`<option key=${s} value=${s}>${SEG_TH[s]||s}</option>`)}</select>
-            ${!segKnown&&r.raw.segment?html`<span class="dm-frm-hint">ค่าเดิมในไฟล์: "${r.raw.segment}" ไม่พบในระบบ — เลือกหมวดที่ถูกต้อง (เพิ่มหมวดใหม่ได้ที่ ตั้งค่าระบบ › ข้อมูลหลัก)</span>`:""}</label>
-          ${inp("lat","ละติจูด","number")}
-          ${inp("lng","ลองจิจูด","number")}
-          ${inp("phone","เบอร์โทร")}
-          ${inp("address","ที่อยู่")}
+              <option value="">${t("— เลือกหมวดหมู่ —", "— choose a category —")}</option>${SEGMENTS.map(s=>html`<option key=${s} value=${s}>${segTH(s)}</option>`)}</select>
+            ${!segKnown&&r.raw.segment?html`<span class="dm-frm-hint">${t("ค่าเดิมในไฟล์: \"", "Original value in the file: \"")}${r.raw.segment}${t("\" ไม่พบในระบบ — เลือกหมวดที่ถูกต้อง (เพิ่มหมวดใหม่ได้ที่ ตั้งค่าระบบ › ข้อมูลหลัก)", "\" is not in the system — pick the right category (add new ones under System settings › Master data)")}</span>`:""}</label>
+          ${inp("lat",t("ละติจูด", "Latitude"),"number")}
+          ${inp("lng",t("ลองจิจูด", "Longitude"),"number")}
+          ${inp("phone",t("เบอร์โทร", "Phone"))}
+          ${inp("address",t("ที่อยู่", "Address"))}
         </div>
-        ${!coordOK?html`<div class="dm-frm-hint" style=${{color:"var(--bad)"}}>พิกัดยังอยู่นอกขอบเขตประเทศไทย</div>`:""}
+        ${!coordOK?html`<div class="dm-frm-hint" style=${{color:"var(--bad)"}}>${t("พิกัดยังอยู่นอกขอบเขตประเทศไทย", "The coordinates are still outside Thailand")}</div>`:""}
         <div class="dm-drawer-act">
-          <${Btn} size="sm" variant="outline" disabled=${!canImport} onClick=${()=>onImport(r,{...form})}>บันทึกและนำเข้า</${Btn}>
-          <${Btn} size="sm" variant="ghost" onClick=${()=>onSkip(r)}>ข้ามรายการนี้</${Btn}></div>
-        ${!canImport?html`<div class="dm-frm-hint">ยังกรอกไม่ครบ: ${missReq.map(k=>FLD_TH[k]).join(", ")||"พิกัด"} — ระบบไม่เดาค่าให้เอง</div>`:""}
+          <${Btn} size="sm" variant="outline" disabled=${!canImport} onClick=${()=>onImport(r,{...form})}>${t("บันทึกและนำเข้า", "Save and import")}</${Btn}>
+          <${Btn} size="sm" variant="ghost" onClick=${()=>onSkip(r)}>${t("ข้ามรายการนี้", "Skip this record")}</${Btn}></div>
+        ${!canImport?html`<div class="dm-frm-hint">${t("ยังกรอกไม่ครบ:", "Still incomplete:")} ${missReq.map(k=>FLD_TH[k]).join(", ")||t("พิกัด","coordinates")} ${t("— ระบบไม่เดาค่าให้เอง", "— the system will not guess values for you")}</div>`:""}
       </div>`}
     </div>
   </${Modal}>`;
@@ -656,36 +680,36 @@ function TriageReview({staging, setStaging, fileId}){
 
   const patch=(id,p)=>setStaging(list=>list.map(x=>x.id===id?{...x,...p}:x));
   const importRow=(r,corrected)=>{ patch(r.id,{status:"imported",corrected:corrected||null});
-    pushAudit({action:"นำเข้ารายการจากคิวรอแก้ไข", category:"นำเข้า", detail:`${(corrected&&corrected.name)||r.raw.name||r.id} (แถว ${r.row})`});
-    toast("นำเข้ารายการเข้าสู่ระบบแล้ว","good"); setReview(null); };
+    pushAudit({action:t("นำเข้ารายการจากคิวรอแก้ไข", "Imported a record from the pending queue"), category:"นำเข้า", detail:`${(corrected&&corrected.name)||r.raw.name||r.id} ${t("(แถว", "(row")} ${r.row})`});
+    toast(t("นำเข้ารายการเข้าสู่ระบบแล้ว", "Record imported into the system"),"good"); setReview(null); };
   const mergeRow=(r,merged)=>{ patch(r.id,{status:"merged",corrected:merged});
-    pushAudit({action:"รวมกับรายการเดิม", category:"แก้ไข", detail:`${r.raw.name} → ${r.match?r.match.id:"-"}`});
-    toast("รวมกับรายการเดิมแล้ว","good"); setReview(null); };
+    pushAudit({action:t("รวมกับรายการเดิม", "Merged with an existing record"), category:"แก้ไข", detail:`${r.raw.name} → ${r.match?r.match.id:"-"}`});
+    toast(t("รวมกับรายการเดิมแล้ว", "Merged with the existing record"),"good"); setReview(null); };
   const skipRow=r=>{ patch(r.id,{status:"skipped"});
-    pushAudit({action:"ข้ามรายการ (ไม่นำเข้า)", category:"แก้ไข", detail:`${r.raw.name||r.id} (แถว ${r.row}) · เก็บข้อมูลดิบไว้อ้างอิง`});
-    toast("ทำเครื่องหมายข้ามแล้ว — ข้อมูลดิบยังถูกเก็บไว้","warn"); setReview(null); };
+    pushAudit({action:t("ข้ามรายการ (ไม่นำเข้า)", "Skipped a record (not imported)"), category:"แก้ไข", detail:`${r.raw.name||r.id} ${t("(แถว", "(row")} ${r.row}${t(") · เก็บข้อมูลดิบไว้อ้างอิง", ") · the raw data is kept for reference")}`});
+    toast(t("ทำเครื่องหมายข้ามแล้ว — ข้อมูลดิบยังถูกเก็บไว้", "Marked as skipped — the raw data is still kept"),"warn"); setReview(null); };
   const unskip=r=>{ patch(r.id,{status:"pending"});
-    pushAudit({action:"นำรายการกลับเข้าคิวรอแก้ไข", category:"แก้ไข", detail:`${r.raw.name||r.id}`});
-    toast("นำกลับเข้าคิวรอแก้ไขแล้ว","info"); };
+    pushAudit({action:t("นำรายการกลับเข้าคิวรอแก้ไข", "Returned a record to the pending queue"), category:"แก้ไข", detail:`${r.raw.name||r.id}`});
+    toast(t("นำกลับเข้าคิวรอแก้ไขแล้ว", "Returned to the pending queue"),"info"); };
   const doBulk=(ids,how)=>{ ids.forEach(id=>patch(id,{status: how==="import"?"imported":"skipped"}));
-    pushAudit({action: how==="import"?"นำเข้าหลายรายการจากคิวรอแก้ไข":"ข้ามหลายรายการ",
-      category: how==="import"?"นำเข้า":"แก้ไข", detail:`${ids.length} รายการ`});
-    toast((how==="import"?"นำเข้า":"ข้าม")+` ${ids.length} รายการแล้ว`, how==="import"?"good":"warn");
+    pushAudit({action: how==="import"?t("นำเข้าหลายรายการจากคิวรอแก้ไข", "Imported several records from the pending queue"):t("ข้ามหลายรายการ", "Skipped several records"),
+      category: how==="import"?t("นำเข้า", "Imported"):t("แก้ไข", "Edit"), detail:`${ids.length} ${t("รายการ", "records")}`});
+    toast((how==="import"?t("นำเข้า", "Imported"):t("ข้าม", "Skip"))+` ${ids.length} ${t("รายการแล้ว", "records")}`, how==="import"?"good":"warn");
     setSel({}); setConfirm(null); };
   // จัดการทั้งกลุ่ม — เขียน audit log แยกเป็น "รายแถว" เพื่อให้ตรวจย้อนหลังได้ว่าแถวไหนถูกจัดการอย่างไร
 
   const selRows=view.filter(r=>sel[r.id]);
   const selErr=selRows.filter(r=>rowSeverity(r)==="error").length;
   const allSel=view.length>0 && view.every(r=>sel[r.id]);
-  const STAT_TH={ imported:"นำเข้าแล้ว", merged:"รวมแล้ว", skipped:"ข้าม (เก็บไว้อ้างอิง)", pending:"รอแก้ไข" };
+  const STAT_TH={ imported:t("นำเข้าแล้ว", "Imported"), merged:t("รวมแล้ว", "Merged"), skipped:t("ข้าม (เก็บไว้อ้างอิง)", "Skipped (kept for reference)"), pending:t("รอแก้ไข", "Pending fixes") };
 
   // 5 chip ตัวกรอง (คงจำนวนเดิม) — คำนวณจากแหล่งเดียวกับ badge บนแท็บ
-  const CHIPS=[["pending","ทั้งหมดที่รอแก้ไข",counts.all,"gap"],["incomplete","ข้อมูลไม่ครบ",counts.incomplete,"edit"],
-    ["dup","สงสัยว่าซ้ำ",counts.dup,"users"],["badcoord","พิกัดไม่ถูกต้อง",counts.badcoord,"pin"],
-    ["skipped","ข้ามไว้ (ประวัติ)",scoped.filter(r=>r.status==="skipped").length,"reports"]];
+  const CHIPS=[["pending",t("ทั้งหมดที่รอแก้ไข", "All pending fixes"),counts.all,"gap"],["incomplete",t("ข้อมูลไม่ครบ", "Incomplete"),counts.incomplete,"edit"],
+    ["dup",t("สงสัยว่าซ้ำ", "Possible duplicates"),counts.dup,"users"],["badcoord",t("พิกัดไม่ถูกต้อง", "Invalid coordinates"),counts.badcoord,"pin"],
+    ["skipped",t("ข้ามไว้ (ประวัติ)", "Skipped (history)"),scoped.filter(r=>r.status==="skipped").length,"reports"]];
 
   return html`<div>
-    <div class="dim" style=${{fontSize:"12.5px",marginBottom:"12px"}}>แถวที่นำเข้าแล้วมีปัญหาถูกพักไว้ที่นี่โดยยังไม่เข้าระบบและไม่ถูกลบทิ้ง — จัดการทั้งกลุ่มได้ หรือตรวจทีละรายการ · การ "ข้าม" จะเก็บข้อมูลดิบไว้อ้างอิง ไม่ลบถาวร</div>
+    <div class="dim" style=${{fontSize:"12.5px",marginBottom:"12px"}}>${t("แถวที่นำเข้าแล้วมีปัญหาถูกพักไว้ที่นี่โดยยังไม่เข้าระบบและไม่ถูกลบทิ้ง — จัดการทั้งกลุ่มได้ หรือตรวจทีละรายการ · การ \"ข้าม\" จะเก็บข้อมูลดิบไว้อ้างอิง ไม่ลบถาวร", "Imported rows with problems are parked here — they don't enter the system and are not deleted. Handle a whole group, or review one at a time · \"Skip\" keeps the raw data for reference rather than deleting it")}</div>
 
     <!-- ตัวกรองแบบ chip (คลิกเพื่อกรอง) -->
     <div class="dm-tri-chips">
@@ -696,41 +720,41 @@ function TriageReview({staging, setStaging, fileId}){
     </div>
 
     ${selRows.length && filter!=="skipped" ? html`<div class="dm-bulk">
-      <b>เลือก ${selRows.length} รายการ</b>
-      <${Btn} size="sm" variant="outline" disabled=${selErr>0} onClick=${()=>setConfirm({how:"import",ids:selRows.map(r=>r.id)})}>นำเข้าทั้งหมด</${Btn}>
-      <${Btn} size="sm" variant="ghost" onClick=${()=>setConfirm({how:"skip",ids:selRows.map(r=>r.id)})}>ข้ามทั้งหมด</${Btn}>
-      ${selErr>0?html`<span class="dim" style=${{fontSize:"12px"}}>มี ${selErr} รายการที่ต้องแก้ก่อน ในกลุ่มที่เลือก — ต้องแก้ไขทีละรายการก่อน จึงนำเข้าเป็นกลุ่มไม่ได้</span>`:""}
+      <b>${t("เลือก", "Selected")} ${selRows.length} ${t("รายการ", "records")}</b>
+      <${Btn} size="sm" variant="outline" disabled=${selErr>0} onClick=${()=>setConfirm({how:"import",ids:selRows.map(r=>r.id)})}>${t("นำเข้าทั้งหมด", "Import all")}</${Btn}>
+      <${Btn} size="sm" variant="ghost" onClick=${()=>setConfirm({how:"skip",ids:selRows.map(r=>r.id)})}>${t("ข้ามทั้งหมด", "Skip all")}</${Btn}>
+      ${selErr>0?html`<span class="dim" style=${{fontSize:"12px"}}>${t("มี", "There are")} ${selErr} ${t("รายการที่ต้องแก้ก่อน ในกลุ่มที่เลือก — ต้องแก้ไขทีละรายการก่อน จึงนำเข้าเป็นกลุ่มไม่ได้", "records in the selection must be fixed first — they have to be handled one at a time, so the group cannot be imported")}</span>`:""}
     </div>`:""}
 
     ${view.length===0 ? html`<div class="dm-empty">
         <div class="dm-empty-ic"><${Icon} name="check" size=${34} color="var(--good)"/></div>
-        <h3>${filter==="skipped"?"ยังไม่มีรายการที่ข้ามไว้":"ไม่มีรายการรอแก้ไข"}</h3>
-        <div class="dim">${filter==="skipped"?"รายการที่คุณเลือกข้ามจะมาแสดงที่นี่ (ไม่ถูกลบ)":"ข้อมูลนำเข้าทุกแถวผ่านการตรวจสอบเรียบร้อยแล้ว"}</div></div>`
+        <h3>${filter==="skipped"?t("ยังไม่มีรายการที่ข้ามไว้", "Nothing has been skipped yet"):t("ไม่มีรายการรอแก้ไข", "Nothing is pending")}</h3>
+        <div class="dim">${filter==="skipped"?t("รายการที่คุณเลือกข้ามจะมาแสดงที่นี่ (ไม่ถูกลบ)", "Records you skip appear here (they are not deleted)"):t("ข้อมูลนำเข้าทุกแถวผ่านการตรวจสอบเรียบร้อยแล้ว", "Every imported row passed review")}</div></div>`
       : html`<${Table} cols=${[
         ...(filter==="skipped"?[]:[{h:html`<input type="checkbox" checked=${allSel} onChange=${e=>{const c=e.target.checked;setSel(s=>{const n={...s};view.forEach(r=>n[r.id]=c);return n;});}}/>`,
           render:r=>html`<input type="checkbox" checked=${!!sel[r.id]} onChange=${e=>setSel(s=>({...s,[r.id]:e.target.checked}))}/>`}]),
-        {h:"แถวที่", render:r=>r.row},
-        {h:"ชื่อธุรกิจ", render:r=> r.raw.name ? r.raw.name : html`<span class="dim">(ไม่มีชื่อ)</span>`},
-        {h:"ชนิดปัญหา", render:r=>html`<${Badge} tone=${KIND_META[r.kind].tone}>${KIND_META[r.kind].label}</${Badge}>`},
-        {h:"ปัญหาที่พบ", render:r=>html`<span class="dim" style=${{fontSize:"12px"}}>${issueSummary(r)}</span>`},
-        {h:"ความรุนแรง", render:r=>html`<${Badge} tone=${rowSeverity(r)==="error"?"bad":"warn"}>${SEV_TH[rowSeverity(r)]}</${Badge}>`},
-        {h:"การจัดการ", render:r=> filter==="skipped"
+        {h:t("แถวที่", "Row"), render:r=>r.row},
+        {h:t("ชื่อธุรกิจ", "Business name"), render:r=> r.raw.name ? r.raw.name : html`<span class="dim">${t("(ไม่มีชื่อ)", "(no name)")}</span>`},
+        {h:t("ชนิดปัญหา", "Problem type"), render:r=>html`<${Badge} tone=${KIND_META[r.kind].tone}>${KIND_META[r.kind].label}</${Badge}>`},
+        {h:t("ปัญหาที่พบ", "Problem found"), render:r=>html`<span class="dim" style=${{fontSize:"12px"}}>${issueSummary(r)}</span>`},
+        {h:t("ความรุนแรง", "Severity"), render:r=>html`<${Badge} tone=${rowSeverity(r)==="error"?"bad":"warn"}>${SEV_TH[rowSeverity(r)]}</${Badge}>`},
+        {h:t("การจัดการ", "Actions"), render:r=> filter==="skipped"
           ? html`<div class="row" style=${{gap:"6px"}}><span class="dim" style=${{fontSize:"12px"}}>${STAT_TH[r.status]}</span>
-              <${Btn} size="sm" variant="ghost" onClick=${()=>unskip(r)}>นำกลับเข้าคิว</${Btn}></div>`
-          : html`<${Btn} size="sm" variant="outline" onClick=${()=>setReview(r)}>ตรวจสอบ</${Btn}>`},
+              <${Btn} size="sm" variant="ghost" onClick=${()=>unskip(r)}>${t("นำกลับเข้าคิว", "Return to the queue")}</${Btn}></div>`
+          : html`<${Btn} size="sm" variant="outline" onClick=${()=>setReview(r)}>${t("ตรวจสอบ", "Review")}</${Btn}>`},
       ]} rows=${view}/>`}
 
     ${review?html`<${ReviewDrawer} row=${review} onClose=${()=>setReview(null)}
       onImport=${importRow} onSkip=${skipRow} onMerge=${mergeRow}/>`:""}
 
-    ${confirm?html`<${Modal} title=${confirm.how==="import"?"ยืนยันนำเข้าหลายรายการ":"ยืนยันข้ามหลายรายการ"} onClose=${()=>setConfirm(null)}
+    ${confirm?html`<${Modal} title=${confirm.how==="import"?t("ยืนยันนำเข้าหลายรายการ", "Confirm importing several records"):t("ยืนยันข้ามหลายรายการ", "Confirm skipping several records")} onClose=${()=>setConfirm(null)}
       footer=${html`<div class="row" style=${{gap:"10px",justifyContent:"flex-end"}}>
-        <${Btn} variant="ghost" onClick=${()=>setConfirm(null)}>ยกเลิก</${Btn}>
-        <${Btn} variant="outline" onClick=${()=>doBulk(confirm.ids,confirm.how)}>ยืนยัน</${Btn}></div>`}>
+        <${Btn} variant="ghost" onClick=${()=>setConfirm(null)}>${t("ยกเลิก", "Cancel")}</${Btn}>
+        <${Btn} variant="outline" onClick=${()=>doBulk(confirm.ids,confirm.how)}>${t("ยืนยัน", "Confirm")}</${Btn}></div>`}>
       <p>${confirm.how==="import"
-        ? html`นำเข้า <b>${confirm.ids.length} รายการ</b> ที่เลือกเข้าสู่ระบบ`
-        : html`ทำเครื่องหมายข้าม <b>${confirm.ids.length} รายการ</b> — ข้อมูลดิบยังถูกเก็บไว้เป็นประวัติ ไม่ถูกลบ`}</p>
-      <div class="dm-alert warn"><${Icon} name="gap" size=${15}/> การกระทำนี้บันทึกลงบันทึกการตรวจสอบเป็นรายแถว</div>
+        ? html`${t("นำเข้า", "Imported")} <b>${confirm.ids.length} ${t("รายการ", "records")}</b> ${t("ที่เลือกเข้าสู่ระบบ", "selected records into the system")}`
+        : html`${t("ทำเครื่องหมายข้าม", "Mark as skipped")} <b>${confirm.ids.length} ${t("รายการ", "records")}</b> ${t("— ข้อมูลดิบยังถูกเก็บไว้เป็นประวัติ ไม่ถูกลบ", "— the raw data is kept as history, not deleted")}`}</p>
+      <div class="dm-alert warn"><${Icon} name="gap" size=${15}/> ${t("การกระทำนี้บันทึกลงบันทึกการตรวจสอบเป็นรายแถว", "This action is written to the audit log row by row")}</div>
     </${Modal}>`:""}
 
   </div>`;
@@ -746,19 +770,19 @@ function TCData(){
   const filtered=rows.filter(r=>(prov==="All"||r.province===prov)&&(check==="All"||r.check===check)&&(!q||r.name.includes(q)));
   const PAGE=10; const totalPages=Math.max(1,Math.ceil(filtered.length/PAGE)); const pageRows=filtered.slice((page-1)*PAGE,page*PAGE);
   const selIds=Object.keys(sel).filter(k=>sel[k]);
-  const bulk=how=>{ const lbl={verified:"ทำเครื่องหมายว่าตรวจสอบแล้ว",reject:"ตีกลับ",del:"ลบ"}[how];
-    if(how==="del") setRows(rs=>rs.filter(r=>!sel[r.id])); else setRows(rs=>rs.map(r=>sel[r.id]?{...r,check:how==="verified"?"ตรวจสอบแล้ว":"ตีกลับ"}:r));
-    pushAudit({action:"จัดการข้อมูล TC (หลายรายการ)", category: how==="del"?"ลบ":"แก้ไข", detail:`${lbl} · ${selIds.length} รายการ`});
-    toast(`${lbl} ${selIds.length} รายการแล้ว`, how==="del"?"warn":"good"); setSel({}); };
+  const bulk=how=>{ const lbl={verified:t("ทำเครื่องหมายว่าตรวจสอบแล้ว", "Marked as reviewed"),reject:t("ตีกลับ", "Returned"),del:t("ลบ", "Delete")}[how];
+    if(how==="del") setRows(rs=>rs.filter(r=>!sel[r.id])); else setRows(rs=>rs.map(r=>sel[r.id]?{...r,check:how==="verified"?t("ตรวจสอบแล้ว", "Reviewed"):t("ตีกลับ", "Returned")}:r));
+    pushAudit({action:t("จัดการข้อมูล TC (หลายรายการ)", "Handled TC records (bulk)"), category: how==="del"?t("ลบ", "Delete"):t("แก้ไข", "Edit"), detail:`${lbl} · ${selIds.length} ${t("รายการ", "records")}`});
+    toast(`${lbl} ${selIds.length} ${t("รายการแล้ว", "records")}`, how==="del"?"warn":"good"); setSel({}); };
   const doDelete=r=>{ setRows(rs=>rs.filter(x=>x.id!==r.id)); setDel(null); setDrawer(null);
-    pushAudit({action:"ลบข้อมูลที่กรอกเอง", category:"ลบ", detail:`${r.name} (${r.id})`}); toast("ลบข้อมูลแล้ว","warn"); };
+    pushAudit({action:t("ลบข้อมูลที่กรอกเอง", "Deleted a manually entered record"), category:"ลบ", detail:`${r.name} (${r.id})`}); toast(t("ลบข้อมูลแล้ว", "Record deleted"),"warn"); };
   const onAdd=recs=>{ const mapped=recs.map((r,i)=>({ id:"REC"+(9000+rows.length+i), name:r.businessName, type:r.status,
       segment:r.segment, province:r.province, district:r.district, lat:r.latitude, lng:r.longitude,
       email:r.email||"",
-      tc:"System Administrator", date:new Date().toISOString().slice(0,10), check:"ตรวจสอบแล้ว", source:"manual_admin", incomplete:false, badCoord:false }));
+      tc:"System Administrator", date:new Date().toISOString().slice(0,10), check:"ตรวจสอบแล้ว", source:"manual_admin"   /* check = ค่าข้อมูล ห้ามแปล */, incomplete:false, badCoord:false }));
     setRows(rs=>[...mapped,...rs]); setAddOpen(false);
-    pushAudit({action:"เพิ่มข้อมูลด้วยตนเอง (Admin)", category:"เพิ่ม", detail:`${mapped.length} รายการ`}); toast(`เพิ่มข้อมูล ${mapped.length} รายการแล้ว`,"good"); };
-  const exportXlsx=()=>{ pushAudit({action:"ส่งออกข้อมูล TC (Excel)", category:"ส่งออก", detail:`ตามตัวกรองปัจจุบัน · ${filtered.length} รายการ`}); toast(`ส่งออก ${filtered.length} รายการเป็น Excel แล้ว`,"good"); };
+    pushAudit({action:t("เพิ่มข้อมูลด้วยตนเอง (Admin)", "Added a record manually (admin)"), category:"เพิ่ม", detail:`${mapped.length} ${t("รายการ", "records")}`}); toast(`${t("เพิ่มข้อมูล", "Added")} ${mapped.length} ${t("รายการแล้ว", "records")}`,"good"); };
+  const exportXlsx=()=>{ pushAudit({action:t("ส่งออกข้อมูล TC (Excel)", "Exported TC records (Excel)"), category:"ส่งออก", detail:`${t("ตามตัวกรองปัจจุบัน ·", "Using the current filters ·")} ${filtered.length} ${t("รายการ", "records")}`}); toast(`${t("ส่งออก", "Exported")} ${filtered.length} ${t("รายการเป็น Excel แล้ว", "records to Excel")}`,"good"); };
   // แก้ไข: ใช้ฟอร์มร่วมกับฟอร์มเพิ่มข้อมูล (AddRecordsForm โหมด editRecord) — Admin แก้ได้ทุก field
   const toRecord = r => ({ id:r.id, status:r.type, businessName:r.name, address:"", email:r.email||"", latitude:r.lat, longitude:r.lng,
     segment:r.segment, tc_owner:r.tc });
@@ -767,70 +791,71 @@ function TCData(){
       province:rec.province||x.province, district:rec.district||x.district, lat:rec.latitude, lng:rec.longitude,
       email:rec.email||x.email||"", incomplete:false, badCoord:false } : x));
     setEdit(null);
-    pushAudit({action:"แก้ไขข้อมูลที่กรอกเอง", category:"แก้ไข", detail:`${rec.businessName} (${edit.id})`});
-    toast("บันทึกการแก้ไขแล้ว","good"); };
+    pushAudit({action:t("แก้ไขข้อมูลที่กรอกเอง", "Edited a manually entered record"), category:"แก้ไข", detail:`${rec.businessName} (${edit.id})`});
+    toast(t("บันทึกการแก้ไขแล้ว", "Changes saved"),"good"); };
   const hasFilter = q||prov!=="All"||check!=="All";
   const allSel = pageRows.length>0 && pageRows.every(r=>sel[r.id]);
   return html`<div>
     <div class="dm-toolbar">
-      <input class="dm-input" placeholder="ค้นหาชื่อธุรกิจ…" value=${q} onInput=${e=>{setQ(e.target.value);setPage(1);}}/>
+      <input class="dm-input" placeholder=${t("ค้นหาชื่อธุรกิจ…", "Search business names…")} value=${q} onInput=${e=>{setQ(e.target.value);setPage(1);}}/>
       <select class="dm-sel" value=${prov} onChange=${e=>{setProv(e.target.value);setPage(1);}}>
-        <option value="All">ทุกจังหวัด</option>${PROV_TH.map(p=>html`<option key=${p} value=${p}>${provinceTH(p)}</option>`)}</select>
+        <option value="All">${t("ทุกจังหวัด", "All provinces")}</option>${PROV_TH.map(p=>html`<option key=${p} value=${p}>${provinceTH(p)}</option>`)}</select>
       <select class="dm-sel" value=${check} onChange=${e=>{setCheck(e.target.value);setPage(1);}}>
-        ${["All","รอตรวจสอบ","ตรวจสอบแล้ว","ตีกลับ"].map(s=>html`<option key=${s} value=${s}>${s==="All"?"ทุกสถานะตรวจสอบ":s}</option>`)}</select>
-      <div style=${{marginLeft:"auto"}} class="row"><${Btn} size="sm" variant="ghost" icon="download" onClick=${exportXlsx}>ส่งออก Excel</${Btn}>
-        <${Btn} size="sm" variant="outline" icon="plus" onClick=${()=>setAddOpen(true)}>เพิ่มข้อมูลด้วยตนเอง</${Btn}></div>
+        ${["All",t("รอตรวจสอบ", "Awaiting review"),t("ตรวจสอบแล้ว", "Reviewed"),t("ตีกลับ", "Returned")].map(s=>html`<option key=${s} value=${s}>${s==="All"?t("ทุกสถานะตรวจสอบ", "All review statuses"):s}</option>`)}</select>
+      <div style=${{marginLeft:"auto"}} class="row"><${Btn} size="sm" variant="ghost" icon="download" onClick=${exportXlsx}>${t("ส่งออก Excel", "Export to Excel")}</${Btn}>
+        <${Btn} size="sm" variant="outline" icon="plus" onClick=${()=>setAddOpen(true)}>${t("เพิ่มข้อมูลด้วยตนเอง", "Add a record manually")}</${Btn}></div>
     </div>
-    ${selIds.length?html`<div class="dm-bulk"><b>เลือก ${selIds.length} รายการ</b>
-      <${Btn} size="sm" variant="ghost" onClick=${()=>bulk("verified")}>ทำเครื่องหมายว่าตรวจสอบแล้ว</${Btn}>
-      <${Btn} size="sm" variant="ghost" onClick=${()=>bulk("reject")}>ตีกลับ</${Btn}>
-      <${Btn} size="sm" variant="ghost" onClick=${()=>bulk("del")}>ลบ</${Btn}></div>`:""}
-    <${Table} empty="ไม่พบข้อมูลตามเงื่อนไขที่เลือก" cols=${[
+    ${selIds.length?html`<div class="dm-bulk"><b>${t("เลือก", "Selected")} ${selIds.length} ${t("รายการ", "records")}</b>
+      <${Btn} size="sm" variant="ghost" onClick=${()=>bulk("verified")}>${t("ทำเครื่องหมายว่าตรวจสอบแล้ว", "Marked as reviewed")}</${Btn}>
+      <${Btn} size="sm" variant="ghost" onClick=${()=>bulk("reject")}>${t("ตีกลับ", "Returned")}</${Btn}>
+      <${Btn} size="sm" variant="ghost" onClick=${()=>bulk("del")}>${t("ลบ", "Delete")}</${Btn}></div>`:""}
+    <${Table} empty=${t("ไม่พบข้อมูลตามเงื่อนไขที่เลือก", "Nothing matches the current filters")} cols=${[
       {h:html`<input type="checkbox" checked=${allSel} onChange=${e=>{const c=e.target.checked;setSel(s=>{const n={...s};pageRows.forEach(r=>n[r.id]=c);return n;});}}/>`,
         render:r=>html`<input type="checkbox" checked=${!!sel[r.id]} onChange=${e=>setSel(s=>({...s,[r.id]:e.target.checked}))}/>`},
-      {h:"ชื่อธุรกิจ", render:r=>html`<button class="dm-link" onClick=${()=>setDrawer(r)}>${r.name}</button>
-        ${r.incomplete?html` <${Badge} tone="warn">ไม่ครบ</${Badge}>`:""}${r.badCoord?html` <${Badge} tone="bad">พิกัดผิด</${Badge}>`:""}`},
-      {h:"ประเภท", render:r=>html`<${Badge} tone=${r.type==="Existing"?"good":"info"}>${r.type==="Existing"?"ลูกค้า":"Lead"}</${Badge}>`},
-      {h:"หมวดหมู่", render:r=>SEG_TH[r.segment]||r.segment},
-      {h:"จังหวัด", render:r=>provinceTH(r.province)},
-      {h:"อีเมล", render:r=> r.email?html`<span class="mono" style=${{fontSize:"11.5px"}}>${r.email}</span>`:html`<span class="dim">—</span>`},
-      {h:"ผู้กรอก", render:r=>html`<div>${r.tc}<div class="dim" style=${{fontSize:"11px"}}>${SRC_TH[r.source]}</div></div>`},
-      {h:"วันที่กรอก", render:r=>beDate(r.date)},
-      {h:"สถานะตรวจสอบ", render:r=>html`<${Badge} tone=${CHECK_TONE[r.check]}>${r.check}</${Badge}>`},
-      {h:"จัดการ", render:r=>html`<div class="row" style=${{gap:"6px"}}>
-        <${Btn} size="sm" variant="ghost" onClick=${()=>setEdit(r)}>แก้ไข</${Btn}>
-        <${Btn} size="sm" variant="ghost" onClick=${()=>setDel(r)}>ลบ</${Btn}></div>`},
+      {h:t("ชื่อธุรกิจ", "Business name"), render:r=>html`<button class="dm-link" onClick=${()=>setDrawer(r)}>${r.name}</button>
+        ${r.incomplete?html` <${Badge} tone="warn">${t("ไม่ครบ", "Incomplete")}</${Badge}>`:""}${r.badCoord?html` <${Badge} tone="bad">${t("พิกัดผิด", "Bad coords")}</${Badge}>`:""}`},
+      {h:t("ประเภท", "Type"), render:r=>html`<${Badge} tone=${r.type==="Existing"?"good":"info"}>${r.type==="Existing"?t("ลูกค้า", "Customers"):"Lead"}</${Badge}>`},
+      {h:t("หมวดหมู่", "Category"), render:r=>segTH(r.segment)},
+      {h:t("จังหวัด", "Province"), render:r=>provinceTH(r.province)},
+      {h:t("อีเมล", "Email"), render:r=> r.email?html`<span class="mono" style=${{fontSize:"11.5px"}}>${r.email}</span>`:html`<span class="dim">—</span>`},
+      {h:t("ผู้กรอก", "Entered by"), render:r=>html`<div>${tcLabel(r.tc)}<div class="dim" style=${{fontSize:"11px"}}>${SRC_TH[r.source]}</div></div>`},
+      {h:t("วันที่กรอก", "Entered on"), render:r=>beDate(r.date)},
+      {h:t("สถานะตรวจสอบ", "Review status"), render:r=>html`<${Badge} tone=${CHECK_TONE[r.check]}>${r.check}</${Badge}>`},
+      {h:t("จัดการ", "Actions"), render:r=>html`<div class="row" style=${{gap:"6px"}}>
+        <${Btn} size="sm" variant="ghost" onClick=${()=>setEdit(r)}>${t("แก้ไข", "Edit")}</${Btn}>
+        <${Btn} size="sm" variant="ghost" onClick=${()=>setDel(r)}>${t("ลบ", "Delete")}</${Btn}></div>`},
     ]} rows=${pageRows}/>
     ${filtered.length===0 && hasFilter ? html`<div class="dm-empty" style=${{padding:"30px 20px"}}>
-      <div class="dim">ไม่พบข้อมูลตามเงื่อนไขที่เลือก</div></div>`:""}
-    ${totalPages>1?html`<div class="dm-pager"><span class="dim">แสดง ${(page-1)*PAGE+1}–${Math.min(page*PAGE,filtered.length)} จาก ${filtered.length} รายการ</span>
+      <div class="dim">${t("ไม่พบข้อมูลตามเงื่อนไขที่เลือก", "Nothing matches the current filters")}</div></div>`:""}
+    ${totalPages>1?html`<div class="dm-pager"><span class="dim">${t("แสดง", "Showing")} ${(page-1)*PAGE+1}–${Math.min(page*PAGE,filtered.length)} ${t("จาก", "of")} ${filtered.length} ${t("รายการ", "records")}</span>
       <div class="row" style=${{gap:"5px"}}>${Array.from({length:totalPages},(_,i)=>i+1).map(p=>html`<button key=${p} class=${"dm-pg"+(p===page?" on":"")} onClick=${()=>setPage(p)}>${p}</button>`)}</div></div>`:""}
 
     ${addOpen?html`<${AddRecordsForm} db=${db} allowImport=${true} onClose=${()=>setAddOpen(false)} onSave=${onAdd}/>`:""}
     ${edit?html`<${AddRecordsForm} db=${db} editRecord=${toRecord(edit)} onClose=${()=>setEdit(null)} onSave=${onEditSave}/>`:""}
-    ${del?html`<${Modal} title="ยืนยันการลบ" onClose=${()=>setDel(null)}
+    ${del?html`<${Modal} title=${t("ยืนยันการลบ", "Confirm deletion")} onClose=${()=>setDel(null)}
       footer=${html`<div class="row" style=${{gap:"10px",justifyContent:"flex-end"}}>
-        <${Btn} variant="ghost" onClick=${()=>setDel(null)}>ยกเลิก</${Btn}>
-        <${Btn} variant="outline" onClick=${()=>doDelete(del)}>ยืนยันลบ</${Btn}></div>`}>
-      <p>ต้องการลบ <b>${del.name}</b> หรือไม่? ข้อมูลจะหายจากแผนที่และรายงานด้วย · การกระทำนี้บันทึกลงบันทึกการตรวจสอบ</p>
+        <${Btn} variant="ghost" onClick=${()=>setDel(null)}>${t("ยกเลิก", "Cancel")}</${Btn}>
+        <${Btn} variant="outline" onClick=${()=>doDelete(del)}>${t("ยืนยันลบ", "Confirm deletion")}</${Btn}></div>`}>
+      <p>${t("ต้องการลบ", "Delete")} <b>${del.name}</b> ${t("หรือไม่? ข้อมูลจะหายจากแผนที่และรายงานด้วย · การกระทำนี้บันทึกลงบันทึกการตรวจสอบ", "? It will disappear from the map and reports too · this action is written to the audit log")}</p>
     </${Modal}>`:""}
     ${drawer?html`<${Modal} title=${drawer.name} onClose=${()=>setDrawer(null)}>
-        <div class="dm-kv"><span>ประเภท</span><b>${drawer.type==="Existing"?"ลูกค้า":"Lead"}</b></div>
-        <div class="dm-kv"><span>หมวดหมู่</span><b>${SEG_TH[drawer.segment]||drawer.segment}</b></div>
-        <div class="dm-kv"><span>จังหวัด</span><b>${provinceTH(drawer.province)}</b></div>
-        <div class="dm-kv"><span>พิกัด</span><b>${drawer.lat}, ${drawer.lng}</b></div>
-        <div class="dm-kv"><span>อีเมล</span><b>${drawer.email||"—"}</b></div>
-        <div class="dm-kv"><span>ผู้กรอก</span><b>${drawer.tc} · ${SRC_TH[drawer.source]}</b></div>
-        <div class="dm-kv"><span>วันที่กรอก</span><b>${beDate(drawer.date)}</b></div>
-        <div class="dm-kv"><span>สถานะตรวจสอบ</span><${Badge} tone=${CHECK_TONE[drawer.check]}>${drawer.check}</${Badge}></div>
-        <div class="dm-alert" style=${{marginTop:"12px"}}><${Icon} name="pin" size=${14}/> พิกัดกรอกจากแหล่งข้อมูลของท่าน — ระบบไม่ได้ดึงจากแหล่งภายนอก</div>
+        <div class="dm-kv"><span>${t("ประเภท", "Type")}</span><b>${drawer.type==="Existing"?t("ลูกค้า", "Customers"):"Lead"}</b></div>
+        <div class="dm-kv"><span>${t("หมวดหมู่", "Category")}</span><b>${segTH(drawer.segment)}</b></div>
+        <div class="dm-kv"><span>${t("จังหวัด", "Province")}</span><b>${provinceTH(drawer.province)}</b></div>
+        <div class="dm-kv"><span>${t("พิกัด", "Coordinates")}</span><b>${drawer.lat}, ${drawer.lng}</b></div>
+        <div class="dm-kv"><span>${t("อีเมล", "Email")}</span><b>${drawer.email||"—"}</b></div>
+        <div class="dm-kv"><span>${t("ผู้กรอก", "Entered by")}</span><b>${tcLabel(drawer.tc)} · ${SRC_TH[drawer.source]}</b></div>
+        <div class="dm-kv"><span>${t("วันที่กรอก", "Entered on")}</span><b>${beDate(drawer.date)}</b></div>
+        <div class="dm-kv"><span>${t("สถานะตรวจสอบ", "Review status")}</span><${Badge} tone=${CHECK_TONE[drawer.check]}>${drawer.check}</${Badge}></div>
+        <div class="dm-alert" style=${{marginTop:"12px"}}><${Icon} name="pin" size=${14}/> ${t("พิกัดกรอกจากแหล่งข้อมูลของท่าน — ระบบไม่ได้ดึงจากแหล่งภายนอก", "Coordinates come from your own source — the system does not fetch them externally")}</div>
       </${Modal}>`:""}
   </div>`;
 }
 
 /* ═══════════════════ หน้าหลัก ═══════════════════ */
-const BASE_TABS=[{value:"import",label:"นำเข้าไฟล์ Excel"},
-  {value:"files",label:"จัดการไฟล์นำเข้า"},{value:"leads",label:"จัดการ Lead"}];
+const BASE_TABS=[{value:"import", get label(){ return t("นำเข้าไฟล์ Excel","Import an Excel file"); }},
+  {value:"files", get label(){ return t("จัดการไฟล์นำเข้า","Import files"); }},
+  {value:"leads", get label(){ return t("จัดการ Lead","Lead management"); }}];
 
 /* ═══════════ คำขอเปลี่ยนเป็นลูกค้า (conversion_requests) — คิวที่ TC ส่งขออนุมัติ ═══════════
    หลักการ: คงรหัส Lead เดิมหลังเป็นลูกค้า · Lead ของหมวด ณ วันส่งคำขอถูกแช่แข็งไว้ · เฉพาะผู้ดูแลอนุมัติ/ปฏิเสธ
@@ -840,9 +865,14 @@ const CV_TODAY=Date.parse("2026-08-03T00:00:00Z");
 const beDate2 = thDate;   // ใช้ตัวแปลงกลาง
 const daysAgo=iso=>Math.max(0, Math.floor((CV_TODAY-Date.parse(iso))/864e5));
 // เหตุผลปฏิเสธ (ข้อมูลหลัก) — เลือก "อื่น ๆ" ต้องกรอกหมายเหตุ
-const REJECT_REASONS=[["evidence","หลักฐานไม่เพียงพอ/ไม่ชัดเจน"],["dup","เป็นลูกค้าอยู่แล้ว หรือรายการซ้ำ"],
-  ["notclosed","ยังไม่ปิดการขายจริง"],["wrongdata","พื้นที่/ข้อมูลธุรกิจไม่ถูกต้อง"],["other","อื่น ๆ (ระบุ)"]];
-const REJ_TH=Object.fromEntries(REJECT_REASONS.map(([k,v])=>[k,v]));
+const REJECT_REASONS=[["evidence",()=>t("หลักฐานไม่เพียงพอ/ไม่ชัดเจน","Evidence is missing or unclear")],
+  ["dup",()=>t("เป็นลูกค้าอยู่แล้ว หรือรายการซ้ำ","Already a customer, or a duplicate")],
+  ["notclosed",()=>t("ยังไม่ปิดการขายจริง","The sale is not actually closed")],
+  ["wrongdata",()=>t("พื้นที่/ข้อมูลธุรกิจไม่ถูกต้อง","Wrong area or business details")],
+  ["other",()=>t("อื่น ๆ (ระบุ)","Other (specify)")]];
+const _REJ=Object.fromEntries(REJECT_REASONS.map(([k,v])=>[k,v]));
+/* ป้ายเหตุผลตามภาษาปัจจุบัน — รับ "รหัส" คืนข้อความ */
+const REJ_TH_OF = code => (_REJ[code] ? _REJ[code]() : code);
 const GAP_C={High:"#c81e1e",Medium:"#b45309",Low:"#0f7a3d"};
 
 // mock: คำขอรออนุมัติ 12 (5 ค้าง>3วัน เก่าสุด 8 · 2 ไม่มีหลักฐาน · 1 ไม่มีประวัติเข้าพบ) + ประวัติ 20 (deterministic)
@@ -885,7 +915,7 @@ export function genConvReqs(){
 
 function ConversionRequests({reqs, setReqs}){
   const {user}=useApp();
-  const _admin=(user&&user.name)||"ผู้ดูแลระบบ", _email=(user&&user.email)||"admin@geointel.io";
+  const _admin=(user&&user.name)||t("ผู้ดูแลระบบ","System Administrator"), _email=(user&&user.email)||"admin@geointel.io";
   const [sub,setSub]=useState("pending");          // pending | history
   const [filter,setFilter]=useState("all");        // all | stale | noev | prov:<key>
   const [drawer,setDrawer]=useState(null);         // คำขอที่กำลังดู
@@ -912,24 +942,24 @@ function ConversionRequests({reqs, setReqs}){
   const approve = req => {
     setReqs(rs=>rs.map(x=>x.id===req.id?{...x,status:"approved",reviewed_by:_admin,reviewed_at:_stamp()}:x));
     // อนุมัติ: เปลี่ยนเป็นลูกค้าโดยคงรหัสเดิม + ใช้คะแนน snapshot (ไม่คำนวณใหม่) · เขียน audit 2 รายการ + แจ้งผู้ส่ง
-    pushAudit({user:_email, action:"อนุมัติคำขอเปลี่ยนเป็นลูกค้า", category:"แก้ไข",
-      detail:`${req.businessName} · ${req.provTH} · คงรหัสเดิม ${req.prospect_id} · ช่องว่างของหมวด ${req.gap_snapshot} ราย (${GAP_TH[req.gapLevel_snapshot]}) แช่แข็งไว้`});
-    pushAudit({user:_email, action:"แจ้งเตือนผู้ส่งคำขอ", category:"แจ้งเตือน",
-      detail:`แจ้ง ${req.requested_by}: คำขอ "${req.businessName}" ได้รับการอนุมัติเป็นลูกค้าแล้ว`});
-    toast(`อนุมัติแล้ว — "${req.businessName}" เป็นลูกค้า (คงรหัส ${req.prospect_id})`,"good");
+    pushAudit({user:_email, action:t("อนุมัติคำขอเปลี่ยนเป็นลูกค้า", "Approved a conversion request"), category:"แก้ไข",
+      detail:`${req.businessName} · ${req.provTH} ${t("· คงรหัสเดิม", "· original ID kept")} ${req.prospect_id} ${t("· ช่องว่างของหมวด", "· the category gap")} ${req.gap_snapshot} ${t("ราย (", "are customers (")}${gapTH(req.gapLevel_snapshot)}${t(") แช่แข็งไว้", ") is frozen")}`});
+    pushAudit({user:_email, action:t("แจ้งเตือนผู้ส่งคำขอ", "Notified the requester"), category:"แจ้งเตือน",
+      detail:`${t("แจ้ง", "Notified")} ${req.requested_by}${t(": คำขอ \"", ": the request for \"")}${req.businessName}${t("\" ได้รับการอนุมัติเป็นลูกค้าแล้ว", "\" was approved and is now a customer")}`});
+    toast(`${t("อนุมัติแล้ว — \"", "Approved — \"")}${req.businessName}${t("\" เป็นลูกค้า (คงรหัส", "\" is now a customer (ID kept:")} ${req.prospect_id})`,"good");
     setApproveOf(null); setDrawer(null);
   };
   const doReject = (ids, code, note) => {
     const nm=id=>(reqs.find(x=>x.id===id)||{}).businessName;
     setReqs(rs=>rs.map(x=> ids.includes(x.id) ? {...x,status:"rejected",reviewed_by:_admin,reviewed_at:_stamp(),reject_reason_code:code,reject_note:code==="other"?note:null} : x));
-    ids.forEach(id=>pushAudit({user:_email, action:"ปฏิเสธคำขอเปลี่ยนเป็นลูกค้า", category:"แก้ไข", detail:`${nm(id)} · เหตุผล: ${REJ_TH[code]}${code==="other"&&note?" — "+note:""} · Lead กลับสถานะเดิม ส่งใหม่ได้`}));
-    toast(`ปฏิเสธ ${ids.length} คำขอ — ส่งกลับให้ผู้ประสานงาน`,"warn");
+    ids.forEach(id=>pushAudit({user:_email, action:t("ปฏิเสธคำขอเปลี่ยนเป็นลูกค้า", "Rejected a conversion request"), category:"แก้ไข", detail:`${nm(id)} ${t("· เหตุผล:", "· reason:")} ${REJ_TH_OF(code)}${code==="other"&&note?" — "+note:""} ${t("· Lead กลับสถานะเดิม ส่งใหม่ได้", "· the Lead returns to its previous status and can be resubmitted")}`}));
+    toast(`${t("ปฏิเสธ", "Rejected")} ${ids.length} ${t("คำขอ — ส่งกลับให้ผู้ประสานงาน", "requests — sent back to the coordinator")}`,"warn");
     setRejOf(null); setRejNote(""); setSel({}); setDrawer(null);
   };
   const undo = (req, reason) => {
     setReqs(rs=>rs.map(x=>x.id===req.id?{...x,status:"pending",reviewed_by:null,reviewed_at:null}:x));
-    pushAudit({user:_email, action:"ย้อนการอนุมัติคำขอ", category:"แก้ไข", detail:`${req.businessName} · เหตุผล: ${reason} · กลับเข้าคิวรออนุมัติ`});
-    toast("ย้อนการอนุมัติแล้ว — กลับเข้าคิวรออนุมัติ","warn");
+    pushAudit({user:_email, action:t("ย้อนการอนุมัติคำขอ", "Reversed an approval"), category:"แก้ไข", detail:`${req.businessName} ${t("· เหตุผล:", "· reason:")} ${reason} ${t("· กลับเข้าคิวรออนุมัติ", "· back in the approval queue")}`});
+    toast(t("ย้อนการอนุมัติแล้ว — กลับเข้าคิวรออนุมัติ", "Approval reversed — back in the approval queue"),"warn");
     setUndoOf(null); setUndoNote("");
   };
 
@@ -938,62 +968,62 @@ function ConversionRequests({reqs, setReqs}){
 
   return html`<div class="cv-wrap">
     <div class="cv-subtabs">
-      <button class=${"cv-st"+(sub==="pending"?" on":"")} onClick=${()=>setSub("pending")}>รออนุมัติ ${pending.length?html`<span class="cv-badge">${pending.length}</span>`:""}</button>
-      <button class=${"cv-st"+(sub==="history"?" on":"")} onClick=${()=>setSub("history")}>ประวัติ</button>
+      <button class=${"cv-st"+(sub==="pending"?" on":"")} onClick=${()=>setSub("pending")}>${t("รออนุมัติ", "Awaiting approval")} ${pending.length?html`<span class="cv-badge">${pending.length}</span>`:""}</button>
+      <button class=${"cv-st"+(sub==="history"?" on":"")} onClick=${()=>setSub("history")}>${t("ประวัติ", "History")}</button>
     </div>
 
-    ${sub==="pending" ? html`<${Card} title="คำขอเปลี่ยนเป็นลูกค้า"
-      sub="คำขอที่ผู้ประสานงานส่งมาให้อนุมัติเปลี่ยน Lead เป็นลูกค้า · อนุมัติแล้วจะคงรหัสเดิมและแช่แข็งคะแนน ณ วันส่งคำขอ">
+    ${sub==="pending" ? html`<${Card} title=${t("คำขอเปลี่ยนเป็นลูกค้า", "Conversion requests")}
+      sub=${t("คำขอที่ผู้ประสานงานส่งมาให้อนุมัติเปลี่ยน Lead เป็นลูกค้า · อนุมัติแล้วจะคงรหัสเดิมและแช่แข็งคะแนน ณ วันส่งคำขอ", "Requests from coordinators to convert a Lead into a customer · on approval the original ID is kept and the score is frozen as at the request date")}>
       <!-- 1) แถบสรุปบรรทัดเดียว -->
-      <div class="cv-summary">รออนุมัติ <b>${num(pending.length)}</b> รายการ · ค้างนานที่สุด <b>${maxStale}</b> วัน · จาก <b>${provsInQ.length}</b> จังหวัด</div>
-      ${staleN>0 ? html`<div class="cv-warnbar"><${Icon} name="info" size=${15}/> มี <b>${staleN}</b> รายการค้างเกิน 3 วัน — ควรพิจารณาก่อน</div>`:""}
+      <div class="cv-summary">${t("รออนุมัติ", "Awaiting approval")} <b>${num(pending.length)}</b> ${t("รายการ · ค้างนานที่สุด", "requests · oldest pending")} <b>${maxStale}</b> ${t("วัน · จาก", "days · from")} <b>${provsInQ.length}</b> ${t("จังหวัด", "Province")}</div>
+      ${staleN>0 ? html`<div class="cv-warnbar"><${Icon} name="info" size=${15}/> ${t("มี", "There are")} <b>${staleN}</b> ${t("รายการค้างเกิน 3 วัน — ควรพิจารณาก่อน", "requests have been pending over 3 days — handle these first")}</div>`:""}
       <!-- 2) ชิปกรอง -->
       <div class="cv-chips">
-        <button class=${"cv-chip"+(filter==="all"?" on":"")} onClick=${()=>setFilter("all")}>ทั้งหมด (${pending.length})</button>
-        <button class=${"cv-chip"+(filter==="stale"?" on":"")} onClick=${()=>setFilter("stale")}>ค้างเกิน 3 วัน (${staleN})</button>
-        <button class=${"cv-chip"+(filter==="noev"?" on":"")} onClick=${()=>setFilter("noev")}>ไม่มีหลักฐานแนบ (${pending.filter(noEv).length})</button>
+        <button class=${"cv-chip"+(filter==="all"?" on":"")} onClick=${()=>setFilter("all")}>${t("ทั้งหมด (", "All (")}${pending.length})</button>
+        <button class=${"cv-chip"+(filter==="stale"?" on":"")} onClick=${()=>setFilter("stale")}>${t("ค้างเกิน 3 วัน (", "Pending over 3 days (")}${staleN})</button>
+        <button class=${"cv-chip"+(filter==="noev"?" on":"")} onClick=${()=>setFilter("noev")}>${t("ไม่มีหลักฐานแนบ (", "No evidence attached (")}${pending.filter(noEv).length})</button>
         ${provsInQ.map(pv=>{ const n=pending.filter(r=>r.province===pv).length; const pt=(pending.find(r=>r.province===pv)||{}).provTH;
           return html`<button key=${pv} class=${"cv-chip"+(filter==="prov:"+pv?" on":"")} onClick=${()=>setFilter("prov:"+pv)}>${pt} (${n})</button>`; })}
       </div>
-      ${selIds.length>0 ? html`<div class="cv-selbar"><span>เลือกไว้ <b>${selIds.length}</b> รายการ</span>
-        <div style=${{display:"flex",gap:"8px"}}><${Btn} variant="ghost" size="sm" onClick=${()=>setSel({})}>ยกเลิกเลือก</${Btn}>
-        <${Btn} variant="outline" size="sm" onClick=${()=>{ setRejCode("evidence"); setRejNote(""); setRejOf({ids:selIds}); }}>ปฏิเสธที่เลือก (${selIds.length})</${Btn}></div></div>`:""}
+      ${selIds.length>0 ? html`<div class="cv-selbar"><span>${t("เลือกไว้", "selected")} <b>${selIds.length}</b> ${t("รายการ", "records")}</span>
+        <div style=${{display:"flex",gap:"8px"}}><${Btn} variant="ghost" size="sm" onClick=${()=>setSel({})}>${t("ยกเลิกเลือก", "Clear selection")}</${Btn}>
+        <${Btn} variant="outline" size="sm" onClick=${()=>{ setRejCode("evidence"); setRejNote(""); setRejOf({ids:selIds}); }}>${t("ปฏิเสธที่เลือก (", "Reject selected (")}${selIds.length})</${Btn}></div></div>`:""}
       <!-- 3) รายการแบบการ์ด -->
-      ${shown.length===0 ? html`<div class="emptybox" style=${{padding:"26px",textAlign:"center"}}>ไม่มีคำขอตามเงื่อนไขที่เลือก</div>`
+      ${shown.length===0 ? html`<div class="emptybox" style=${{padding:"26px",textAlign:"center"}}>${t("ไม่มีคำขอตามเงื่อนไขที่เลือก", "No requests match the current filters")}</div>`
       : html`<div class="cv-cards">
         ${shown.map(r=>{ const d=daysAgo(r.requested_at), stale=d>3, warn=noEv(r)||noVisit(r);
           return html`<div key=${r.id} class=${"cv-card"+(stale?" stale":"")}>
           <label class="cv-ck"><input type="checkbox" checked=${!!sel[r.id]} onChange=${e=>setSel(s=>({...s,[r.id]:e.target.checked}))}/></label>
           <div class="cv-c-body">
             <div class="cv-c-head">
-              <div class="cv-c-nm">${r.businessName} <span class="cv-gap" style=${{background:GAP_C[r.gapLevel_snapshot]}}>ขาด ${r.gap_snapshot} ราย</span></div>
-              <div class="cv-c-days ${stale?"stale":""}">${stale?"":""}ค้าง ${d} วัน</div>
+              <div class="cv-c-nm">${r.businessName} <span class="cv-gap" style=${{background:GAP_C[r.gapLevel_snapshot]}}>${t("ขาด", "Short")} ${r.gap_snapshot} ${t("ราย", "businesses")}</span></div>
+              <div class="cv-c-days ${stale?"stale":""}">${stale?"":""}${t("ค้าง", " pending")} ${d} ${t("วัน", "days")}</div>
             </div>
-            <div class="cv-c-meta">${r.segTH} · อำเภอ${r.district}</div>
-            <div class="cv-c-meta">ส่งโดย <b>${r.requested_by}</b> เมื่อ ${beDate2(r.requested_at)}</div>
-            <div class="cv-c-meta">เข้าพบ ${r.visits.length} ครั้ง${r.visits.length?" · ครั้งล่าสุด "+beDate2(r.visits[0].date):""} · หลักฐานแนบ ${r.evidence_files.length} ไฟล์</div>
-            ${warn ? html`<div class="cv-c-warn">${[noEv(r)?"ไม่มีหลักฐานแนบ":null, noVisit(r)?"ไม่มีประวัติการเข้าพบ":null].filter(Boolean).join(" · ")}</div>`:""}
+            <div class="cv-c-meta">${r.segTH} ${t("· อำเภอ", "· district ")}${r.district}</div>
+            <div class="cv-c-meta">${t("ส่งโดย", "Submitted by")} <b>${r.requested_by}</b> ${t("เมื่อ", "on")} ${beDate2(r.requested_at)}</div>
+            <div class="cv-c-meta">${t("เข้าพบ", "Visited")} ${r.visits.length} ${t("ครั้ง", "times ")}${r.visits.length?t(" · ครั้งล่าสุด ", " · most recently ")+beDate2(r.visits[0].date):""} ${t("· หลักฐานแนบ", "· evidence attached")} ${r.evidence_files.length} ${t("ไฟล์", "File")}</div>
+            ${warn ? html`<div class="cv-c-warn">${[noEv(r)?t("ไม่มีหลักฐานแนบ", "No evidence attached"):null, noVisit(r)?t("ไม่มีประวัติการเข้าพบ", "No visit history"):null].filter(Boolean).join(" · ")}</div>`:""}
             <div class="cv-c-act">
-              <${Btn} variant="ghost" size="sm" onClick=${()=>setDrawer(r)}>ดูรายละเอียด</${Btn}>
-              <${Btn} variant="outline" size="sm" onClick=${()=>{ setRejCode("evidence"); setRejNote(""); setRejOf({ids:[r.id]}); }}>ปฏิเสธ</${Btn}>
-              <${Btn} variant="primary" size="sm" icon="check" onClick=${()=>setApproveOf(r)}>อนุมัติ</${Btn}>
+              <${Btn} variant="ghost" size="sm" onClick=${()=>setDrawer(r)}>${t("ดูรายละเอียด", "View details")}</${Btn}>
+              <${Btn} variant="outline" size="sm" onClick=${()=>{ setRejCode("evidence"); setRejNote(""); setRejOf({ids:[r.id]}); }}>${t("ปฏิเสธ", "Rejected")}</${Btn}>
+              <${Btn} variant="primary" size="sm" icon="check" onClick=${()=>setApproveOf(r)}>${t("อนุมัติ", "Approve")}</${Btn}>
             </div>
           </div>
         </div>`; })}
       </div>`}
     </${Card}>`
-    : html`<${Card} title="ประวัติคำขอที่จัดการแล้ว" sub="คำขอที่อนุมัติหรือปฏิเสธแล้ว · รายการที่อนุมัติภายใน 24 ชม. ย้อนได้">
-      ${history.length===0 ? html`<div class="emptybox" style=${{padding:"26px",textAlign:"center"}}>ยังไม่มีประวัติ</div>`
+    : html`<${Card} title=${t("ประวัติคำขอที่จัดการแล้ว", "Handled requests")} sub=${t("คำขอที่อนุมัติหรือปฏิเสธแล้ว · รายการที่อนุมัติภายใน 24 ชม. ย้อนได้", "Requests already approved or rejected · approvals can be reversed within 24 hours")}>
+      ${history.length===0 ? html`<div class="emptybox" style=${{padding:"26px",textAlign:"center"}}>${t("ยังไม่มีประวัติ", "No history yet")}</div>`
       : html`<div class="cv-cards">
         ${history.map(r=>html`<div key=${r.id} class="cv-card hist">
           <div class="cv-c-body">
             <div class="cv-c-head">
-              <div class="cv-c-nm">${r.businessName} <span class="cv-gap" style=${{background:GAP_C[r.gapLevel_snapshot]}}>ขาด ${r.gap_snapshot} ราย</span></div>
-              <span class=${"cv-status "+r.status}>${r.status==="approved"?"อนุมัติแล้ว":"ปฏิเสธแล้ว"}</span>
+              <div class="cv-c-nm">${r.businessName} <span class="cv-gap" style=${{background:GAP_C[r.gapLevel_snapshot]}}>${t("ขาด", "Short")} ${r.gap_snapshot} ${t("ราย", "businesses")}</span></div>
+              <span class=${"cv-status "+r.status}>${r.status==="approved"?t("อนุมัติแล้ว", "Approved"):t("ปฏิเสธแล้ว", "Rejected")}</span>
             </div>
-            <div class="cv-c-meta">${r.segTH} · อำเภอ${r.district} · ส่งโดย ${r.requested_by}</div>
-            <div class="cv-c-meta">ตัดสินโดย <b>${r.reviewed_by}</b> เมื่อ ${beDate2(r.reviewed_at)}${r.status==="rejected"?" · เหตุผล: "+REJ_TH[r.reject_reason_code]+(r.reject_note?" ("+r.reject_note+")":""):""}</div>
-            ${canUndo(r) ? html`<div class="cv-c-act"><${Btn} variant="outline" size="sm" onClick=${()=>{ setUndoNote(""); setUndoOf(r); }}>ย้อนการอนุมัติ</${Btn}></div>`:""}
+            <div class="cv-c-meta">${r.segTH} ${t("· อำเภอ", "· district ")}${r.district} ${t("· ส่งโดย", "· submitted by")} ${r.requested_by}</div>
+            <div class="cv-c-meta">${t("ตัดสินโดย", "Decided by")} <b>${r.reviewed_by}</b> ${t("เมื่อ", "on")} ${beDate2(r.reviewed_at)}${r.status==="rejected"?t(" · เหตุผล: ", " · reason: ")+REJ_TH_OF(r.reject_reason_code)+(r.reject_note?" ("+r.reject_note+")":""):""}</div>
+            ${canUndo(r) ? html`<div class="cv-c-act"><${Btn} variant="outline" size="sm" onClick=${()=>{ setUndoNote(""); setUndoOf(r); }}>${t("ย้อนการอนุมัติ", "Reverse the approval")}</${Btn}></div>`:""}
           </div>
         </div>`)}
       </div>`}
@@ -1002,30 +1032,30 @@ function ConversionRequests({reqs, setReqs}){
     <!-- 4) แผงรายละเอียด (drawer จากขวา) -->
     ${drawer ? createPortal(html`<div class="cv-drawer-back" onMouseDown=${e=>{ if(e.target.classList.contains("cv-drawer-back")) setDrawer(null); }}>
       <div class="cv-drawer">
-        <div class="cv-dr-head"><div><div class="cv-dr-nm">${drawer.businessName}</div><div class="cv-c-meta">รหัส ${drawer.prospect_id} · ${drawer.segTH} · ${drawer.provTH}</div></div>
+        <div class="cv-dr-head"><div><div class="cv-dr-nm">${drawer.businessName}</div><div class="cv-c-meta">${t("รหัส", "ID")} ${drawer.prospect_id} · ${drawer.segTH} · ${drawer.provTH}</div></div>
           <button class="cv-x" onClick=${()=>setDrawer(null)}><${Icon} name="close" size=${16}/></button></div>
         <div class="cv-dr-body">
           <!-- ส่วนที่ 1 · ข้อมูลธุรกิจ + แผนที่ + คะแนน -->
-          <div class="cv-sec-t">ข้อมูลธุรกิจ</div>
-          <div class="cv-kv"><span>อำเภอ</span><b>${drawer.district}</b></div>
-          <div class="cv-kv"><span>หมวดธุรกิจ</span><b>${drawer.segTH}</b></div>
-          <div class="cv-score">Lead ของหมวดนี้ <b style=${{color:GAP_C[drawer.gapLevel_snapshot]}}>${GAP_TH[drawer.gapLevel_snapshot]}</b> · ยังขาด <b>${drawer.gap_snapshot}</b> ราย — <span class="cv-frozen">ค่านี้จะถูกบันทึกถาวรเมื่ออนุมัติ ไม่คำนวณใหม่</span></div>
+          <div class="cv-sec-t">${t("ข้อมูลธุรกิจ", "Business details")}</div>
+          <div class="cv-kv"><span>${t("อำเภอ", "District")}</span><b>${drawer.district}</b></div>
+          <div class="cv-kv"><span>${t("หมวดธุรกิจ", "Business category")}</span><b>${drawer.segTH}</b></div>
+          <div class="cv-score">${t("Lead ของหมวดนี้", "Lead index for this category")} <b style=${{color:GAP_C[drawer.gapLevel_snapshot]}}>${gapTH(drawer.gapLevel_snapshot)}</b> ${t("· ยังขาด", "· short by")} <b>${drawer.gap_snapshot}</b> ${t("ราย —", "businesses —")} <span class="cv-frozen">${t("ค่านี้จะถูกบันทึกถาวรเมื่ออนุมัติ ไม่คำนวณใหม่", "this value is stored permanently on approval and never recalculated")}</span></div>
           <${CvMiniMap} lat=${drawer.lat} lng=${drawer.lng}/>
           <!-- ส่วนที่ 2 · ประวัติการเข้าพบ -->
-          <div class="cv-sec-t">ประวัติการเข้าพบ (${drawer.visits.length})</div>
+          <div class="cv-sec-t">${t("ประวัติการเข้าพบ (", "Visit history (")}${drawer.visits.length})</div>
           ${drawer.visits.length? drawer.visits.map((v,i)=>html`<div key=${i} class="cv-visit"><div class="cv-visit-h"><b>${v.kind}</b><span>${beDate2(v.date)}</span></div><div class="cv-c-meta">${v.note}</div></div>`)
-            : html`<div class="cv-c-warn" style=${{margin:"4px 0"}}>ไม่มีประวัติการเข้าพบ</div>`}
+            : html`<div class="cv-c-warn" style=${{margin:"4px 0"}}>${t("ไม่มีประวัติการเข้าพบ", "No visit history")}</div>`}
           <!-- ส่วนที่ 3 · หลักฐานที่แนบ (ดูในหน้าเดียวกัน) -->
-          <div class="cv-sec-t">หลักฐานที่แนบ (${drawer.evidence_files.length})</div>
+          <div class="cv-sec-t">${t("หลักฐานที่แนบ (", "Attached evidence (")}${drawer.evidence_files.length})</div>
           ${drawer.evidence_files.length? html`<div class="cv-files">${drawer.evidence_files.map((f,i)=>html`<button key=${i} class="cv-file" onClick=${()=>setPreview(f)}><${Icon} name=${f.kind==="image"?"image":"file"} size=${14}/> ${f.name}</button>`)}</div>`
-            : html`<div class="cv-c-warn" style=${{margin:"4px 0"}}>ไม่มีหลักฐานแนบ</div>`}
+            : html`<div class="cv-c-warn" style=${{margin:"4px 0"}}>${t("ไม่มีหลักฐานแนบ", "No evidence attached")}</div>`}
           <!-- ส่วนที่ 4 · หมายเหตุจากผู้ส่ง -->
-          <div class="cv-sec-t">หมายเหตุจากผู้ส่งคำขอ</div>
+          <div class="cv-sec-t">${t("หมายเหตุจากผู้ส่งคำขอ", "Note from the requester")}</div>
           <div class="cv-note">"${drawer.note}" — ${drawer.requested_by}, ${beDate2(drawer.requested_at)}</div>
         </div>
         <div class="cv-dr-foot">
-          <${Btn} variant="outline" onClick=${()=>{ setRejCode("evidence"); setRejNote(""); setRejOf({ids:[drawer.id]}); }}>ปฏิเสธ</${Btn}>
-          <${Btn} variant="primary" icon="check" onClick=${()=>setApproveOf(drawer)}>อนุมัติเปลี่ยนเป็นลูกค้า</${Btn}>
+          <${Btn} variant="outline" onClick=${()=>{ setRejCode("evidence"); setRejNote(""); setRejOf({ids:[drawer.id]}); }}>${t("ปฏิเสธ", "Rejected")}</${Btn}>
+          <${Btn} variant="primary" icon="check" onClick=${()=>setApproveOf(drawer)}>${t("อนุมัติเปลี่ยนเป็นลูกค้า", "Approved conversion to customer")}</${Btn}>
         </div>
       </div>
     </div>`, document.body):""}
@@ -1033,38 +1063,38 @@ function ConversionRequests({reqs, setReqs}){
     <!-- ดูไฟล์หลักฐานในหน้าเดียวกัน -->
     ${preview ? html`<${Modal} title=${preview.name} onClose=${()=>setPreview(null)}>
       <div class="cv-preview">${preview.kind==="image"
-        ? html`<div class="cv-prev-img"><${Icon} name="image" size=${40} color="var(--muted)"/><div>ภาพตัวอย่างหลักฐาน (ระบบสาธิต)</div></div>`
-        : html`<div class="cv-prev-pdf"><${Icon} name="file" size=${40} color="var(--accent)"/><div>เอกสาร PDF — ${preview.name}</div><div class="cv-c-meta">แสดงตัวอย่างในหน้าเดียวกันโดยไม่ต้องดาวน์โหลด (ระบบสาธิต)</div></div>`}</div>
+        ? html`<div class="cv-prev-img"><${Icon} name="image" size=${40} color="var(--muted)"/><div>${t("ภาพตัวอย่างหลักฐาน (ระบบสาธิต)", "Sample evidence image (demo)")}</div></div>`
+        : html`<div class="cv-prev-pdf"><${Icon} name="file" size=${40} color="var(--accent)"/><div>${t("เอกสาร PDF —", "PDF document —")} ${preview.name}</div><div class="cv-c-meta">${t("แสดงตัวอย่างในหน้าเดียวกันโดยไม่ต้องดาวน์โหลด (ระบบสาธิต)", "previewed inline without downloading (demo)")}</div></div>`}</div>
     </${Modal}>`:""}
 
     <!-- 5) ยืนยันอนุมัติ (ทีละรายการ) -->
-    ${approveOf ? html`<${Modal} title="ยืนยันอนุมัติเปลี่ยนเป็นลูกค้า" onClose=${()=>setApproveOf(null)}>
-      <div class="cv-confirm">เมื่ออนุมัติ "<b>${approveOf.businessName}</b>" ระบบจะดำเนินการ:</div>
+    ${approveOf ? html`<${Modal} title=${t("ยืนยันอนุมัติเปลี่ยนเป็นลูกค้า", "Confirm conversion to customer")} onClose=${()=>setApproveOf(null)}>
+      <div class="cv-confirm">${t("เมื่ออนุมัติ \"", "On approving \"")}<b>${approveOf.businessName}</b>${t("\" ระบบจะดำเนินการ:", "\" the system will:")}</div>
       <ul class="cv-clist">
-        <li>เปลี่ยนประเภทเป็น <b>ลูกค้า</b> โดย<b>คงรหัสเดิม ${approveOf.prospect_id}</b> (ไม่สร้างรหัสใหม่)</li>
-        <li>บันทึก Lead ของหมวด <b>${approveOf.gap_snapshot}</b> ราย (${GAP_TH[approveOf.gapLevel_snapshot]}) จาก snapshot ถาวร (ไม่คำนวณใหม่)</li>
-        <li>อัปเดตแผนที่และตัวเลขสรุปทั้งระบบ</li>
-        <li>เขียนบันทึกการตรวจสอบ 2 รายการ และแจ้งเตือนผู้ส่งคำขอ</li>
+        <li>${t("เปลี่ยนประเภทเป็น", "change the type to")} <b>${t("ลูกค้า", "Customers")}</b> ${t("โดย", "By")}<b>${t("คงรหัสเดิม", "keep the original ID")} ${approveOf.prospect_id}</b> ${t("(ไม่สร้างรหัสใหม่)", "(no new ID is created)")}</li>
+        <li>${t("บันทึก Lead ของหมวด", "store the category Lead index")} <b>${approveOf.gap_snapshot}</b> ${t("ราย (", "are customers (")}${gapTH(approveOf.gapLevel_snapshot)}${t(") จาก snapshot ถาวร (ไม่คำนวณใหม่)", ") from a permanent snapshot (never recalculated)")}</li>
+        <li>${t("อัปเดตแผนที่และตัวเลขสรุปทั้งระบบ", "update the map and every summary figure")}</li>
+        <li>${t("เขียนบันทึกการตรวจสอบ 2 รายการ และแจ้งเตือนผู้ส่งคำขอ", "write two audit entries and notify the requester")}</li>
       </ul>
-      <div class="cv-modal-foot"><${Btn} variant="ghost" onClick=${()=>setApproveOf(null)}>ยกเลิก</${Btn}><${Btn} variant="primary" icon="check" onClick=${()=>approve(approveOf)}>ยืนยันอนุมัติ</${Btn}></div>
+      <div class="cv-modal-foot"><${Btn} variant="ghost" onClick=${()=>setApproveOf(null)}>${t("ยกเลิก", "Cancel")}</${Btn}><${Btn} variant="primary" icon="check" onClick=${()=>approve(approveOf)}>${t("ยืนยันอนุมัติ", "Confirm approval")}</${Btn}></div>
     </${Modal}>`:""}
 
     <!-- 6) ปฏิเสธ (เลือกได้หลายรายการ · ต้องเลือกเหตุผล) -->
-    ${rejOf ? html`<${Modal} title=${`ปฏิเสธคำขอ ${rejOf.ids.length} รายการ`} onClose=${()=>setRejOf(null)}>
-      <div class="cv-confirm">เลือกเหตุผลการปฏิเสธ (Lead จะกลับสถานะเดิม ส่งคำขอใหม่ได้ · คำขอเดิมเก็บในประวัติ):</div>
+    ${rejOf ? html`<${Modal} title=${`${t("ปฏิเสธคำขอ", "Reject the request")} ${rejOf.ids.length} ${t("รายการ", "records")}`} onClose=${()=>setRejOf(null)}>
+      <div class="cv-confirm">${t("เลือกเหตุผลการปฏิเสธ (Lead จะกลับสถานะเดิม ส่งคำขอใหม่ได้ · คำขอเดิมเก็บในประวัติ):", "Pick a rejection reason (the Lead returns to its previous status and can be resubmitted · the original request is kept in the history):")}</div>
       <div class="cv-reasons">${REJECT_REASONS.map(([k,v])=>html`<label key=${k} class=${"cv-reason"+(rejCode===k?" on":"")}>
         <input type="radio" name="rej" checked=${rejCode===k} onChange=${()=>setRejCode(k)}/> ${v}</label>`)}</div>
-      ${rejCode==="other" ? html`<textarea class="cv-note-in" placeholder="ระบุเหตุผล…" value=${rejNote} onInput=${e=>setRejNote(e.target.value)}></textarea>`:""}
-      <div class="cv-modal-foot"><${Btn} variant="ghost" onClick=${()=>setRejOf(null)}>ยกเลิก</${Btn}>
-        <${Btn} variant="primary" onClick=${()=>{ if(rejCode==="other"&&!rejNote.trim()){ toast("กรุณากรอกหมายเหตุสำหรับ 'อื่น ๆ'","warn"); return; } doReject(rejOf.ids, rejCode, rejNote.trim()); }}>ยืนยันปฏิเสธ</${Btn}></div>
+      ${rejCode==="other" ? html`<textarea class="cv-note-in" placeholder=${t("ระบุเหตุผล…", "Describe the reason…")} value=${rejNote} onInput=${e=>setRejNote(e.target.value)}></textarea>`:""}
+      <div class="cv-modal-foot"><${Btn} variant="ghost" onClick=${()=>setRejOf(null)}>${t("ยกเลิก", "Cancel")}</${Btn}>
+        <${Btn} variant="primary" onClick=${()=>{ if(rejCode==="other"&&!rejNote.trim()){ toast(t("กรุณากรอกหมายเหตุสำหรับ 'อื่น ๆ'", "Please add a note for 'Other'"),"warn"); return; } doReject(rejOf.ids, rejCode, rejNote.trim()); }}>${t("ยืนยันปฏิเสธ", "Confirm rejection")}</${Btn}></div>
     </${Modal}>`:""}
 
     <!-- ย้อนการอนุมัติ (ต้องกรอกเหตุผล) -->
-    ${undoOf ? html`<${Modal} title="ย้อนการอนุมัติ" onClose=${()=>setUndoOf(null)}>
-      <div class="cv-confirm">ย้อนการอนุมัติ "<b>${undoOf.businessName}</b>" — รายการจะกลับเข้าคิวรออนุมัติ กรุณาระบุเหตุผล:</div>
-      <textarea class="cv-note-in" placeholder="เหตุผลการย้อน…" value=${undoNote} onInput=${e=>setUndoNote(e.target.value)}></textarea>
-      <div class="cv-modal-foot"><${Btn} variant="ghost" onClick=${()=>setUndoOf(null)}>ยกเลิก</${Btn}>
-        <${Btn} variant="primary" onClick=${()=>{ if(!undoNote.trim()){ toast("กรุณากรอกเหตุผล","warn"); return; } undo(undoOf, undoNote.trim()); }}>ยืนยันย้อน</${Btn}></div>
+    ${undoOf ? html`<${Modal} title=${t("ย้อนการอนุมัติ", "Reverse the approval")} onClose=${()=>setUndoOf(null)}>
+      <div class="cv-confirm">${t("ย้อนการอนุมัติ \"", "Reverse the approval of \"")}<b>${undoOf.businessName}</b>${t("\" — รายการจะกลับเข้าคิวรออนุมัติ กรุณาระบุเหตุผล:", "\" — it goes back into the approval queue. Please give a reason:")}</div>
+      <textarea class="cv-note-in" placeholder=${t("เหตุผลการย้อน…", "Reason for reversing…")} value=${undoNote} onInput=${e=>setUndoNote(e.target.value)}></textarea>
+      <div class="cv-modal-foot"><${Btn} variant="ghost" onClick=${()=>setUndoOf(null)}>${t("ยกเลิก", "Cancel")}</${Btn}>
+        <${Btn} variant="primary" onClick=${()=>{ if(!undoNote.trim()){ toast(t("กรุณากรอกเหตุผล", "Please give a reason"),"warn"); return; } undo(undoOf, undoNote.trim()); }}>${t("ยืนยันย้อน", "Confirm reversal")}</${Btn}></div>
     </${Modal}>`:""}
     <style>${CV_CSS}</style>
   </div>`;
@@ -1073,11 +1103,12 @@ function ConversionRequests({reqs, setReqs}){
 // แผนที่ย่อในแผงรายละเอียด (Leaflet)
 function CvMiniMap({lat,lng}){
   const ref=useRef(null);
+  const lang=useLang();   // สลับภาษา → สร้างแผนที่ย่อใหม่ (ป้ายชื่อสถานที่เปลี่ยนตาม)
   useEffect(()=>{ const L=window.L; if(!L||!ref.current) return;
     const m=L.map(ref.current,{zoomControl:false,attributionControl:false,scrollWheelZoom:false,dragging:false}).setView([lat,lng],12);
-    basemap(m, "th");
+    basemap(m);
     L.marker([lat,lng]).addTo(m); setTimeout(()=>m.invalidateSize(),60); return ()=>m.remove();
-  },[lat,lng]);
+  },[lat,lng,lang]);
   return html`<div class="cv-map" ref=${ref}></div>`;
 }
 const CV_CSS=`
@@ -1192,8 +1223,8 @@ export function DataManagement(){
   const provOpts = useMemo(()=>{
     const set=[...new Set(rows.map(r=>r.province).filter(Boolean))]
       .sort((a,b)=>provinceTH(a).localeCompare(provinceTH(b),"th"));
-    return [["All","ทุกจังหวัด"], ...set.map(p=>[p, provinceTH(p)])];
-  },[rows]);
+    return [["All",t("ทุกจังหวัด", "All provinces")], ...set.map(p=>[p, provinceTH(p)])];
+  },[rows, getLang()]);
 
   const kw=q.trim().toLowerCase();
   const shown = rows.filter(r=>
@@ -1208,58 +1239,58 @@ export function DataManagement(){
   const reset = fn => (...a)=>{ setPage(1); fn(...a); };
 
   const COLS=[
-    { h:"ประเภท", w:"104px", render:r=> r._kind==="Existing"
-        ? html`<${Badge} tone="good">ลูกค้า</${Badge}>` : html`<${Badge} tone="neutral">Lead</${Badge}>` },
-    { h:"รหัส", w:"116px", render:r=>html`<span class="mono" style=${{fontSize:"12px"}}>${r.accountNo||r.id}</span>` },
-    { h:"ชื่อธุรกิจ", render:r=>html`<div style=${{fontWeight:600,fontSize:"13.5px"}}>${r.businessName}</div>` },
-    { h:"หมวดธุรกิจ", w:"190px", render:r=>SEG_TH[r.segment]||r.segment },
-    { h:"เบอร์โทรศัพท์", w:"160px", render:r=> r.phone
+    { h:t("ประเภท", "Type"), w:"104px", render:r=> r._kind==="Existing"
+        ? html`<${Badge} tone="good">${t("ลูกค้า", "Customers")}</${Badge}>` : html`<${Badge} tone="neutral">Lead</${Badge}>` },
+    { h:t("รหัส", "ID"), w:"116px", render:r=>html`<span class="mono" style=${{fontSize:"12px"}}>${r.accountNo||r.id}</span>` },
+    { h:t("ชื่อธุรกิจ", "Business name"), render:r=>html`<div style=${{fontWeight:600,fontSize:"13.5px"}}>${r.businessName}</div>` },
+    { h:t("หมวดธุรกิจ", "Business category"), w:"190px", render:r=>segTH(r.segment) },
+    { h:t("เบอร์โทรศัพท์", "Phone"), w:"160px", render:r=> r.phone
         ? html`<a class="rec-lk" href=${telHref(r.phone)}>${r.phone}</a>`
         : html`<span class="dim">—</span>` },
-    { h:"เว็บไซต์", w:"200px", render:r=> r.website
+    { h:t("เว็บไซต์", "Website"), w:"200px", render:r=> r.website
         ? html`<a class="rec-lk" href=${webHref(r.website)} target="_blank" rel="noopener noreferrer"
             title=${r.website}>${webShort(r.website)}</a>`
         : html`<span class="dim">—</span>` },
-    { h:"จัดการ", w:"96px", render:r=>html`<div class="rec-act">
-      <button class="rec-ic" title="แก้ไข" aria-label=${"แก้ไข "+r.businessName}
+    { h:t("จัดการ", "Actions"), w:"96px", render:r=>html`<div class="rec-act">
+      <button class="rec-ic" title=${t("แก้ไข", "Edit")} aria-label=${t("แก้ไข ", "Edited ")+r.businessName}
         onClick=${()=>setEditRec(r)}><${Icon} name="edit" size=${15}/></button>
-      <button class="rec-ic del" title="ลบ" aria-label=${"ลบ "+r.businessName}
+      <button class="rec-ic del" title=${t("ลบ", "Delete")} aria-label=${t("ลบ ", "Deleted ")+r.businessName}
         onClick=${()=>setDelRec(r)}><${Icon} name="trash" size=${15}/></button>
     </div>` },
   ];
 
   return html`<div class="page fade-in">
-    <${DmHead} title="จัดการข้อมูล"
-      caption=${`ลูกค้า ${num(custs.length)} ราย · Lead ${num(pros.length)} ราย · รวม ${num(rows.length)} รายการ`}/>
+    <${DmHead} title=${t("จัดการข้อมูล", "Data management")}
+      caption=${`${t("ลูกค้า", "Customers")} ${num(custs.length)} ${t("ราย · Lead", "customers · Leads")} ${num(pros.length)} ${t("ราย · รวม", "· total")} ${num(rows.length)} ${t("รายการ", "records")}`}/>
 
     <div class="grid g4" style=${{marginBottom:"14px"}}>
-      <${Kpi} label="ลูกค้าในระบบ" value=${num(custs.length)} icon="users"/>
-      <${Kpi} label="Lead ในระบบ" value=${num(pros.length)} icon="target"/>
-      <${Kpi} label="จังหวัดที่มีข้อมูล" value=${num(new Set(rows.map(r=>r.province)).size)} icon="map"/>
-      <${Kpi} label="แสดงตามตัวกรอง" value=${num(shown.length)} icon="filter"/>
+      <${Kpi} label=${t("ลูกค้าในระบบ", "Customers in the system")} value=${num(custs.length)} icon="users"/>
+      <${Kpi} label=${t("Lead ในระบบ", "Leads in the system")} value=${num(pros.length)} icon="target"/>
+      <${Kpi} label=${t("จังหวัดที่มีข้อมูล", "Provinces with data")} value=${num(new Set(rows.map(r=>r.province)).size)} icon="map"/>
+      <${Kpi} label=${t("แสดงตามตัวกรอง", "Shown by the current filters")} value=${num(shown.length)} icon="filter"/>
     </div>
 
     <div class="op-slicers" style=${{marginBottom:"12px"}}>
-      <label class="op-lab">ค้นหา
-        <input class="dm-input" style=${{minWidth:"200px"}} placeholder="ชื่อธุรกิจ หรือ รหัส…" value=${q}
+      <label class="op-lab">${t("ค้นหา", "Search")}
+        <input class="dm-input" style=${{minWidth:"200px"}} placeholder=${t("ชื่อธุรกิจ หรือ รหัส…", "Business name or ID…")} value=${q}
           onInput=${e=>{setPage(1);setQ(e.target.value);}}/></label>
-      <label class="op-lab">ประเภท
+      <label class="op-lab">${t("ประเภท", "Type")}
         <${Dropdown} value=${kind} onChange=${reset(setKind)}
-          options=${[["all","ทั้งหมด"],["Existing","ลูกค้า"],["Prospect","Lead"]]}/></label>
-      <label class="op-lab">จังหวัด
+          options=${[["all",t("ทั้งหมด", "All")],["Existing",t("ลูกค้า", "Customers")],["Prospect","Lead"]]}/></label>
+      <label class="op-lab">${t("จังหวัด", "Province")}
         <${Dropdown} value=${prov} onChange=${reset(setProv)} options=${provOpts}/></label>
-      <label class="op-lab">หมวดธุรกิจ
+      <label class="op-lab">${t("หมวดธุรกิจ", "Business category")}
         <${Dropdown} value=${seg} onChange=${reset(setSeg)}
-          options=${[["All","ทุกหมวด"], ...SEGMENTS.map(s=>[s, SEG_TH[s]])]}/></label>
+          options=${[["All",t("ทุกหมวด", "All categories")], ...SEGMENTS.map(s=>[s, segTH(s)])]}/></label>
     </div>
 
     <${Card} pad0=${true}>
       <${Table} cols=${COLS} rows=${pageRows}
-        empty=${loading ? "กำลังโหลดข้อมูลธุรกิจ…" : "ไม่มีรายการตามเงื่อนไขนี้"}/>
+        empty=${loading ? t("กำลังโหลดข้อมูลธุรกิจ…", "Loading business data…") : t("ไม่มีรายการตามเงื่อนไขนี้", "Nothing matches these filters")}/>
     </${Card}>
 
     ${pages>1 ? html`<div class="dm-pager">
-      <span class="dim">หน้า ${pg} จาก ${num(pages)} · ทั้งหมด ${num(shown.length)} รายการ</span>
+      <span class="dim">${t("หน้า", "Page")} ${pg} ${t("จาก", "of")} ${num(pages)} ${t("· ทั้งหมด", "· all")} ${num(shown.length)} ${t("รายการ", "records")}</span>
       <div class="row" style=${{gap:"6px"}}>
         <button class="dm-pg" disabled=${pg<=1} onClick=${()=>setPage(pg-1)}>‹</button>
         ${pageWindow(pg,pages).map(n=> n==="…"
@@ -1272,11 +1303,11 @@ export function DataManagement(){
       onClose=${()=>setEditRec(null)}
       onSave=${recs=>{ updateRecord && updateRecord(recs); setEditRec(null); }}/>` : ""}
 
-    ${delRec ? html`<${Modal} title="ยืนยันการลบ" onClose=${()=>setDelRec(null)}
-      footer=${html`<${Btn} variant="ghost" onClick=${()=>setDelRec(null)}>ยกเลิก</${Btn}>
-        <${Btn} variant="danger" icon="trash" onClick=${()=>{ adminDeleteRecord && adminDeleteRecord(delRec); setDelRec(null); }}>ยืนยันลบ</${Btn}>`}>
-      <div style=${{fontSize:"13px",lineHeight:1.8}}>ลบ <b>${delRec.businessName}</b> (${delRec.accountNo||delRec.id}) ออกจากระบบ?
-        <div class="dim" style=${{marginTop:"6px"}}>บันทึกลงบันทึกการตรวจสอบ · ย้อนกลับไม่ได้จากหน้านี้</div></div>
+    ${delRec ? html`<${Modal} title=${t("ยืนยันการลบ", "Confirm deletion")} onClose=${()=>setDelRec(null)}
+      footer=${html`<${Btn} variant="ghost" onClick=${()=>setDelRec(null)}>${t("ยกเลิก", "Cancel")}</${Btn}>
+        <${Btn} variant="danger" icon="trash" onClick=${()=>{ adminDeleteRecord && adminDeleteRecord(delRec); setDelRec(null); }}>${t("ยืนยันลบ", "Confirm deletion")}</${Btn}>`}>
+      <div style=${{fontSize:"13px",lineHeight:1.8}}>${t("ลบ", "Delete")} <b>${delRec.businessName}</b> (${delRec.accountNo||delRec.id}${t(") ออกจากระบบ?", ") from the system?")}
+        <div class="dim" style=${{marginTop:"6px"}}>${t("บันทึกลงบันทึกการตรวจสอบ · ย้อนกลับไม่ได้จากหน้านี้", "Written to the audit log · cannot be undone from this page")}</div></div>
     </${Modal}>` : ""}
     <style>${DM_CSS}</style>
   </div>`;
@@ -1299,7 +1330,7 @@ export function DataImport(){
   const importedTotal=IMPORTS.reduce((a,b)=>a+b.done,0);
   const latestImport=IMPORTS[0];
   return html`<div class="page fade-in">
-    <${DmHead} title="นำเข้าข้อมูล" caption=${`นำเข้าจากไฟล์สะสม ${num(importedTotal)} รายการ${latestImport?` · นำเข้าล่าสุด ${beDate(latestImport.dt)}`:""}`}/>
+    <${DmHead} title=${t("นำเข้าข้อมูล", "Data import")} caption=${`${t("นำเข้าจากไฟล์สะสม", "Imported from files, total")} ${num(importedTotal)} ${t("รายการ", "records ")}${latestImport?` ${t("· นำเข้าล่าสุด", "· last import")} ${beDate(latestImport.dt)}`:""}`}/>
     <${ImportWizard} resumeFile=${null} staging=${staging} setStaging=${setStaging} onExitResume=${()=>{}}/>
     <style>${DM_CSS}</style>
   </div>`;
@@ -1311,7 +1342,7 @@ export function DataFiles(){
   const [resumeFile,setResumeFile]=useState(null);
   const stagePending=staging.filter(r=>r.status==="pending").length;
   return html`<div class="page fade-in">
-    <${DmHead} title="จัดการไฟล์นำเข้า" caption=${stagePending?`ยังมีรายการค้างจัดการ ${num(stagePending)} รายการ`:"ไม่มีรายการค้างจัดการ"}/>
+    <${DmHead} title=${t("จัดการไฟล์นำเข้า", "Import files")} caption=${stagePending?`${t("ยังมีรายการค้างจัดการ", "rows still pending")} ${num(stagePending)} ${t("รายการ", "records")}`:t("ไม่มีรายการค้างจัดการ", "No rows pending")}/>
     ${resumeFile
       ? html`<${ImportWizard} resumeFile=${resumeFile} staging=${staging} setStaging=${setStaging}
           onExitResume=${()=>setResumeFile(null)}/>`
@@ -1326,7 +1357,7 @@ export function DataLeads(){
   const [leads,setLeads]=useShared("leads", genLeads);
   const todo=leads.filter(l=>l.status==="pending").length;
   return html`<div class="page fade-in">
-    <${DmHead} title="จัดการ Lead" caption=${todo?`มีรายการที่ต้องจัดการ ${num(todo)} รายการ`:"ไม่มีรายการค้างจัดการ"}/>
+    <${DmHead} title=${t("จัดการ Lead", "Lead management")} caption=${todo?`${t("มีรายการที่ต้องจัดการ", "records need attention")} ${num(todo)} ${t("รายการ", "records")}`:t("ไม่มีรายการค้างจัดการ", "No rows pending")}/>
     <${LeadManagement} leads=${leads} setLeads=${setLeads}/>
     <style>${DM_CSS}</style>
   </div>`;
@@ -1485,30 +1516,46 @@ const tcColor   = id => tcMasterColor(id) || TC_COLORS[Math.max(0, TC_USERS.find
 const TC_EXTRA_COVER = { 3:["Nonthaburi","Pathum Thani","Samut Prakan"], 4:["Rayong","Chachoengsao"],
   6:["Lamphun","Chiang Rai"], 7:["Phangnga","Krabi"] };
 const seedTerritory = () => { const m={};
-  for(const u of TC_USERS){ if(u.province) m[u.province]=u.id;
-    for(const pv of (TC_EXTRA_COVER[u.id]||[])) m[pv]=u.id; }
+  // จังหวัดหลักจากโปรไฟล์ + จังหวัดข้างเคียง — กรุงเทพฯ กระจายเป็น 3 โซน (เริ่มต้นเจ้าของเดียวกันทั้งหมด)
+  for(const u of TC_USERS){ if(u.province) for(const k of unitsOf(u.province)) m[k]=u.id;
+    for(const pv of (TC_EXTRA_COVER[u.id]||[])) for(const k of unitsOf(pv)) m[k]=u.id; }
   return m; };
 /* ภูมิภาค 6 ภาค — ครบ 77 จังหวัด (เหนือ 9 · อีสาน 20 · กลาง 22 · ตะวันออก 7 · ตะวันตก 5 · ใต้ 14)
    ใช้คีย์ภาษาอังกฤษชุดเดียวกับ provincesGeo · "Pattaya" ในชุดข้อมูลนี้คือชลบุรี */
 const REGIONS = [
-  ["north","ภาคเหนือ",["Chiang Mai","Chiang Rai","Lampang","Lamphun","Mae Hong Son","Nan","Phayao","Phrae","Uttaradit"]],
-  ["northeast","ภาคตะวันออกเฉียงเหนือ",["Amnat Charoen","Bueng Kan","Buri Ram","Chaiyaphum","Kalasin","Khon Kaen","Loei",
+  ["north",()=>t("ภาคเหนือ","Northern"),["Chiang Mai","Chiang Rai","Lampang","Lamphun","Mae Hong Son","Nan","Phayao","Phrae","Uttaradit"]],
+  ["northeast",()=>t("ภาคตะวันออกเฉียงเหนือ","Northeastern"),["Amnat Charoen","Bueng Kan","Buri Ram","Chaiyaphum","Kalasin","Khon Kaen","Loei",
     "Maha Sarakham","Mukdahan","Nakhon Phanom","Nakhon Ratchasima","Nong Bua Lam Phu","Nong Khai","Roi Et","Sakon Nakhon",
     "Si Sa Ket","Surin","Ubon Ratchathani","Udon Thani","Yasothon"]],
-  ["central","ภาคกลาง",["Ang Thong","Bangkok Metropolis","Chai Nat","Kamphaeng Phet","Lop Buri","Nakhon Nayok","Nakhon Pathom",
+  ["central",()=>t("ภาคกลาง","Central"),["Ang Thong","Bangkok Metropolis","Chai Nat","Kamphaeng Phet","Lop Buri","Nakhon Nayok","Nakhon Pathom",
     "Nakhon Sawan","Nonthaburi","Pathum Thani","Phetchabun","Phichit","Phitsanulok","Phra Nakhon Si Ayutthaya","Samut Prakan",
     "Samut Sakhon","Samut Songkhram","Saraburi","Sing Buri","Sukhothai","Suphan Buri","Uthai Thani"]],
-  ["east","ภาคตะวันออก",["Chachoengsao","Chanthaburi","Pattaya","Prachin Buri","Rayong","Sa Kaeo","Trat"]],
-  ["west","ภาคตะวันตก",["Kanchanaburi","Phetchaburi","Prachuap Khiri Khan","Ratchaburi","Tak"]],
-  ["south","ภาคใต้",["Chumphon","Krabi","Nakhon Si Thammarat","Narathiwat","Pattani","Phangnga","Phatthalung","Phuket",
+  ["east",()=>t("ภาคตะวันออก","Eastern"),["Chachoengsao","Chanthaburi","Pattaya","Prachin Buri","Rayong","Sa Kaeo","Trat"]],
+  ["west",()=>t("ภาคตะวันตก","Western"),["Kanchanaburi","Phetchaburi","Prachuap Khiri Khan","Ratchaburi","Tak"]],
+  ["south",()=>t("ภาคใต้","Southern"),["Chumphon","Krabi","Nakhon Si Thammarat","Narathiwat","Pattani","Phangnga","Phatthalung","Phuket",
     "Ranong","Satun","Songkhla","Surat Thani","Trang","Yala"]],
 ];
 const REGION_OF = Object.fromEntries(REGIONS.flatMap(([k,,provs])=>provs.map(pv=>[pv,k])));
-const REGION_TH = Object.fromEntries(REGIONS.map(([k,th])=>[k,th]));
+/* ชื่อภาคตามภาษาปัจจุบัน — ค่าใน REGIONS เป็นฟังก์ชัน จึงต้องเรียกตอนใช้ */
+const _REGION = Object.fromEntries(REGIONS.map(([k,th])=>[k,th]));
+const REGION_TH_OF = k => (_REGION[k] ? _REGION[k]() : k);
 
 // 77 จังหวัด เรียงตามชื่อไทย (ชุดคีย์เดียวกับ provincesGeo — ตรวจแล้วว่าตรงกันทุกชื่อ)
 const ALL_PROVINCES = Object.keys(PROVINCE_TH).sort((a,b)=>provinceTH(a).localeCompare(provinceTH(b),"th"));
 const TR_PAGE = 12;
+
+/* ── หน่วยของขอบเขต (unit) ───────────────────────────────────────────────────
+   ปกติ 1 จังหวัด = 1 หน่วย · ยกเว้นกรุงเทพฯ ที่ซอยเป็น 3 โซนตามแผนที่ขอบเขตของลูกค้า
+   คีย์ของโซนเขียนเป็น "Bangkok Metropolis/SL" — ยังเป็นสตริงแบน ๆ ตัวเดียว
+   ตาราง assign จึงยังเป็น { คีย์หน่วย: id ของ TC } เหมือนเดิม ไม่ต้องเปลี่ยนโครงข้อมูล      */
+const unitKey  = (pv, zone) => zone ? `${pv}/${zone}` : pv;
+const unitProv = key => key.split("/")[0];
+const unitZone = key => key.split("/")[1] || null;
+const unitsOf  = pv => pv===BKK ? BKK_ZONES.map(z=>unitKey(pv, z.key)) : [pv];
+const UNITS    = ALL_PROVINCES.flatMap(unitsOf);
+/* ป้ายของหน่วย — โซนกรุงเทพฯ แสดงเป็น "กรุงเทพมหานคร · สีลม" */
+const unitLabel = key => { const z = unitZone(key);
+  return z ? `${provinceTH(unitProv(key))} · ${zoneName(z)}` : provinceTH(key); };
 
 /* GeoJSON → เส้นทาง SVG ต่อจังหวัด (equirectangular ปรับแกน x ตาม cos(ละติจูดกลาง) — ไทยแคบ พอเพียงและเบา)
    ลดจำนวนจุดต่อวงแหวนไม่เกิน ~260 จุด เพื่อให้ DOM เบา (รูปทรงจังหวัดยังอ่านออกในขนาดย่อ) */
@@ -1547,31 +1594,42 @@ function buildProvincePaths(geo){
 /* แผนที่ขอบเขต — ระบายสีตาม TC ที่ดูแล · จังหวัดไร้ผู้ดูแลใช้ลายทแยงแดง (เห็นชัดแม้พิมพ์ขาวดำ) */
 function TerritoryMap({paths, assign, focus, onFocus}){
   const [hover,setHover]=useState(null);
-  if(!paths) return html`<div class="tr-map-load">กำลังโหลดขอบเขตจังหวัด…</div>`;
+  if(!paths) return html`<div class="tr-map-load">${t("กำลังโหลดขอบเขตจังหวัด…", "Loading province boundaries…")}</div>`;
   const shown = hover || focus;
-  const tcOf = pv => TC_BY_ID[assign[pv]];
+  // กรุงเทพฯ เป็นรูปเดียวบนแมพแต่มี 3 โซน — เจ้าของเดียวกันทั้ง 3 จึงระบายสีนั้นได้
+  // ถ้าคนละคน คืน "mixed" เพื่อให้ระบายลายผสมแทนการเลือกสีใครคนหนึ่งมาแสดงผิด ๆ
+  const tcOf = pv => { const ks=unitsOf(pv), ids=[...new Set(ks.map(k=>assign[k]).filter(Boolean))];
+    if(!ids.length) return null;
+    if(ids.length>1) return "mixed";
+    return TC_BY_ID[ids[0]]||null; };
   return html`<div class="tr-map">
     <svg viewBox=${"0 0 "+paths.W+" "+paths.H} class="tr-map-svg" preserveAspectRatio="xMidYMid meet"
-      role="img" aria-label="แผนที่ขอบเขตพื้นที่การขายรายจังหวัด" onMouseLeave=${()=>setHover(null)}>
+      role="img" aria-label=${t("แผนที่ขอบเขตพื้นที่การขายรายจังหวัด", "Sales territory map by province")} onMouseLeave=${()=>setHover(null)}>
       <defs>
         <pattern id="trNoMan" width="7" height="7" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
           <rect width="7" height="7" fill="rgba(220,38,38,.10)"/>
           <line x1="0" y1="0" x2="0" y2="7" stroke="rgba(220,38,38,.55)" stroke-width="2.4"/>
         </pattern>
+        <!-- ลายผสม: กรุงเทพฯ ที่ 3 โซนมี TC คนละคน — ไม่เลือกสีใครคนหนึ่งมาแสดงแทนทั้งจังหวัด -->
+        <pattern id="trMixed" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+          <rect width="8" height="8" fill="rgba(99,102,241,.14)"/>
+          <line x1="0" y1="0" x2="0" y2="8" stroke="rgba(99,102,241,.6)" stroke-width="2.6"/>
+        </pattern>
       </defs>
       ${ALL_PROVINCES.map(pv=>{ const d=paths.byProv[pv]; if(!d) return null;
         const tc=tcOf(pv), on=shown===pv;
         return html`<path key=${pv} d=${d} class=${"tr-path"+(on?" on":"")}
-          fill=${tc? tcColor(tc.id)+"3d" : "url(#trNoMan)"}
-          stroke=${on? "#161d2b" : (tc? tcColor(tc.id) : "#dc2626")}
+          fill=${tc==="mixed" ? "url(#trMixed)" : tc? tcColor(tc.id)+"3d" : "url(#trNoMan)"}
+          stroke=${on? "#161d2b" : tc==="mixed" ? "#6366f1" : (tc? tcColor(tc.id) : "#dc2626")}
           stroke-width=${on? 2.2 : 0.7}
           onMouseEnter=${()=>setHover(pv)}
-          onClick=${()=>onFocus(focus===pv?null:pv)}><title>${provinceTH(pv)} · ${tc?tc.name:"ยังไม่มีคนดูแล"}</title></path>`;
+          onClick=${()=>onFocus(focus===pv?null:pv)}><title>${provinceTH(pv)} · ${tc==="mixed" ? t("หลายผู้ดูแล (แบ่งตามโซน)","Several owners (split by zone)") : tc?tc.name:t("ยังไม่มีคนดูแล", "No owner yet")}</title></path>`;
       })}
     </svg>
     <div class=${"tr-map-cap"+(shown && !tcOf(shown) ? " none":"")}>
-      ${shown ? html`<b>${provinceTH(shown)}</b> · ${tcOf(shown) ? tcOf(shown).name : "ยังไม่มีคนดูแล (no man’s land)"}`
-              : "ชี้ที่จังหวัดเพื่อดูผู้ดูแล · คลิกเพื่อกรองตารางด้านล่าง"}
+      ${shown ? (()=>{ const o=tcOf(shown);
+            return html`<b>${provinceTH(shown)}</b> · ${o==="mixed" ? t("หลายผู้ดูแล (แบ่งตามโซน)","Several owners (split by zone)") : o ? o.name : t("ยังไม่มีคนดูแล (no man’s land)", "No owner yet (no man's land)")}`; })()
+              : t("ชี้ที่จังหวัดเพื่อดูผู้ดูแล · คลิกเพื่อกรองตารางด้านล่าง", "Hover a province to see its owner · click to filter the table below")}
     </div>
   </div>`;
 }
@@ -1583,6 +1641,15 @@ export function TerritoryManager(){
   const [focus,setFocus]   = useState(null);            // จังหวัดที่คลิกจากแผนที่ (null = ยังไม่ได้เลือก)
   const [pick,setPick]     = useState("");              // TC ที่เลือกไว้ในกล่องมอบหมาย (ยังไม่กดบันทึก)
 
+  // โหลดการมอบหมายที่เคยบันทึกไว้จากเซิร์ฟเวอร์ — ไม่มีของเก่า = คงค่าตั้งต้นจากโปรไฟล์ TC (seedTerritory)
+  // loadedRef กันไม่ให้เซฟทับก่อนโหลดเสร็จ (ถ้าแอดมินกดมอบหมายเร็วมากตอนหน้ายังโหลดอยู่)
+  const loadedRef = useRef(false);
+  useEffect(()=>{ let alive=true;
+    loadTerritory().then(res=>{ if(!alive) return;
+      if(res) setAssign(res.assign);
+      loadedRef.current = true; });
+    return ()=>{ alive=false; }; },[]);
+
   // ขอบเขตจังหวัด: ใช้ของที่แอปโหลดไว้แล้วถ้ามี — ไม่มีก็ดึงเอง (ไฟล์ถูกแคชอยู่ในชั้น data.js)
   useEffect(()=>{ if(db.provincesGeo){ setGeo(db.provincesGeo); return; }
     let alive=true; loadProvincesGeo().then(g=>{ if(alive) setGeo(g); }).catch(()=>{});
@@ -1590,11 +1657,12 @@ export function TerritoryManager(){
   const paths = useMemo(()=>buildProvincePaths(geo),[geo]);
 
   const areaBy = db.areaByProvince||{};
-  const rows = useMemo(()=> ALL_PROVINCES.map(key=>{
+  // 1 แถว = 1 หน่วย (กรุงเทพฯ ได้ 3 แถว ตามโซน) · ตัวเลข Lead ยังอ้างระดับจังหวัดตามเดิม
+  const rows = useMemo(()=> UNITS.map(key=>{
     const tc = TC_BY_ID[assign[key]]||null;
-    return { key, th:provinceTH(key), tc, covered:!!tc,
-      area: areaBy[key]||null };
-  }),[assign, areaBy]);
+    return { key, prov:unitProv(key), zone:unitZone(key), th:unitLabel(key), tc, covered:!!tc,
+      area: areaBy[unitProv(key)]||null };
+  }),[assign, areaBy, getLang()]);
 
   const coveredN = rows.filter(r=>r.covered).length;
   const noManN   = rows.length-coveredN;
@@ -1604,69 +1672,86 @@ export function TerritoryManager(){
   // จังหวัดที่กำลังเลือกอยู่ + ผู้ดูแลปัจจุบันของจังหวัดนั้น
   const focusRow = focus ? rows.find(r=>r.key===focus) : null;
   const curTCId  = focus && assign[focus] ? String(assign[focus]) : "";
+  // ทุกหน่วยของจังหวัดที่กำลังโฟกัส — กรุงเทพฯ ได้ 3 แถว (โซน) จังหวัดอื่นได้แถวเดียว
+  const focusUnits = focus ? rows.filter(r=>r.prov===unitProv(focus)) : [];
+  const isZoned    = focusUnits.length > 1;
   // เปิดกล่องมอบหมายพร้อมตั้งค่าเริ่มต้นเป็นผู้ดูแลปัจจุบัน (คลิกซ้ำที่จังหวัดเดิม = ปิดกล่อง)
-  const focusFromMap = pv => { setFocus(pv); setPick(pv && assign[pv] ? String(assign[pv]) : ""); };
+  // แมพส่งชื่อ "จังหวัด" มา — กรุงเทพฯ ต้องแปลงเป็นคีย์หน่วยก่อน ไม่งั้นหาแถวไม่เจอ
+  const focusFromMap = pv => { const k = rows.some(r=>r.key===pv) ? pv : unitsOf(unitProv(pv))[0];
+    setFocus(k); setPick(k && assign[k] ? String(assign[k]) : ""); };
   const provKeysOf = id => rows.filter(r=>r.tc&&r.tc.id===id).map(r=>r.key);
 
   /* มอบหมาย/ยกเลิกมอบหมาย — ทุกครั้งบันทึกลง Audit Log (เข้าถึงหน้านี้ได้เฉพาะผู้ดูแลระบบ) */
   const applyAssign=(provs, tcId)=>{
     if(!provs.length) return;
     const tc = tcId? TC_BY_ID[Number(tcId)] : null;
-    setAssign(m=>{ const n={...m};
-      for(const pv of provs){ if(tc) n[pv]=tc.id; else delete n[pv]; }
-      return n; });
-    const names = provs.map(provinceTH).join(", ");
-    pushAudit({ action: tc? "มอบหมายขอบเขตพื้นที่การขาย" : "ยกเลิกมอบหมายขอบเขตพื้นที่การขาย", category:"แก้ไข",
-      detail: `${provs.length>1?`${provs.length} จังหวัด · `:""}${names} → ${tc? `${tc.name} (${tc.email})` : "ไม่มีผู้ดูแล (no man’s land)"}` });
-    toast(tc ? `มอบหมาย ${provs.length} จังหวัดให้ ${tc.name} แล้ว` : `ยกเลิกผู้ดูแล ${provs.length} จังหวัดแล้ว`, tc?"good":"warn");
+    const next = {...assign};
+    for(const pv of provs){ if(tc) next[pv]=tc.id; else delete next[pv]; }
+    setAssign(next);
+    // บันทึกขึ้นเซิร์ฟเวอร์ทันที — ไม่งั้นรีเฟรชแล้วหาย และ TC ไม่มีวันเห็นว่าตัวเองถือโซนไหน
+    if(loadedRef.current) saveTerritory(next).then(r=>{ if(!r.ok)
+      toast(t("บันทึกขึ้นเซิร์ฟเวอร์ไม่สำเร็จ: ", "Could not save to the server: ")+r.error, "bad"); });
+    const names = provs.map(unitLabel).join(", ");
+    pushAudit({ action: tc? t("มอบหมายขอบเขตพื้นที่การขาย", "Assigned a sales territory") : t("ยกเลิกมอบหมายขอบเขตพื้นที่การขาย", "Unassigned a sales territory"), category:"แก้ไข",
+      detail: `${provs.length>1?`${provs.length} ${t("จังหวัด ·", "Province ·")} `:""}${names} → ${tc? `${tc.name} (${tc.email})` : t("ไม่มีผู้ดูแล (no man’s land)", "No owner (no man's land)")}` });
+    toast(tc ? `${t("มอบหมาย", "Assigned")} ${provs.length} ${t("จังหวัดให้", "to")} ${tc.name} ${t("แล้ว", "")}` : `${t("ยกเลิกผู้ดูแล", "Removed the owner of")} ${provs.length} ${t("จังหวัดแล้ว", "")}`, tc?"good":"warn");
   };
   // กดบันทึกในกล่องมอบหมาย → เขียนค่าใหม่ + ปิดกล่อง
   const saveAssign = ()=>{ if(!focus) return; applyAssign([focus], pick||null); setFocus(null); };
 
-  const tcOptions = [["","— ยังไม่มีคนดูแล —"],
+  const tcOptions = [["",t("— ยังไม่มีคนดูแล —", "— no owner yet —")],
     ...TC_USERS.map(u=>[String(u.id), u.name])];
 
 
   return html`<div class="page fade-in tr-wrap">
-    <div class="page-head"><div><h1>จัดการขอบเขตพื้นที่การขาย</h1></div></div>
+    <div class="page-head"><div><h1>${t("จัดการขอบเขตพื้นที่การขาย", "Sales territory management")}</h1></div></div>
 
     <div class="grid g4" style=${{margin:"16px 0 14px"}}>
-      <${Kpi} label="จังหวัดทั้งหมด" value=${num(rows.length)} icon="map"/>
-      <${Kpi} label="มีคนดูแล" value=${num(coveredN)} icon="check"/>
-      <${Kpi} label="ยังไม่มีคนดูแล" value=${num(noManN)} icon="gap"/>
-      <${Kpi} label="TC ที่ยังไม่มีพื้นที่" value=${num(idleTC.length)} icon="user"/>
+      <${Kpi} label=${t("พื้นที่ทั้งหมด", "All territories")} value=${num(rows.length)} icon="map"/>
+      <${Kpi} label=${t("มีคนดูแล", "With an owner")} value=${num(coveredN)} icon="check"/>
+      <${Kpi} label=${t("ยังไม่มีคนดูแล", "No owner yet")} value=${num(noManN)} icon="gap"/>
+      <${Kpi} label=${t("TC ที่ยังไม่มีพื้นที่", "TCs without a territory")} value=${num(idleTC.length)} icon="user"/>
     </div>
 
     <div class="tr-grid">
-      <${Card} title="แผนที่ขอบเขต" sub="ระบายสีตาม TC ที่ดูแล · ลายทแยงแดง = ยังไม่มีคนดูแล">
+      <${Card} title=${t("แผนที่ขอบเขต", "Territory map")} sub=${t("ระบายสีตาม TC ที่ดูแล · ลายทแยงแดง = ยังไม่มีคนดูแล", "Shaded by owning TC · red hatching means no owner yet")}>
         <!-- กล่องมอบหมาย TC — คลิกจังหวัดบนแผนที่แล้วกล่องนี้จะโผล่ขึ้นมา (ใช้แทนตารางเดิม) -->
         ${focusRow ? html`<div class=${"tr-assign"+(focusRow.covered?"":" none")}>
           <div class="tr-as-head">
             <div style=${{minWidth:0}}>
-              <div class="tr-as-nm">${focusRow.th}</div>
-              <div class="tr-as-sub">${REGION_TH[REGION_OF[focusRow.key]]||"—"} · ${focusRow.covered
-                ? "ผู้ดูแลปัจจุบัน: "+focusRow.tc.name : "ยังไม่มีคนดูแล (no man’s land)"}</div>
+              <div class="tr-as-nm">${isZoned ? provinceTH(unitProv(focus)) : focusRow.th}</div>
+              <div class="tr-as-sub">${REGION_TH_OF(REGION_OF[unitProv(focusRow.key)])||"—"} · ${isZoned
+                ? `${focusUnits.length} ${t("โซน · มอบหมายแยกทีละโซน","zones · assigned zone by zone")}`
+                : focusRow.covered
+                ? t("ผู้ดูแลปัจจุบัน: ", "Current owner: ")+focusRow.tc.name : t("ยังไม่มีคนดูแล (no man’s land)", "No owner yet (no man's land)")}</div>
             </div>
-            <button class="tr-as-x" onClick=${()=>setFocus(null)} aria-label="ปิด"><${Icon} name="close" size=${15}/></button>
+            <button class="tr-as-x" onClick=${()=>setFocus(null)} aria-label=${t("ปิด", "Close")}><${Icon} name="close" size=${15}/></button>
           </div>
-          <div class="tr-as-row">
-            <div style=${{flex:1,minWidth:0}}><${Dropdown} value=${pick} onChange=${setPick} options=${tcOptions}
-              placeholder="เลือก TC ที่จะดูแล…"/></div>
-            <${Btn} variant="primary" size="sm" icon="check" disabled=${pick===curTCId} onClick=${saveAssign}>บันทึก</${Btn}>
-          </div>
+          ${isZoned
+            ? focusUnits.map(u=>html`<div key=${u.key} class="tr-as-row tr-as-zone">
+                <span class="tr-as-zk">${zoneName(u.zone)}</span>
+                <div style=${{flex:1,minWidth:0}}><${Dropdown} value=${assign[u.key]?String(assign[u.key]):""}
+                  onChange=${v=>applyAssign([u.key], v||null)} options=${tcOptions}
+                  placeholder=${t("เลือก TC ที่จะดูแล…", "Choose the TC to own it…")}/></div>
+              </div>`)
+            : html`<div class="tr-as-row">
+                <div style=${{flex:1,minWidth:0}}><${Dropdown} value=${pick} onChange=${setPick} options=${tcOptions}
+                  placeholder=${t("เลือก TC ที่จะดูแล…", "Choose the TC to own it…")}/></div>
+                <${Btn} variant="primary" size="sm" icon="check" disabled=${pick===curTCId} onClick=${saveAssign}>${t("บันทึก", "Save")}</${Btn}>
+              </div>`}
         </div>`
-        : html`<div class="tr-as-hint">คลิกจังหวัดบนแผนที่เพื่อกำหนดหรือเปลี่ยน TC ที่ดูแลพื้นที่นั้น</div>`}
+        : html`<div class="tr-as-hint">${t("คลิกจังหวัดบนแผนที่เพื่อกำหนดหรือเปลี่ยน TC ที่ดูแลพื้นที่นั้น", "Click a province on the map to set or change the TC who owns it")}</div>`}
 
-        <${TerritoryMap} paths=${paths} assign=${assign} focus=${focus} onFocus=${focusFromMap}/>
+        <${TerritoryMap} paths=${paths} assign=${assign} focus=${focus && unitProv(focus)} onFocus=${focusFromMap}/>
         <div class="tr-legend">
           ${TC_USERS.filter(u=>provOf(u.id).length).map(u=>html`<span key=${u.id} class="tr-lg">
             <span class="tr-sw" style=${{background:tcColor(u.id)+"3d",borderColor:tcColor(u.id)}}></span>
             ${u.name} <b>${num(provOf(u.id).length)}</b></span>`)}
-          <span class="tr-lg"><span class="tr-sw nm"></span>ยังไม่มีคนดูแล <b>${num(noManN)}</b></span>
+          <span class="tr-lg"><span class="tr-sw nm"></span>${t("ยังไม่มีคนดูแล", "No owner yet")} <b>${num(noManN)}</b></span>
         </div>
       </${Card}>
 
-      <${Card} title="ความครอบคลุมรายบุคคล" sub=${"TC "+TC_USERS.length+" คน · จังหวัดหลักมาจากโปรไฟล์ผู้ใช้"}>
+      <${Card} title=${t("ความครอบคลุมรายบุคคล", "Coverage per person")} sub=${"TC "+TC_USERS.length+t(" คน · จังหวัดหลักมาจากโปรไฟล์ผู้ใช้", " people · the primary province comes from the user profile")}>
         <div class="tr-tcs">
           ${TC_USERS.map(u=>{ const list=provOf(u.id);
             return html`<div key=${u.id} class=${"tr-tc"+(list.length?"":" idle")}>
@@ -1675,14 +1760,14 @@ export function TerritoryManager(){
                 <div class="tr-tc-nm">${u.name}
                   </div>
                 <div class="tr-tc-sub">${list.length
-                  ? list.length+" จังหวัด · "+list.slice(0,4).join(", ")+(list.length>4?" +"+(list.length-4):"")
-                  : "ยังไม่มีพื้นที่ในความดูแล"}</div>
+                  ? list.length+t(" พื้นที่ · ", " territories · ")+list.slice(0,4).join(", ")+(list.length>4?" +"+(list.length-4):"")
+                  : t("ยังไม่มีพื้นที่ในความดูแล", "No territory assigned yet")}</div>
               </div>
-              ${list.length ? html`<button class="tr-tc-btn" onClick=${()=>focusFromMap(provKeysOf(u.id)[0])}>ดูพื้นที่</button>` : ""}
+              ${list.length ? html`<button class="tr-tc-btn" onClick=${()=>focusFromMap(provKeysOf(u.id)[0])}>${t("ดูพื้นที่", "View the area")}</button>` : ""}
             </div>`; })}
         </div>
         <div class="dm-alert" style=${{marginBottom:0}}>
-          <${Icon} name="info" size=${14}/> โซนย่อยระดับย่านในกรุงเทพฯ (สีลม · ทองหล่อ · ลาดพร้าว) ยังกำหนดไม่ได้ — รอไฟล์ขอบเขตจากลูกค้า ปัจจุบันกำหนดได้ถึงระดับจังหวัด
+          <${Icon} name="info" size=${14}/> ${t("กรุงเทพฯ แบ่งเป็น 3 โซนตามแผนที่ขอบเขตของลูกค้า (สีลม · ลาดพร้าว · ทองหล่อ) — คลิกกรุงเทพฯ บนแผนที่แล้วมอบหมายแยกทีละโซนได้ · จังหวัดอื่นยังเป็นหน่วยเดียวทั้งจังหวัด", "Bangkok is split into 3 zones from the customer's boundary map (Silom · Lat Phrao · Thonglor) — click Bangkok on the map to assign each zone separately. Every other province stays a single unit.")}
         </div>
       </${Card}>
     </div>
@@ -1694,6 +1779,11 @@ export function TerritoryManager(){
 
 const TR_CSS=`
 .tr-wrap .page-head .sub{max-width:820px}
+/* แถวมอบหมายรายโซน (กรุงเทพฯ) — ป้ายโซนอยู่หน้าช่องเลือก TC */
+.tr-as-zone{align-items:center;gap:9px}
+.tr-as-zone + .tr-as-zone{margin-top:7px}
+.tr-as-zk{flex:none;min-width:74px;font-size:12px;font-weight:700;color:var(--accent-deep);
+  background:var(--accent-soft);border:1px solid rgba(230,0,35,.22);border-radius:999px;padding:4px 10px;text-align:center}
 .tr-grid{display:grid;grid-template-columns:minmax(280px,380px) 1fr;gap:14px;align-items:start}
 .tr-leadn{font-size:13.5px;font-weight:700;color:var(--txt);font-variant-numeric:tabular-nums}
 /* กล่องมอบหมาย TC ใต้แผนที่ (แทนตารางเดิม) */

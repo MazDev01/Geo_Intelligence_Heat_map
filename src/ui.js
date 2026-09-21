@@ -1,5 +1,6 @@
 import {html, Icon, cx, useState, useEffect, useRef, thDate} from "./lib.js";
 import {createPortal} from "react-dom";   // portal Modal ไป <body> เพื่อไม่ให้ถูก .slide-panel (overflow:hidden + transform) กักไว้ในเนื้อหา — ป็อปอัพจึงคลุมเต็มจอ (รวมแถบเมนู)
+import {t, getLang, setLang} from "./i18n.js";
 
 export function Card({title, sub, right, className, children, pad0, onClick, hoverable}){
   return html`<div class=${cx("card", pad0&&"pad0", hoverable&&"hoverable", className)} onClick=${onClick}>
@@ -42,7 +43,7 @@ export function InfoTip({text, side}){
   },[open]);
   return html`<span class=${"infotip"+(side==="right"?" itp-right":"")} ref=${ref}
     onMouseEnter=${()=>setOpen(true)} onMouseLeave=${()=>setOpen(false)}>
-    <button class="infotip-i" type="button" aria-label="คำอธิบายที่มาของคะแนน"
+    <button class="infotip-i" type="button" aria-label=${t("คำอธิบายที่มาของคะแนน", "How this score is derived")}
       onClick=${e=>{e.stopPropagation();e.preventDefault();setOpen(o=>!o);}}>i</button>
     ${open && html`<span class="infotip-pop" role="tooltip">${text}</span>`}
   </span>`;
@@ -114,7 +115,7 @@ export function Table({cols, rows, onRow, empty="No records", rowClass}){
 
 /* ช่องเลือกวันที่แบบไทย — value/onChange ยังเป็น "YYYY-MM-DD" เหมือน <input type=date> ทุกประการ
    className ส่งต่อไปที่ input ตัวจริง เพื่อให้ CSS ขนาดเดิมของแต่ละหน้ายังใช้ได้ */
-export function DateField({value, onChange, min, max, title, className, placeholder="วว/ดด/ปปปป"}){
+export function DateField({value, onChange, min, max, title, className, placeholder=t("วว/ดด/ปปปป", "dd/mm/yyyy")}){
   return html`<span class="thdate">
     <input type="date" class=${className} value=${value||""} title=${title}
       min=${min||undefined} max=${max||undefined}
@@ -142,12 +143,12 @@ export function ToastHost(){
    รวมเหลือตัวเดียวที่นี่ และย้ายมาเป็นคอลัมน์ซ้ายตามที่ผู้ใช้กำหนด
    ใช้คู่กับ .tcrp-wrap ที่ห่อหน้า (กริด: เมนู 196px | เนื้อหา) */
 const TCRP_TABS = [
-  { id:"reports",     label:"แดชบอร์ด TC",        icon:"reports" },
-  { id:"visit-plans", label:"รายงานแผนการเข้าพบ", icon:"route"   },
+  { id:"reports",     get label(){ return t("แดชบอร์ด TC","TC Dashboard"); },        icon:"reports" },
+  { id:"visit-plans", get label(){ return t("รายงานแผนการเข้าพบ","Visit Plan Report"); }, icon:"route" },
 ];
 export function TCReportNav({active, nav}){
-  return html`<nav class="tcrp-nav" aria-label="เมนูรายงาน">
-    <div class="tcrp-nav-h">รายงาน</div>
+  return html`<nav class="tcrp-nav" aria-label=${t("เมนูรายงาน", "Reports menu")}>
+    <div class="tcrp-nav-h">${t("รายงาน", "Reports")}</div>
     ${TCRP_TABS.map(t=>html`<button key=${t.id} class=${cx("tcrp-tab", active===t.id&&"on")}
       aria-current=${active===t.id?"page":undefined}
       onClick=${()=>{ if(active!==t.id && nav) nav(t.id); }}>
@@ -178,3 +179,27 @@ const TCRP_CSS = `
 }
 @media print{.tcrp-nav{display:none!important}.tcrp-wrap{display:block}}
 `;
+
+// ── ปุ่มสลับภาษา TH/EN ─────────────────────────────────────────────────────────
+// segmented control 2 ช่อง · กดช่องไหน = setLang ช่องนั้น (ไม่ใช่ toggle สลับไปมา
+// เพื่อให้ผู้ใช้เห็นชัดว่ากำลังอยู่ภาษาไหนและกดเลือกได้ตรง ๆ ไม่ต้องเดา)
+// setLang แจ้ง subscriber → App (useLang) re-render ทั้งต้นไม้ → ทุก t() อ่านค่าใหม่
+// ใช้ที่ topbar (ทุกบทบาท) และมุมขวาบนของหน้าเข้าสู่ระบบ (หน้านั้นไม่มี topbar)
+export function LangToggle(){
+  const cur = getLang();
+  const seg = on => ({
+    height:"26px", minWidth:"32px", padding:"0 9px", border:"none", borderRadius:"7px", cursor:"pointer",
+    fontFamily:"var(--font)", fontSize:"11.5px", fontWeight:700, letterSpacing:".3px",
+    background: on ? "var(--panel)" : "transparent",
+    color: on ? "var(--accent2)" : "var(--muted)",
+    boxShadow: on ? "0 1px 3px rgba(0,0,0,.14)" : "none", transition:"background .18s, color .18s",
+  });
+  return html`<div class="lang-toggle" role="group" aria-label=${t("เลือกภาษา","Select language")}
+    style=${{display:"inline-flex", alignItems:"center", gap:"2px", height:"32px", padding:"3px", marginRight:"8px",
+      borderRadius:"9px", border:"1px solid var(--stroke2)", background:"var(--surface2, rgba(0,0,0,.04))"}}>
+    ${[["th","ไทย","TH"],["en","English","EN"]].map(([code,full,short])=>html`
+      <button key=${code} type="button" onClick=${()=>setLang(code)} title=${full}
+        aria-pressed=${cur===code} style=${seg(cur===code)}>${short}</button>`)}
+  </div>`;
+}
+

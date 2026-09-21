@@ -1,11 +1,12 @@
 import {html, useState, useEffect, useRef, Icon, SegmentIcon, num, pct, SEG_COLOR, SEGMENTS,
-  segTH, gapTH, provinceTH, districtTH, fetchDrivingRoute} from "./lib.js";
+  segTH, gapTH, provinceTH, districtTH, fetchDrivingRoute, useLang} from "./lib.js";
 import {basemap} from "./basemap.js";
 import {Btn, Badge, Meter, toast} from "./ui.js";
 import {Donut, BarChart, Gauge, rampRed} from "./charts.js";
 import {analyzeArea, downloadCSV} from "./data.js";
-import {demandGap, gapBySegment, GAP_REF, GAP_TH as GAP_LV_TH} from "./mock/geoData.js";
-import {statusMeta, responsibleOf, nextAppointment, urgencyOf, beDate, INTEREST, OUTCOME, CANCEL_REASONS} from "./visit-rounds.js";
+import {demandGap, gapBySegment, GAP_REF} from "./mock/geoData.js";
+import {statusMeta, responsibleOf, nextAppointment, urgencyOf, beDate, INTEREST, OUTCOME, CANCEL_REASONS, roundLabel} from "./visit-rounds.js";
+import {t} from "./i18n.js";   // สลับภาษา TH/EN — ดู src/i18n.js
 
 // คำอธิบายแบบภาษาชาวบ้านว่า "ตัวเลขนี้มาจากไหน" (ไม่โชว์น้ำหนักสูตร — เก็บไว้ในหน้าผู้ดูแล)
 // ระดับช่องว่าง → โทนสีของ Badge
@@ -60,16 +61,24 @@ a.cd-item:hover .cd-v{color:var(--accent)}
 function recommendation(c, segGap){
   if(c.status==="Prospect"){
     const g = segGap ? segGap.gap : 0;
-    return g>=6 ? `เร่งติดต่อ — หมวด${segTH(c.segment)}ในย่านนี้ยังขาดอีก ${g} ราย`
-      : g>=1 ? `ควรนัดหมายเข้าพบ — หมวด${segTH(c.segment)}ในย่านนี้ยังขาดอีก ${g} ราย`
-      : `หมวด${segTH(c.segment)}ในย่านนี้มีสมาชิกครบแล้ว — ติดตามในรอบถัดไป`;
+    // ประโยคเต็มเขียนคู่ไทย/อังกฤษ ไม่ต่อทีละคำ — ลำดับคำต่างกัน ("หมวดX ยังขาดอีก N ราย" ↔ "X is short by N")
+    return g>=6 ? t(`เร่งติดต่อ — หมวด${segTH(c.segment)}ในย่านนี้ยังขาดอีก ${g} ราย`,
+                    `Contact urgently — ${segTH(c.segment)} is short by ${g} businesses in this area`)
+      : g>=1 ? t(`ควรนัดหมายเข้าพบ — หมวด${segTH(c.segment)}ในย่านนี้ยังขาดอีก ${g} ราย`,
+                 `Worth booking a visit — ${segTH(c.segment)} is short by ${g} businesses in this area`)
+      : t(`หมวด${segTH(c.segment)}ในย่านนี้มีสมาชิกครบแล้ว — ติดตามในรอบถัดไป`,
+          `${segTH(c.segment)} is fully covered in this area — follow up next round`);
   }
   // ลูกค้าปัจจุบัน: ข้อมูลจริงไม่มียอดขาย/สถานะการค้า จึงแนะนำจากสิ่งที่รู้จริง — อายุการเป็นลูกค้า และ TC ที่ดูแล
   const yrs = yearsWith(c.dateJoin);
-  if(!c.tc_owner) return `ยังไม่มี TC ดูแลพื้นที่${provinceTH(c.province)} — ควรมอบหมายผู้รับผิดชอบก่อน`;
-  return yrs!=null && yrs>=10 ? `ลูกค้าเก่าแก่ ${yrs} ปี — รักษาความสัมพันธ์และเสนอบริการเพิ่มเติม`
-    : yrs!=null && yrs>=3 ? `เป็นลูกค้ามาแล้ว ${yrs} ปี — ติดตามต่อเนื่องและขยายการใช้บริการ`
-    : "ลูกค้าใหม่ — ควรเข้าพบเพื่อสร้างความสัมพันธ์ในช่วงแรก";
+  if(!c.tc_owner) return t(`ยังไม่มี TC ดูแลพื้นที่${provinceTH(c.province)} — ควรมอบหมายผู้รับผิดชอบก่อน`,
+    `No TC covers ${provinceTH(c.province)} yet — assign an owner first`);
+  return yrs!=null && yrs>=10 ? t(`ลูกค้าเก่าแก่ ${yrs} ปี — รักษาความสัมพันธ์และเสนอบริการเพิ่มเติม`,
+      `A ${yrs}-year customer — maintain the relationship and offer more services`)
+    : yrs!=null && yrs>=3 ? t(`เป็นลูกค้ามาแล้ว ${yrs} ปี — ติดตามต่อเนื่องและขยายการใช้บริการ`,
+      `A customer for ${yrs} years — keep following up and widen their usage`)
+    : t("ลูกค้าใหม่ — ควรเข้าพบเพื่อสร้างความสัมพันธ์ในช่วงแรก",
+        "New customer — visit early to build the relationship");
 }
 const DRAWER_RIGHT = {position:"absolute",top:0,right:0,bottom:0,width:"440px",maxWidth:"94vw",zIndex:800,
   background:"var(--surface)",borderLeft:"1px solid var(--stroke2)",boxShadow:"-24px 0 70px rgba(0,0,0,.55)",
@@ -129,61 +138,71 @@ export function AreaPanel({db, filters, province, onClose, onReport, onOpenCusto
   // แสดงเฉพาะ 5 หมวดธุรกิจที่มีจำนวนมากที่สุด เรียงจากมาก→น้อย
   const segTop5 = [...a.segMix].sort((x,y)=>y.total-x.total).slice(0,5);
   const donut = segTop5.map(m=>({label:segTH(m.seg), value:m.total, color:SEG_COLOR[m.seg]}));
+  // ข้อเสนอแนะเป็นประโยคเต็ม เขียนคู่ไทย/อังกฤษทั้งประโยค (ลำดับคำต่างกัน ต่อทีละคำแล้วอ่านไม่รู้เรื่อง)
+  const upside = Math.min(100-a.coverage, Math.round(a.gapCount/Math.max(1,a.customerCount+a.prospectCount)*100));
   const recs = [
     a.topGapSegment
-      ? `หมวดที่ยังขาดมากที่สุดคือ${segTH(a.topGapSegment)} — ยังขาดอีก ${num((a.gapSegs[0]||{}).gap||0)} ราย ควรเติมก่อน`
-      : `ทุกหมวดในพื้นที่นี้มีสมาชิกเครือข่ายครบแล้ว — เน้นรักษาสมาชิก ${num(a.customerCount)} ราย`,
-    a.gapLevel==="High" ? `Lead ระดับสูง (ดัชนี ${a.gapScore}) — ขาดรวม ${num(a.gapCount)} ราย ใน ${a.gapBreadth} หมวด ควรจัดทีมเข้าเติมอย่างน้อย ${Math.max(2,Math.round(a.gapCount/120))} คน`
-      : a.gapLevel==="Medium" ? `Lead ปานกลาง (ดัชนี ${a.gapScore}) — ยังเติมได้อีก ${num(a.gapCount)} ราย`
-      : `Lead ต่ำ (ดัชนี ${a.gapScore}) — เครือข่ายในพื้นที่นี้ค่อนข้างครบ เน้นรักษาสมาชิกเดิม`,
-    `ความครอบคลุมปัจจุบัน ${a.coverage}% — เติมหมวดที่ขาดให้ครบจะดันความครอบคลุมขึ้นได้อีก ~${Math.min(100-a.coverage, Math.round(a.gapCount/Math.max(1,a.customerCount+a.prospectCount)*100))}%`,
+      ? t(`หมวดที่ยังขาดมากที่สุดคือ${segTH(a.topGapSegment)} — ยังขาดอีก ${num((a.gapSegs[0]||{}).gap||0)} ราย ควรเติมก่อน`,
+          `The biggest gap is ${segTH(a.topGapSegment)} — ${num((a.gapSegs[0]||{}).gap||0)} businesses short. Fill this first.`)
+      : t(`ทุกหมวดในพื้นที่นี้มีสมาชิกเครือข่ายครบแล้ว — เน้นรักษาสมาชิก ${num(a.customerCount)} ราย`,
+          `Every category here is fully covered — focus on retaining the ${num(a.customerCount)} members.`),
+    a.gapLevel==="High"
+      ? t(`Lead ระดับสูง (ดัชนี ${a.gapScore}) — ขาดรวม ${num(a.gapCount)} ราย ใน ${a.gapBreadth} หมวด ควรจัดทีมเข้าเติมอย่างน้อย ${Math.max(2,Math.round(a.gapCount/120))} คน`,
+          `High Lead demand (index ${a.gapScore}) — ${num(a.gapCount)} short across ${a.gapBreadth} categories. Assign at least ${Math.max(2,Math.round(a.gapCount/120))} people.`)
+      : a.gapLevel==="Medium"
+      ? t(`Lead ปานกลาง (ดัชนี ${a.gapScore}) — ยังเติมได้อีก ${num(a.gapCount)} ราย`,
+          `Medium Lead demand (index ${a.gapScore}) — room for ${num(a.gapCount)} more.`)
+      : t(`Lead ต่ำ (ดัชนี ${a.gapScore}) — เครือข่ายในพื้นที่นี้ค่อนข้างครบ เน้นรักษาสมาชิกเดิม`,
+          `Low Lead demand (index ${a.gapScore}) — the network here is nearly complete. Focus on retention.`),
+    t(`ความครอบคลุมปัจจุบัน ${a.coverage}% — เติมหมวดที่ขาดให้ครบจะดันความครอบคลุมขึ้นได้อีก ~${upside}%`,
+      `Coverage is ${a.coverage}% — closing the missing categories would add roughly ${upside}%.`),
   ];
-  return html`<${DrawerShell} eyebrow=${"วิเคราะห์พื้นที่"+(a.center?` · ${a.center[1].toFixed(2)}°N, ${a.center[0].toFixed(2)}°E`:"")}
-    title=${provinceTH(province)} sub=${`${num(a.customerCount+a.prospectCount)} ธุรกิจ · วิเคราะห์ Lead สูง`} onClose=${onClose}>
+  return html`<${DrawerShell} eyebrow=${t("วิเคราะห์พื้นที่", "Area analysis")+(a.center?` · ${a.center[1].toFixed(2)}°N, ${a.center[0].toFixed(2)}°E`:"")}
+    title=${provinceTH(province)} sub=${`${num(a.customerCount+a.prospectCount)} ${t("ธุรกิจ · วิเคราะห์ Lead สูง", "businesses · high-Lead analysis")}`} onClose=${onClose}>
 
     <div style=${{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"10px",marginBottom:"16px"}}>
-      ${miniKpi("สมาชิกเครือข่าย", num(a.customerCount))}
+      ${miniKpi(t("สมาชิกเครือข่าย", "Network members"), num(a.customerCount))}
       ${miniKpi("Lead", num(a.prospectCount), "#0369a1")}
       ${miniKpi("Lead", a.gapScore+"/100", "#b45309")}
-      ${miniKpi("ยังขาด (ราย)", num(a.gapCount), "#6d28d9")}
+      ${miniKpi(t("ยังขาด (ราย)", "Still short"), num(a.gapCount), "#6d28d9")}
     </div>
     <div class="row" style=${{gap:"8px",marginBottom:"14px",flexWrap:"wrap"}}>
-      <${Badge} tone=${gapTone(a.gapLevel)}>Lead${GAP_LV_TH[a.gapLevel]}</${Badge}>
-      <span class="dim" style=${{fontSize:"12px"}}>ความครอบคลุม ${pct(a.coverage)} · ขาด ${a.gapBreadth} หมวด</span>
+      <${Badge} tone=${gapTone(a.gapLevel)}>Lead${gapTH(a.gapLevel)}</${Badge}>
+      <span class="dim" style=${{fontSize:"12px"}}>${t("ความครอบคลุม", "Coverage")} ${pct(a.coverage)} ${t("· ขาด", "· short")} ${a.gapBreadth} ${t("หมวด", "categories")}</span>
     </div>
 
-    <div class="sec-label">กลุ่มธุรกิจ · 5 อันดับแรก</div>
-    <${Donut} data=${donut} size=${132} center=${{value:a.customerCount+a.prospectCount, label:"รวม"}}/>
+    <div class="sec-label">${t("กลุ่มธุรกิจ · 5 อันดับแรก", "Business categories · top 5")}</div>
+    <${Donut} data=${donut} size=${132} center=${{value:a.customerCount+a.prospectCount, label:t("รวม", "Total")}}/>
     <div style=${{height:"14px"}}></div>
     <${BarChart} horizontal=${true} data=${segTop5.map((m,i)=>({label:segTH(m.seg),value:m.total,color:rampRed(i,segTop5.length)}))} format=${num}/>
 
-    <div class="sec-label">คำแนะนำ</div>
+    <div class="sec-label">${t("คำแนะนำ", "Recommendation")}</div>
     ${recs.map((r,i)=>html`<div key=${i} class="row" style=${{gap:"9px",alignItems:"flex-start",marginBottom:"9px"}}>
       <div style=${{width:"20px",height:"20px",borderRadius:"6px",flex:"none",display:"grid",placeItems:"center",background:"rgba(51,214,159,.15)"}}>
         <${Icon} name="check" size=${12} color="#33d69f"/></div>
       <div style=${{fontSize:"12.5px",lineHeight:1.5}}>${r}</div></div>`)}
 
-    <div class="sec-label">หมวดที่ยังขาดในพื้นที่นี้</div>
+    <div class="sec-label">${t("หมวดที่ยังขาดในพื้นที่นี้", "Categories still missing here")}</div>
     ${a.gapSegs.length ? a.gapSegs.map(g=>html`<div key=${g.seg} class="row"
       style=${{gap:"11px",padding:"9px 0",borderBottom:"1px solid var(--stroke)"}}>
       <${SegmentIcon} seg=${g.seg} size=${18} color=${SEG_COLOR[g.seg]}/>
       <div style=${{flex:1,minWidth:0}}><div style=${{fontSize:"12.5px",fontWeight:600}}>${segTH(g.seg)}</div>
-        <div class="dim" style=${{fontSize:"11.5px"}}>อุปสงค์ ${num(g.demand)} · มีสมาชิกแล้ว ${num(g.supply)}</div></div>
-      <b style=${{color:"var(--txt)"}}>ขาด ${num(g.gap)}</b></div>`)
-      : html`<div class="dim" style=${{fontSize:"12.5px",padding:"8px 0"}}>ไม่มีหมวดที่ขาดในพื้นที่นี้</div>`}
+        <div class="dim" style=${{fontSize:"11.5px"}}>${t("อุปสงค์", "Demand")} ${num(g.demand)} ${t("· มีสมาชิกแล้ว", "· members already")} ${num(g.supply)}</div></div>
+      <b style=${{color:"var(--txt)"}}>${t("ขาด", "Short")} ${num(g.gap)}</b></div>`)
+      : html`<div class="dim" style=${{fontSize:"12.5px",padding:"8px 0"}}>${t("ไม่มีหมวดที่ขาดในพื้นที่นี้", "No category is short in this area")}</div>`}
 
-    <div class="sec-label">Lead ในหมวดที่ขาดมากที่สุด</div>
+    <div class="sec-label">${t("Lead ในหมวดที่ขาดมากที่สุด", "Leads in the most under-served categories")}</div>
     ${a.topProspects.map((p,i)=>html`<div key=${p.id} class="row" onClick=${()=>onOpenCustomer(p)}
       style=${{gap:"11px",padding:"9px 0",borderBottom:"1px solid var(--stroke)",cursor:"pointer"}}>
       <b class="dim" style=${{width:"18px"}}>${i+1}</b>
       <div style=${{flex:1,minWidth:0}}><div style=${{fontSize:"12.5px",fontWeight:600,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>${p.businessName}</div>
         <div class="dim" style=${{fontSize:"12.5px"}}>${segTH(p.category||p.segment)}${p.district?" · "+districtTH(p.district):""}</div></div>
-      <${Badge} tone="warn">ขาด ${num(p.segGap||0)}</${Badge}></div>`)}
+      <${Badge} tone="warn">${t("ขาด", "Short")} ${num(p.segGap||0)}</${Badge}></div>`)}
 
     ${/* report link shown only when a report handler is supplied (Admin). Field roles (Management/TC) reach
          reports from the topbar button instead, so this area-panel link is omitted for them. */
       onReport && html`<div class="row" style=${{gap:"9px",marginTop:"18px"}}>
-      <${Btn} variant="primary" icon="reports" onClick=${()=>onReport(province)}>ดูรายงานพื้นที่นี้</${Btn}>
+      <${Btn} variant="primary" icon="reports" onClick=${()=>onReport(province)}>${t("ดูรายงานพื้นที่นี้", "View the report for this area")}</${Btn}>
     </div>`}
   </${DrawerShell}>`;
 }
@@ -200,21 +219,21 @@ function buildRoute(origin,pool){ const near=pool.map(p=>({...p,d:hav(origin,p)}
 // Individual customer report rows (used by the PDF/Excel/CSV exports in the detail panel).
 function custReportRows(c, segGap){
   const isCust = c.status==="Existing";
-  const rows = [["รายงานลูกค้า GeoIntel", c.businessName], ["รหัสลูกค้า", c.accountNo||c.id],
-    ["สถานะ", isCust?"ลูกค้าปัจจุบัน":"Lead"],
-    ["หมวดธุรกิจ", segTH(c.segment)], ["จังหวัด", provinceTH(c.province)],
-    ["อำเภอ / เขต", c.district?districtTH(c.district):"-"], ["ที่อยู่", c.address||"-"],
-    ["ละติจูด", c.latitude.toFixed(6)], ["ลองจิจูด", c.longitude.toFixed(6)],
-    ["คำแนะนำ", recommendation(c, segGap)]];
+  const rows = [[t("รายงานลูกค้า GeoIntel", "GeoIntel customer report"), c.businessName], [t("รหัสลูกค้า", "Customer ID"), c.accountNo||c.id],
+    [t("สถานะ", "Status"), isCust?t("ลูกค้าปัจจุบัน", "Existing customer"):"Lead"],
+    [t("หมวดธุรกิจ", "Business category"), segTH(c.segment)], [t("จังหวัด", "Province"), provinceTH(c.province)],
+    [t("อำเภอ / เขต", "District"), c.district?districtTH(c.district):"-"], [t("ที่อยู่", "Address"), c.address||"-"],
+    [t("ละติจูด", "Latitude"), c.latitude.toFixed(6)], [t("ลองจิจูด", "Longitude"), c.longitude.toFixed(6)],
+    [t("คำแนะนำ", "Recommendation"), recommendation(c, segGap)]];
   if(isCust){
     // ฟิลด์ตามไฟล์ข้อมูลลูกค้าจริง (ไม่รวมคอลัมน์ "สถานะ" ท้ายไฟล์)
-    rows.push(["เบอร์โทรศัพท์", c.phone||"-"], ["เว็บไซต์", c.website||"-"], ["เฟซบุ๊ก", c.facebook||"-"],
-      ["วันที่เริ่มเป็นลูกค้า", c.dateJoin||"-"], ["ผู้ประสานงานการค้า (TC)", c.tc_owner||"ยังไม่มีผู้ดูแล"]);
+    rows.push([t("เบอร์โทรศัพท์", "Phone"), c.phone||"-"], [t("เว็บไซต์", "Website"), c.website||"-"], [t("เฟซบุ๊ก", "Facebook"), c.facebook||"-"],
+      [t("วันที่เริ่มเป็นลูกค้า", "Customer since"), c.dateJoin||"-"], [t("ผู้ประสานงานการค้า (TC)", "Trade Coordinator (TC)"), c.tc_owner||t("ยังไม่มีผู้ดูแล","No owner yet")]);
   } else if(segGap){
-    rows.push(["อีเมล", c.email||"-"]);
-    rows.push(["หมวดที่ยังขาดในย่านนี้", segTH(c.segment)+" — ขาด "+segGap.gap+" ราย"],
-      ["อุปสงค์ในหมวดนี้ (ราย)", segGap.demand], ["สมาชิกเครือข่ายในหมวดนี้ (ราย)", segGap.supply],
-      ["ดัชนี Lead ของย่าน", segGap.areaScore+" ("+GAP_LV_TH[segGap.areaLevel]+")"]);
+    rows.push([t("อีเมล", "Email"), c.email||"-"]);
+    rows.push([t("หมวดที่ยังขาดในย่านนี้", "Category short in this neighbourhood"), segTH(c.segment)+t(" — ขาด ", " — short by ")+segGap.gap+t(" ราย", " businesses")],
+      [t("อุปสงค์ในหมวดนี้ (ราย)", "Demand in this category"), segGap.demand], [t("สมาชิกเครือข่ายในหมวดนี้ (ราย)", "Network members in this category"), segGap.supply],
+      [t("ดัชนี Lead ของย่าน", "Neighbourhood Lead index"), segGap.areaScore+" ("+gapTH(segGap.areaLevel)+")"]);
   }
   return rows;
 }
@@ -243,7 +262,7 @@ export function CustomerPanel({db, customer, onClose, onOpenArea, setCustomer, o
   const row=(k,v)=>html`<div class="row between" style=${{padding:"10px 0",borderBottom:"1px solid var(--stroke)",fontSize:"12.5px"}}>
     <span class="muted">${k}</span><span style=${{fontWeight:600,textAlign:"right"}}>${v}</span></div>`;
 
-  return html`<${DrawerShell} dataTour="detail" eyebrow=${isCust?"ลูกค้า":"Lead"} title=${c.businessName}
+  return html`<${DrawerShell} dataTour="detail" eyebrow=${isCust?t("ลูกค้า", "Customers"):"Lead"} title=${c.businessName}
     sub=${`${segTH(c.segment)} · ${provinceTH(c.province)}`} onClose=${onClose}
     side="topright" topOffset=${topOffset} heroSegment=${c.segment} heroTone=${SEG_COLOR[c.segment]}>
 
@@ -260,51 +279,51 @@ export function CustomerPanel({db, customer, onClose, onOpenArea, setCustomer, o
       if(!confirmed && !submitted) return "";
       // ── สถานะ B: ยืนยันเข้าแผนแล้ว → โหมดปิดดีล ──
       return html`
-        <div class="sec-label" style=${{marginTop:"16px"}}>ปิดดีลการขาย</div>
+        <div class="sec-label" style=${{marginTop:"16px"}}>${t("ปิดดีลการขาย", "Close the deal")}</div>
         <div class="deal-box">
-          <div class="deal-row"><span class="muted">ผู้เข้าพบ</span><b>${(dealPlan&&dealPlan.visitor)||(user&&user.name)||"—"}</b></div>
-          <div class="deal-row"><span class="muted">วันที่นัดหมาย</span><b>${dealPlan&&dealPlan.visitDate?beDate(dealPlan.visitDate):(c.dealVisitDate?beDate(c.dealVisitDate):"—")}</b></div>
-          ${dealPlan&&dealPlan.planName? html`<div class="deal-row"><span class="muted">จากแผน</span><span>${dealPlan.planName}</span></div>`:""}
+          <div class="deal-row"><span class="muted">${t("ผู้เข้าพบ", "Visited by")}</span><b>${(dealPlan&&dealPlan.visitor)||(user&&user.name)||"—"}</b></div>
+          <div class="deal-row"><span class="muted">${t("วันที่นัดหมาย", "Appointment date")}</span><b>${dealPlan&&dealPlan.visitDate?beDate(dealPlan.visitDate):(c.dealVisitDate?beDate(c.dealVisitDate):"—")}</b></div>
+          ${dealPlan&&dealPlan.planName? html`<div class="deal-row"><span class="muted">${t("จากแผน", "From plan")}</span><span>${dealPlan.planName}</span></div>`:""}
         </div>
         ${submitted
-          ? html`<div class="deal-note pending"><${Icon} name="clock" size=${15} color="#f59e0b"/>ส่งดีลแล้ว — รอแอดมินตรวจสอบอนุมัติ${c.dealDoc?" · แนบ: "+c.dealDoc:""}</div>`
+          ? html`<div class="deal-note pending"><${Icon} name="clock" size=${15} color="#f59e0b"/>${t("ส่งดีลแล้ว — รอแอดมินตรวจสอบอนุมัติ", "Deal submitted — awaiting admin approval ")}${c.dealDoc?t(" · แนบ: ", " · attached: ")+c.dealDoc:""}</div>`
           : (isTC
             ? html`<div style=${{display:"flex",flexDirection:"column",gap:"9px",marginTop:"10px"}}>
               <label class="deal-attach">
                 <input type="file" style=${{display:"none"}} onChange=${e=>{ const f=e.target.files&&e.target.files[0]; if(f) setDealDoc(f.name); }}/>
                 <${Icon} name="upload" size=${15} color=${dealDoc?"#33d69f":"var(--muted)"}/>
-                <span>${dealDoc||"แนบเอกสารปิดดีล"}</span>
+                <span>${dealDoc||t("แนบเอกสารปิดดีล","Attach the closing document")}</span>
               </label>
               <button class="deal-submit" onClick=${()=>setConfirmSend(true)}>
-                <${Icon} name="check" size=${15} color="#fff"/>ส่งสถานะว่าดีลสำเร็จแล้ว</button>
+                <${Icon} name="check" size=${15} color="#fff"/>${t("ส่งสถานะว่าดีลสำเร็จแล้ว", "Report the deal as won")}</button>
               <button class="deal-cancel" onClick=${()=>setRoundForm({kind:"cancel", reason:CANCEL_REASONS[0], note:""})}>
-                <${Icon} name="close" size=${14}/>ยกเลิกการเข้าพบ</button>
+                <${Icon} name="close" size=${14}/>${t("ยกเลิกการเข้าพบ", "Cancel the visit")}</button>
             </div>`
-            : html`<div class="deal-note info" style=${{marginTop:"10px"}}><${Icon} name="clock" size=${15} color="#0369a1"/>อยู่ระหว่างดำเนินการโดยผู้ประสานงานการค้า — ยังไม่ได้ส่งดีล</div>`)}
+            : html`<div class="deal-note info" style=${{marginTop:"10px"}}><${Icon} name="clock" size=${15} color="#0369a1"/>${t("อยู่ระหว่างดำเนินการโดยผู้ประสานงานการค้า — ยังไม่ได้ส่งดีล", "In progress with the Trade Coordinator — no deal submitted yet")}</div>`)}
         ${roundForm&&roundForm.kind==="cancel" ? html`<div class="deal-modal-back" onClick=${()=>setRoundForm(null)}>
           <div class="deal-modal" onClick=${e=>e.stopPropagation()}>
-            <div class="deal-modal-t">ยกเลิกการเข้าพบ</div>
-            <div class="deal-modal-b">ปล่อย "${c.businessName}" ออกจากแผนของคุณ · เหตุผลจะถูกบันทึกไว้ในประวัติ ให้ TC คนอื่นเห็นและรับไปนัดต่อได้</div>
-            <div class="vr-f" style=${{marginTop:"12px"}}>เหตุผล
+            <div class="deal-modal-t">${t("ยกเลิกการเข้าพบ", "Cancel the visit")}</div>
+            <div class="deal-modal-b">${t("ปล่อย \"", "Release \"")}${c.businessName}${t("\" ออกจากแผนของคุณ · เหตุผลจะถูกบันทึกไว้ในประวัติ ให้ TC คนอื่นเห็นและรับไปนัดต่อได้", "\" from your plan · the reason is kept in the history so another TC can pick it up")}</div>
+            <div class="vr-f" style=${{marginTop:"12px"}}>${t("เหตุผล", "Reason")}
               <select value=${roundForm.reason} onChange=${e=>setRoundForm(f=>({...f, reason:e.target.value}))}>
-                ${CANCEL_REASONS.map(r=>html`<option key=${r} value=${r}>${r}</option>`)}</select></div>
-            <div class="vr-f" style=${{marginTop:"9px"}}>หมายเหตุเพิ่มเติม (ไม่บังคับ)
-              <input value=${roundForm.note} placeholder="เช่น ขอให้ติดต่อใหม่เดือนหน้า"
+                ${CANCEL_REASONS.map(r=>html`<option key=${r} value=${r}>${roundLabel(r)}</option>`)}</select></div>
+            <div class="vr-f" style=${{marginTop:"9px"}}>${t("หมายเหตุเพิ่มเติม (ไม่บังคับ)", "Additional notes (optional)")}
+              <input value=${roundForm.note} placeholder=${t("เช่น ขอให้ติดต่อใหม่เดือนหน้า", "e.g. asked to be contacted again next month")}
                 onInput=${e=>setRoundForm(f=>({...f, note:e.target.value}))}/></div>
             <div class="row" style=${{gap:"8px",justifyContent:"flex-end",marginTop:"14px"}}>
-              <${Btn} variant="ghost" size="sm" onClick=${()=>setRoundForm(null)}>ปิด</${Btn}>
+              <${Btn} variant="ghost" size="sm" onClick=${()=>setRoundForm(null)}>${t("ปิด", "Close")}</${Btn}>
               <${Btn} variant="danger" size="sm" onClick=${()=>{ onCancelVisit&&onCancelVisit(c, roundForm.reason, roundForm.note);
-                setRoundForm(null); setAdded(false); toast("ยกเลิกการเข้าพบแล้ว — บันทึกเหตุผลไว้ในประวัติ","warn"); onClose&&onClose(); }}>ยืนยันยกเลิก</${Btn}>
+                setRoundForm(null); setAdded(false); toast(t("ยกเลิกการเข้าพบแล้ว — บันทึกเหตุผลไว้ในประวัติ", "Visit cancelled — the reason is recorded in the history"),"warn"); onClose&&onClose(); }}>${t("ยืนยันยกเลิก", "Confirm cancellation")}</${Btn}>
             </div>
           </div>
         </div>`:""}
         ${confirmSend? html`<div class="deal-modal-back" onClick=${()=>setConfirmSend(false)}>
           <div class="deal-modal" onClick=${e=>e.stopPropagation()}>
-            <div class="deal-modal-t">ยืนยันส่งดีล</div>
-            <div class="deal-modal-b">ส่งดีลของ "${c.businessName}" ให้แอดมินตรวจสอบเพื่ออนุมัติเปลี่ยนเป็นลูกค้า?${dealDoc?"":" (ยังไม่ได้แนบเอกสาร)"}</div>
+            <div class="deal-modal-t">${t("ยืนยันส่งดีล", "Confirm deal submission")}</div>
+            <div class="deal-modal-b">${t("ส่งดีลของ \"", "Send the deal for \"")}${c.businessName}${t("\" ให้แอดมินตรวจสอบเพื่ออนุมัติเปลี่ยนเป็นลูกค้า?", "\" to the admin for approval to convert to a customer?")}${dealDoc?"":t(" (ยังไม่ได้แนบเอกสาร)", " (no document attached)")}</div>
             <div class="row" style=${{gap:"8px",justifyContent:"flex-end",marginTop:"14px"}}>
-              <${Btn} variant="ghost" size="sm" onClick=${()=>setConfirmSend(false)}>ยกเลิก</${Btn}>
-              <${Btn} variant="primary" size="sm" onClick=${()=>{ onSubmitDeal&&onSubmitDeal(c, dealDoc); setConfirmSend(false); }}>ยืนยันส่ง</${Btn}>
+              <${Btn} variant="ghost" size="sm" onClick=${()=>setConfirmSend(false)}>${t("ยกเลิก", "Cancel")}</${Btn}>
+              <${Btn} variant="primary" size="sm" onClick=${()=>{ onSubmitDeal&&onSubmitDeal(c, dealDoc); setConfirmSend(false); }}>${t("ยืนยันส่ง", "Confirm and send")}</${Btn}>
             </div>
           </div>
         </div>`:""}`;
@@ -315,76 +334,76 @@ export function CustomerPanel({db, customer, onClose, onOpenArea, setCustomer, o
     ${canEditOwn && html`<div style=${{display:"flex",gap:"9px",marginBottom:"16px"}}>
       <button onClick=${()=>onEditRecord&&onEditRecord(c)} style=${{flex:1,display:"inline-flex",alignItems:"center",justifyContent:"center",gap:"7px",
         padding:"11px",borderRadius:"11px",border:"1px solid var(--stroke2)",background:"transparent",color:"var(--txt)",cursor:"pointer",fontFamily:"var(--font)",fontSize:"13px",fontWeight:600}}>
-        <${Icon} name="edit" size=${14}/>แก้ไข</button>
-      <button onClick=${()=>{ if(confirm('ลบรายการ "'+c.businessName+'" ?')) onDeleteRecord&&onDeleteRecord(c); }} style=${{flex:1,display:"inline-flex",alignItems:"center",justifyContent:"center",gap:"7px",
+        <${Icon} name="edit" size=${14}/>${t("แก้ไข", "Edit")}</button>
+      <button onClick=${()=>{ if(confirm(t('ลบรายการ "', "Delete \"")+c.businessName+'" ?')) onDeleteRecord&&onDeleteRecord(c); }} style=${{flex:1,display:"inline-flex",alignItems:"center",justifyContent:"center",gap:"7px",
         padding:"11px",borderRadius:"11px",border:"1px solid rgba(255,90,90,.35)",background:"rgba(255,90,90,.08)",color:"#ff5a5a",cursor:"pointer",fontFamily:"var(--font)",fontSize:"13px",fontWeight:600}}>
-        <${Icon} name="trash" size=${14}/>ลบรายการนี้</button>
+        <${Icon} name="trash" size=${14}/>${t("ลบรายการนี้", "Delete this record")}</button>
     </div>`}
 
     ${isCust ? html`
       <!-- ── รายละเอียดลูกค้า: ตรงตามคอลัมน์ในไฟล์ข้อมูลจริงจาก Barter (ไม่รวมคอลัมน์สุดท้าย "สถานะ") ── -->
-      <div class="sec-label">รายละเอียดลูกค้า</div>
-      ${row("ชื่อร้านค้า / ชื่อธุรกิจ", c.businessName)}
-      ${row("หมวดธุรกิจ", segTH(c.segment))}
-      ${row("จังหวัด", provinceTH(c.province))}
-      ${row("อำเภอ / เขต", c.district ? districtTH(c.district) : html`<span class="dim">—</span>`)}
+      <div class="sec-label">${t("รายละเอียดลูกค้า", "Customer details")}</div>
+      ${row(t("ชื่อร้านค้า / ชื่อธุรกิจ", "Shop / business name"), c.businessName)}
+      ${row(t("หมวดธุรกิจ", "Business category"), segTH(c.segment))}
+      ${row(t("จังหวัด", "Province"), provinceTH(c.province))}
+      ${row(t("อำเภอ / เขต", "District"), c.district ? districtTH(c.district) : html`<span class="dim">—</span>`)}
 
       <!-- ── ข้อมูลการติดต่อ (ค่าจริงจากไฟล์ · ว่างได้) ── -->
-      <div class="sec-label">ข้อมูลการติดต่อ</div>
+      <div class="sec-label">${t("ข้อมูลการติดต่อ", "Contact details")}</div>
       <div class="cd-item">
-        <span class="cd-tx"><span class="cd-k">ที่อยู่</span><span class="cd-v">${fullAddress(c)}</span></span>
+        <span class="cd-tx"><span class="cd-k">${t("ที่อยู่", "Address")}</span><span class="cd-v">${fullAddress(c)}</span></span>
       </div>
       ${c.phone ? html`<a class="cd-item" href=${telHref(c.phone)}>
-        <span class="cd-tx"><span class="cd-k">เบอร์โทรศัพท์</span><span class="cd-v">${c.phone}</span></span>
+        <span class="cd-tx"><span class="cd-k">${t("เบอร์โทรศัพท์", "Phone")}</span><span class="cd-v">${c.phone}</span></span>
       </a>` : html`<div class="cd-item">
-        <span class="cd-tx"><span class="cd-k">เบอร์โทรศัพท์</span><span class="cd-v dim">ไม่มีข้อมูล</span></span>
+        <span class="cd-tx"><span class="cd-k">${t("เบอร์โทรศัพท์", "Phone")}</span><span class="cd-v dim">${t("ไม่มีข้อมูล", "No data")}</span></span>
       </div>`}
       ${c.website ? html`<a class="cd-item" href=${extHref(c.website)} target="_blank" rel="noopener noreferrer">
-        <span class="cd-tx"><span class="cd-k">เว็บไซต์</span><span class="cd-v">${c.website}</span></span>
+        <span class="cd-tx"><span class="cd-k">${t("เว็บไซต์", "Website")}</span><span class="cd-v">${c.website}</span></span>
       </a>` : ""}
       ${c.facebook ? html`<a class="cd-item" href=${extHref(c.facebook)} target="_blank" rel="noopener noreferrer">
-        <span class="cd-tx"><span class="cd-k">เฟซบุ๊ก</span><span class="cd-v">${c.facebook}</span></span>
+        <span class="cd-tx"><span class="cd-k">${t("เฟซบุ๊ก", "Facebook")}</span><span class="cd-v">${c.facebook}</span></span>
       </a>` : ""}
       <style>${CUST_CSS}</style>`
     : (dealMode ? "" : html`
-      ${row("ชื่อ Lead", c.businessName)}
-      ${row("สถานะ", html`<${Badge} tone="neutral">Lead</${Badge}>`)}
-      ${row("หมวดธุรกิจ", segTH(c.segment))}
-      ${row("ที่อยู่", (c.address||"")+", "+provinceTH(c.province))}
-      ${row("ผู้ดูแลการขาย", salesOwner(c))}
-      ${c.source ? row("แหล่งที่มา", html`<${Badge} tone="neutral">${c.source}</${Badge}>`) : ""}
-      ${row("อีเมล", c.email||html`<span class="dim">—</span>`)}`)}
+      ${row(t("ชื่อ Lead", "Lead name"), c.businessName)}
+      ${row(t("สถานะ", "Status"), html`<${Badge} tone="neutral">Lead</${Badge}>`)}
+      ${row(t("หมวดธุรกิจ", "Business category"), segTH(c.segment))}
+      ${row(t("ที่อยู่", "Address"), (c.address||"")+", "+provinceTH(c.province))}
+      ${row(t("ผู้ดูแลการขาย", "Sales owner"), salesOwner(c))}
+      ${c.source ? row(t("แหล่งที่มา", "Source"), html`<${Badge} tone="neutral">${c.source}</${Badge}>`) : ""}
+      ${row(t("อีเมล", "Email"), c.email||html`<span class="dim">—</span>`)}`)}
 
     <!-- ปุ่ม/สถานะ "แผนการเข้าพบ" ของ Lead — ท้ายสุดของรายละเอียด เหนือกล่องคำแนะนำ และจัดกึ่งกลาง
          กดเพิ่มแล้วปิดแผงทันที เพื่อเลือกหมุดถัดไปได้เลย ไม่ต้องกดปิดเอง -->
     ${!isCust && !dealPlan && c.dealStatus!=="pending" ? html`<div style=${{marginTop:"16px",display:"flex",flexDirection:"column",gap:"8px"}}>
       ${(inPlan||added)
-        ? html`<div class="deal-note ok" style=${{justifyContent:"center"}}><${Icon} name="check" size=${15} color="#0f7a3d"/>เพิ่มในแผนแล้ว</div>`
+        ? html`<div class="deal-note ok" style=${{justifyContent:"center"}}><${Icon} name="check" size=${15} color="#0f7a3d"/>${t("เพิ่มในแผนแล้ว", "Added to the plan")}</div>`
         : (isTC
             ? html`<div style=${{display:"flex",justifyContent:"center"}}>
-                <${Btn} variant="primary" icon="route" onClick=${()=>{ onAddToPlan&&onAddToPlan(c); setAdded(true); toast("✔ เพิ่มLeadเข้าสู่แผนการเข้าพบแล้ว","good"); onClose&&onClose(); }}>เพิ่มในแผนการเข้าพบ</${Btn}></div>`
-            : html`<div class="deal-note info" style=${{justifyContent:"center"}}><${Icon} name="clock" size=${15} color="#0369a1"/>ยังไม่ถูกเพิ่มเข้าแผนการเข้าพบ</div>`)}
-      ${c.dealStatus==="rejected" ? html`<div class="deal-note warn"><${Icon} name="info" size=${14} color="#f59e0b"/>ดีลถูกตีกลับจากแอดมิน กรุณาตรวจสอบและส่งใหม่</div>`:""}
+                <${Btn} variant="primary" icon="route" onClick=${()=>{ onAddToPlan&&onAddToPlan(c); setAdded(true); toast(t("✔ เพิ่มLeadเข้าสู่แผนการเข้าพบแล้ว", "✔ Lead added to the visit plan"),"good"); onClose&&onClose(); }}>${t("เพิ่มในแผนการเข้าพบ", "Add to the visit plan")}</${Btn}></div>`
+            : html`<div class="deal-note info" style=${{justifyContent:"center"}}><${Icon} name="clock" size=${15} color="#0369a1"/>${t("ยังไม่ถูกเพิ่มเข้าแผนการเข้าพบ", "Not in a visit plan yet")}</div>`)}
+      ${c.dealStatus==="rejected" ? html`<div class="deal-note warn"><${Icon} name="info" size=${14} color="#f59e0b"/>${t("ดีลถูกตีกลับจากแอดมิน กรุณาตรวจสอบและส่งใหม่", "The admin returned this deal — please review and resubmit")}</div>`:""}
     </div>` : ""}
 
     <!-- ประวัติการนัดเข้าพบ — เห็นได้ทุกบทบาท ไม่ถูกลบเมื่อยกเลิก
          รอบที่ "ยกเลิก" จะติดเหตุผลไว้ ให้ TC คนถัดไปรู้ว่าทำไม Lead รายนี้ถึงถูกปล่อยกลับมา -->
-    ${rounds.length ? html`<div class="sec-label" style=${{marginTop:"16px"}}>ประวัติการนัดเข้าพบ</div>
+    ${rounds.length ? html`<div class="sec-label" style=${{marginTop:"16px"}}>${t("ประวัติการนัดเข้าพบ", "Visit history")}</div>
       <div class="vr-timeline">
         ${[...rounds].reverse().map((r,i)=>html`<div key=${i} class="vr-item">
           <div class="vr-item-h" style=${{cursor:"default"}}>
             <span class="vr-dot" style=${{background:r.status==="ยกเลิก"?"#d03b3b":r.status==="เสร็จสิ้น"?"#0f7a3d":"#f59e0b"}}></span>
-            <b>รอบที่ ${r.round}</b><span class="muted">${r.status}</span>
+            <b>${t("รอบที่", "Round")} ${r.round}</b><span class="muted">${roundLabel(r.status)}</span>
             <span class="dim" style=${{marginLeft:"auto"}}>${r.date?beDate(r.date):""}</span></div>
           <div class="vr-item-b">
-            ${r.by ? html`<div><span class="muted">โดย </span>${r.by}</div>` : ""}
-            ${r.reason ? html`<div><span class="muted">เหตุผล </span><b>${r.reason}</b></div>` : ""}
-            ${r.note ? html`<div><span class="muted">หมายเหตุ </span>${r.note}</div>` : ""}
+            ${r.by ? html`<div><span class="muted">${t("โดย", "By")} </span>${r.by}</div>` : ""}
+            ${r.reason ? html`<div><span class="muted">${t("เหตุผล", "Reason")} </span><b>${roundLabel(r.reason)}</b></div>` : ""}
+            ${r.note ? html`<div><span class="muted">${t("หมายเหตุ", "Note")} </span>${r.note}</div>` : ""}
           </div></div>`)}
       </div>` : ""}
 
     ${dealMode ? "" : html`<div style=${{marginTop:"14px",padding:"12px 14px",borderRadius:"12px",background:"rgba(51,214,159,.08)",border:"1px solid rgba(51,214,159,.32)"}}>
-      <div class="row" style=${{gap:"8px",marginBottom:"5px"}}><${Icon} name="bolt" size=${14} color="#0f7a3d"/><b style=${{fontSize:"12px",color:"#0f7a3d"}}>คำแนะนำ</b></div>
+      <div class="row" style=${{gap:"8px",marginBottom:"5px"}}><${Icon} name="bolt" size=${14} color="#0f7a3d"/><b style=${{fontSize:"12px",color:"#0f7a3d"}}>${t("คำแนะนำ", "Recommendation")}</b></div>
       <div style=${{fontSize:"12.5px",lineHeight:1.6}}>${recommendation(c, segGap)}</div>
     </div>`}
 
@@ -444,11 +463,12 @@ const VR_CSS = `
 
 function RouteMap({origin, route}){
   const ref=useRef();
+  const lang=useLang();   // สลับภาษา → สร้างแผนที่ย่อใหม่ (ป้ายชื่อสถานที่เปลี่ยนตาม)
   useEffect(()=>{
     const map=L.map(ref.current,{zoomControl:false,attributionControl:true}).setView([origin.latitude,origin.longitude],12);
-    basemap(map, "th");
+    basemap(map);
     const pts=[[origin.latitude,origin.longitude],...route.stops.map(s=>[s.latitude,s.longitude])];
-    L.circleMarker(pts[0],{radius:8,color:"#34e0d0",fillColor:"#34e0d0",fillOpacity:.9,weight:2}).addTo(map).bindTooltip("จุดเริ่ม: "+origin.businessName);
+    L.circleMarker(pts[0],{radius:8,color:"#34e0d0",fillColor:"#34e0d0",fillOpacity:.9,weight:2}).addTo(map).bindTooltip(t("จุดเริ่ม: ", "Start: ")+origin.businessName);
     route.stops.forEach((s,i)=>L.marker([s.latitude,s.longitude]).addTo(map).bindTooltip(`${i+1}. ${s.businessName}`));
     let line = L.polyline(pts,{color:"#38bdf8",weight:2.5,dashArray:"6 6"}).addTo(map);
     map.fitBounds(L.latLngBounds(pts).pad(0.25));
@@ -460,6 +480,6 @@ function RouteMap({origin, route}){
       line = L.polyline(realPts,{color:"#38bdf8",weight:2.5,opacity:.9}).addTo(map);
     });
     return ()=>{ alive=false; map.remove(); };
-  },[origin.id]);
+  },[origin.id,lang]);
   return html`<div ref=${ref} style=${{height:"210px",borderRadius:"12px",overflow:"hidden",border:"1px solid var(--stroke)"}}></div>`;
 }

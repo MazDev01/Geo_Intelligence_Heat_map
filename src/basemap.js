@@ -12,10 +12,12 @@
 import { leafletLayer, paintRules, labelRules } from "protomaps-leaflet";
 import { namedFlavor } from "@protomaps/basemaps";
 import { BASEMAP_URL, BASEMAP_MAXDATAZOOM } from "../config/basemap.js";
+import { getLang, t } from "./i18n.js";
 
 const L = (typeof window !== "undefined") ? window.L : undefined;
 
-const ATTR  = 'แผนที่ฐาน &copy; <a href="https://openstreetmap.org/copyright" target="_blank">OpenStreetMap</a> · Protomaps';
+// attribution ต้องคิดตอนเรียก ไม่ใช่ตอนโหลดโมดูล — ไม่งั้นจะค้างเป็นภาษาแรกที่โหลด
+const ATTR = () => t("แผนที่ฐาน","Basemap") + ' &copy; <a href="https://openstreetmap.org/copyright" target="_blank">OpenStreetMap</a> · Protomaps';
 // ── สีจาก Protomaps style ตัวจริง (อ่านจาก object ตอนโหลดโมดูล ไม่ใช่ literal) ──
 // ใช้ instance แยกจาก tunedRules เพราะตัวนั้นถูก mutate ต่อการเรียก (label rules)
 const FLAVOR = namedFlavor("light");
@@ -46,8 +48,13 @@ function tunedRules(lang){
 // เพิ่มแผนที่ฐานให้ map — ไฟล์เดียวครอบทั้งประเทศ จึงไม่ต้องสลับไฟล์/เลือกพื้นที่
 // Range ดึงเฉพาะ tile ที่ viewport เห็น · คืน { base, lbl } เพื่อให้ผู้เรียกคุมได้ทั้งสองชั้น
 // ─────────────────────────────────────────────────────────────────────────────
-export function basemap(map, lang="th"){
+// lang: ละไว้ได้ → ใช้ภาษาปัจจุบันของแอป (protomaps มีชื่อสถานที่ EN ในไฟล์ .pmtiles อยู่แล้ว
+// labelRules(flavor, lang) เลือกฟิลด์ name:th / name:en ให้เอง)
+// ⚠ label layer เป็นวัตถุ Leaflet ที่สร้างครั้งเดียว — สลับภาษาแล้วต้องสร้างใหม่
+// ผู้เรียกทำได้ 2 ทาง: ใส่ lang ใน deps ของ useEffect ที่สร้างแผนที่ หรือเรียก relabel(map, layers)
+export function basemap(map, lang){
   if(!L || !map) return null;
+  if(lang == null) lang = getLang();
   // ไม่ตั้งสีพื้นที่นี่ — ผู้เรียกเป็นคนตัดสิน (lmap.js ใส่คลาส .map-sea ให้เฉพาะบทบาทที่เข้าเงื่อนไข)
   // ถ้าตั้งที่นี่ mini map ทุกตัวในแอปจะเปลี่ยนสีตามไปด้วยโดยไม่ได้ตั้งใจ
   const { paint, labels } = tunedRules(lang);
@@ -70,7 +77,7 @@ export function basemap(map, lang="th"){
     // ไม่ตั้ง backgroundColor: protomaps-leaflet จะถมสีนี้เต็ม tile ทุกใบ "รวมใบที่ไม่มีข้อมูล"
     // ผลคือแผ่นน้ำทึบคลุมทั้ง viewport แล้วบัง landPane (z150) ที่อยู่ข้างใต้จนมองไม่เห็นเลย
     // ปล่อยให้ tile ที่ไม่มีข้อมูลโปร่ง → เห็นแผ่นดินจาก world.geojson · สีทะเลมาจากพื้นหลัง container (#80deea) อยู่แล้ว
-    attribution: ATTR,
+    attribution: ATTR(),
   });
   base.addTo(map);
 
@@ -87,5 +94,31 @@ export function basemap(map, lang="th"){
   if(lbl.options.pane !== "labelPane") lbl.options.pane = "labelPane";   // กันกรณี leafletLayer ไม่ส่งต่อ pane option
 
   // คืนทั้งคู่: ทุกที่ที่ add/remove ต้องทำพร้อมกันเสมอ ไม่งั้นป้ายชื่อจะลอยอยู่บนพื้นเปล่า
-  return { base, lbl };
+  return { base, lbl, lang };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// สลับภาษาป้ายชื่อสถานที่ของแผนที่ที่สร้างไว้แล้ว — ถอด label layer เดิมออก สร้างใหม่ด้วย lang ใหม่
+// (base layer ไม่ต้องแตะ: พื้น/ถนน/อาคาร ไม่มีข้อความ · และ .pmtiles ถูกแคช HTTP Range ไว้แล้ว
+//  จึงไม่มี network cost เพิ่ม แค่วาด label ใหม่)
+//
+// คืน object ใหม่ในรูปเดิม { base, lbl, lang } — ผู้เรียกต้องเก็บทับตัวเก่า
+// ถ้าภาษาไม่เปลี่ยน คืนตัวเดิมกลับไปเลย ไม่สร้างใหม่ให้เสียแรง
+// ─────────────────────────────────────────────────────────────────────────────
+export function relabel(map, bm, lang){
+  if(!L || !map || !bm) return bm;
+  if(lang == null) lang = getLang();
+  if(bm.lang === lang) return bm;
+  const { labels } = tunedRules(lang);
+  if(bm.lbl && map.hasLayer(bm.lbl)) map.removeLayer(bm.lbl);
+  const lbl = leafletLayer({
+    url: BASEMAP_URL,
+    paintRules: [],
+    labelRules: labels,
+    maxDataZoom: BASEMAP_MAXDATAZOOM,
+    pane: "labelPane",
+  });
+  lbl.addTo(map);
+  if(lbl.options.pane !== "labelPane") lbl.options.pane = "labelPane";
+  return { base: bm.base, lbl, lang };
 }

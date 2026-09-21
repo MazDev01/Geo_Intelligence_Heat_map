@@ -3,11 +3,12 @@
 
 // จุดเริ่มต้นการวางแผนเข้าพบ = ที่ตั้งสาขา Barter ในจังหวัดนั้นๆ (ไม่ใช่กรุงเทพฯ จุดเดียวทั้งประเทศ)
 // ผู้ประสานงาน (TC) แต่ละคนถูกล็อกอยู่จังหวัดของตน จึงเริ่มวางแผนจากสาขาในจังหวัดตัวเอง
+import {t} from "./i18n.js";
 export const OFFICES = {
-  "Bangkok Metropolis": { id:"__office_bkk", businessName:"สำนักงานใหญ่ · กรุงเทพฯ", segment:"Other", province:"Bangkok Metropolis", latitude:13.7563, longitude:100.5018, office:true },
-  "Chiang Mai":         { id:"__office_cnx", businessName:"สาขา Barter · เชียงใหม่",  segment:"Other", province:"Chiang Mai",         latitude:18.7883, longitude:98.9853,  office:true },
-  "Phuket":             { id:"__office_hkt", businessName:"สาขา Barter · ภูเก็ต",     segment:"Other", province:"Phuket",             latitude:7.8804,  longitude:98.3923,  office:true },
-  "Pattaya":            { id:"__office_pty", businessName:"สาขา Barter · พัทยา",      segment:"Other", province:"Pattaya",            latitude:12.9236, longitude:100.8825, office:true },
+  "Bangkok Metropolis": { id:"__office_bkk", get businessName(){ return t("สำนักงานใหญ่ · กรุงเทพฯ","Head Office · Bangkok"); }, segment:"Other", province:"Bangkok Metropolis", latitude:13.7563, longitude:100.5018, office:true },
+  "Chiang Mai":         { id:"__office_cnx", get businessName(){ return t("สาขา Barter · เชียงใหม่","Barter Branch · Chiang Mai"); }, segment:"Other", province:"Chiang Mai",         latitude:18.7883, longitude:98.9853,  office:true },
+  "Phuket":             { id:"__office_hkt", get businessName(){ return t("สาขา Barter · ภูเก็ต","Barter Branch · Phuket"); },       segment:"Other", province:"Phuket",             latitude:7.8804,  longitude:98.3923,  office:true },
+  "Pattaya":            { id:"__office_pty", get businessName(){ return t("สาขา Barter · พัทยา","Barter Branch · Pattaya"); },       segment:"Other", province:"Pattaya",            latitude:12.9236, longitude:100.8825, office:true },
 };
 export const OFFICE = OFFICES["Bangkok Metropolis"];   // ค่าเริ่มต้น (คงชื่อ import เดิมไว้ให้ที่อื่นใช้ได้)
 export const officeFor = (province)=> OFFICES[province] || OFFICE;   // ไม่พบจังหวัด → ใช้สำนักงานใหญ่
@@ -76,8 +77,8 @@ export function clusterRoute(office, members){
 }
 export const legMinutes = km => Math.round(km/AVG_KMH*60);
 
-export const fmtKm = km => (Math.round(km*10)/10).toFixed(1)+" กม.";
+export const fmtKm = km => (Math.round(km*10)/10).toFixed(1)+t(" กม.", " km");
 export function fmtDuration(min){
   const h=Math.floor(min/60), m=min%60;
-  return h ? (m? `${h} ชั่วโมง ${m} นาที` : `${h} ชั่วโมง`) : `${m} นาที`;
+  return h ? (m? `${h} ${t("ชั่วโมง", "hr")} ${m} ${t("นาที", "min")}` : `${h} ${t("ชั่วโมง", "hr")}`) : `${m} ${t("นาที", "min")}`;
 }

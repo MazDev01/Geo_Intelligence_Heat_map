@@ -1,5 +1,5 @@
 import {createServer} from 'node:http';
-import {readFile, stat} from 'node:fs/promises';
+import {readFile, writeFile, rename, stat} from 'node:fs/promises';
 import {createReadStream} from 'node:fs';
 import {extname, join, normalize} from 'node:path';
 import {fileURLToPath} from 'node:url';
@@ -43,6 +43,42 @@ createServer(async (req,res)=>{
       if(prov && prov!==tok.province){ return send(403,{error:'forbidden', message:'เรียกดูได้เฉพาะจังหวัดที่รับผิดชอบ'}); }
       return send(200,{ok:true, owner:tok.email, province:tok.province});
     }
+    // ── API: การมอบหมายขอบเขตพื้นที่การขาย (TC ↔ จังหวัด/โซน) ──────────────────
+    // GET  → อ่าน data/territory.json · ยังไม่มีไฟล์ = {} (หน้าเว็บจะ fallback ไปใช้ค่าตั้งต้นจากโปรไฟล์ TC)
+    // POST → เขียนทับทั้งก้อน {assign:{คีย์หน่วย: id ของ TC}}
+    // ⚠ ยังไม่มีการตรวจสิทธิ์ — เหมือน static file อื่นในโปรเจกต์สาธิตนี้ (?demo=admin เป็นสวิตช์ฝั่ง client
+    //   ไม่ใช่ auth) ถ้าเอาขึ้นใช้จริงต้องกั้นด้วยโทเคนฝั่งเซิร์ฟเวอร์แบบเดียวกับ /api/visit-plans
+    if(p==='/api/territory'){
+      const send = (code,obj)=>{ res.writeHead(code,{'Content-Type':'application/json','Cache-Control':'no-store'}); res.end(JSON.stringify(obj)); };
+      const STORE = join(ROOT, 'data', 'territory.json');
+      if(req.method==='GET'){
+        try{ return send(200, JSON.parse(await readFile(STORE,'utf8'))); }
+        catch{ return send(200, {assign:{}, updatedAt:null}); }      // ยังไม่เคยบันทึก = ก้อนว่าง ไม่ใช่ error
+      }
+      if(req.method==='POST'){
+        let raw=''; for await (const chunk of req){ raw += chunk;
+          if(raw.length > 1e6){ return send(413,{error:'payload ใหญ่เกิน'}); } }
+        let body; try{ body = JSON.parse(raw); }catch{ return send(400,{error:'JSON ไม่ถูกต้อง'}); }
+        const a = body && body.assign;
+        if(!a || typeof a!=='object' || Array.isArray(a)) return send(400,{error:'ต้องมีฟิลด์ assign เป็น object'});
+        // กันค่าขยะ: คีย์ = ชื่อหน่วย (จังหวัด หรือ จังหวัด/โซน) · ค่า = id ของ TC เป็นตัวเลข
+        const clean={};
+        for(const [k,v] of Object.entries(a)){
+          if(typeof k!=='string' || !k || k.length>120) return send(400,{error:'คีย์หน่วยไม่ถูกต้อง: '+k});
+          const n = Number(v);
+          if(!Number.isInteger(n)) return send(400,{error:'id ของ TC ต้องเป็นจำนวนเต็ม: '+k+'='+v});
+          clean[k]=n;
+        }
+        const out = {assign:clean, updatedAt:new Date().toISOString()};
+        const tmp = STORE+'.tmp';                                    // เขียนไฟล์ชั่วคราวก่อน rename กันไฟล์พังถ้าดับกลางคัน
+        await writeFile(tmp, JSON.stringify(out,null,2));
+        await rename(tmp, STORE);
+        console.log(`[territory] บันทึก ${Object.keys(clean).length} หน่วย`);
+        return send(200,{ok:true, saved:Object.keys(clean).length, updatedAt:out.updatedAt});
+      }
+      return send(405,{error:'รองรับเฉพาะ GET กับ POST'});
+    }
+
     const file = normalize(join(ROOT, p));
     if(!file.startsWith(ROOT)){ res.writeHead(403).end('forbidden'); return; }
 

@@ -6,10 +6,11 @@
 //   ตัวช่วย UX ลดความสับสน ไม่ใช่กลไกควบคุมสิทธิ์ · ห้ามพึ่งการซ่อนบนหน้าจอเพียงอย่างเดียว
 // ═══════════════════════════════════════════════════════════════════════════
 
+import {t} from "./i18n.js";
 export const EXPORT_ROLES = [
-  {key:"Administrator",     label:"ผู้ดูแลระบบ"},
-  {key:"Management",        label:"ผู้บริหาร"},
-  {key:"Trade Coordinator", label:"ผู้ประสานงานการค้า"},
+  {key:"Administrator",     get label(){ return t("ผู้ดูแลระบบ","Administrator"); }},
+  {key:"Management",        get label(){ return t("ผู้บริหาร","Management"); }},
+  {key:"Trade Coordinator", get label(){ return t("ผู้ประสานงานการค้า","Trade Coordinator"); }},
 ];
 export const EXPORT_FORMATS = [
   {key:"pdf",   label:"PDF"},
