@@ -5,6 +5,7 @@ import {Globe} from "./globe.js";
 import {LeafletMap} from "./lmap.js";
 import {filterData} from "./data.js";
 import {CategoryDropdown} from "./category-chips.js";
+import {zoneName} from "./mock/geoData.js";   // ชื่อโซน (สีลม/ลาดพร้าว/ทองหล่อ) ไว้ต่อท้ายชื่อจังหวัดของ TC รายโซน
 import {t} from "./i18n.js";
 
 // Post-login globe picker: a FIXED shortlist of four featured provinces.
@@ -268,7 +269,8 @@ export function GeoStage({db, mode, activeCountry, flyTarget, globeUnder, onArri
         <div class="map-panel map-fx" style=${{padding:"6px 11px",display:"flex",alignItems:"center",gap:"10px",flexWrap:"wrap",flex:"none"}}>
           ${lockProvince
             ? html`<span style=${{display:"inline-flex",alignItems:"center",gap:"6px",fontSize:"12.5px",fontWeight:700,color:"var(--accent2)"}}>
-                <${Icon} name="pin" size=${14}/> ${t("เขตที่รับผิดชอบ:", "Territory:")} ${provinceTH(lockProvince)}</span>`
+                <${Icon} name="pin" size=${14}/> ${t("เขตที่รับผิดชอบ:", "Territory:")} ${provinceTH(lockProvince)}${
+                  lockZones && lockZones.length===1 ? " · "+zoneName(lockZones[0]) : ""}</span>`
             : html`<div style=${{width:"190px",flex:"none"}}>
                 <${Dropdown} value=${filters.province||"All"} placeholder=${t("ทุกจังหวัด", "All provinces")} options=${provinceOpts}
                   onChange=${v=>setFilters(f=>({...f, province:v}))}/></div>

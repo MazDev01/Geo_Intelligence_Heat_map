@@ -11,6 +11,7 @@ import {Reports} from "./pages/reports.js";
 import {Profile} from "./pages/profile.js";
 import {Users, Config, Audit, Monitoring, SEED_USERS} from "./pages/admin.js";
 import {loadTerritory} from "./territory-store.js";   // การมอบหมาย TC ↔ จังหวัด/โซน ที่แอดมินบันทึกไว้
+import {BKK, BKK_ZONES, zoneName} from "./mock/geoData.js";   // โซนของกรุงเทพฯ (SL/LP/TL) สำหรับบทบาท TC รายโซน
 import {MasterData} from "./pages/master-data.js";
 import {DataManagement, DataImport, DataFiles, DataLeads, TerritoryManager} from "./pages/data-management.js";
 import {VisitPlanReport} from "./pages/visit-plan-report.js";
@@ -63,6 +64,8 @@ function App(){
   const [user,setUser] = useState(null);
   const [tcDenied,setTcDenied] = useState(null);   // หน้า 403 ของ TC เมื่อพยายามเข้าถึงข้อมูลนอกพื้นที่รับผิดชอบ
   const [territory,setTerritory] = useState(null);  // { คีย์หน่วย: id ของ TC } จากเซิร์ฟเวอร์ · null = ยังไม่เคยตั้ง
+  // ?zone=LP — บทบาท "TC รายโซน" สำหรับเดโม: ล็อกโซนจาก URL ตรง ๆ ไม่ต้องรอการมอบหมายจากแอดมิน
+  const demoZone = useMemo(()=>{ try{ return new URLSearchParams(location.search).get("zone")||null; }catch(e){ return null; } },[]);
   // โหลดการมอบหมายหลังล็อกอิน — โหลดไม่ได้/ยังไม่เคยตั้ง = null แล้วแมพทำงานแบบเดิมทุกประการ
   useEffect(()=>{ if(!user){ setTerritory(null); return; }
     let alive=true;
@@ -84,12 +87,14 @@ function App(){
   // null = ไม่จำกัดระดับโซน (เห็นทั้งจังหวัดเหมือนเดิม) — ทั้งตอนยังไม่เคยมอบหมาย
   // และตอน TC ถือครบทุกโซนในจังหวัด ซึ่งไม่ต่างอะไรกับดูทั้งจังหวัด
   const lockZones = useMemo(()=>{
+    // เดโมรายโซนมาก่อนเสมอ — ใช้ดูว่า TC ของโซนนั้นเห็นอะไร โดยไม่ต้องตั้งค่าอะไรล่วงหน้า
+    if(demoZone && user && user.role==="Trade Coordinator") return [demoZone];
     if(!territory || tcId==null || !user || !user.province) return null;
     const pre = user.province + "/";
     const all  = Object.keys(territory).filter(k=>k.startsWith(pre));
     const mine = all.filter(k=>territory[k]===tcId).map(k=>k.slice(pre.length));
     return (!mine.length || mine.length===all.length) ? null : mine;
-  },[territory, tcId, user]);
+  },[territory, tcId, user, demoZone]);
   const [view,setView] = useState("dashboard");        // dashboard (business overview) | workspace (globe/map)
   const [mode,setMode] = useState("globe");            // globe | map (within workspace)
   const [activeCountry,setActiveCountry] = useState(null);
@@ -581,9 +586,14 @@ function App(){
   const roleDemo = user.role==="Administrator" ? "admin" : isTC ? "tc" : "management";   // บทบาทปัจจุบันในรูป demo param
   const isDemoMode = /[?&]demo=/.test(location.search);   // ตัวสลับบทบาทโชว์เฉพาะโหมดเดโม (dev) เท่านั้น
   const roleShort = {admin:"Admin", management:t("ผู้บริหาร", "Management"), tc:"TC"}[roleDemo];
-  const switchRole = d => { const u=new URL(location.href); u.searchParams.set("demo",d);
+  const switchRole = (d, zone) => { const u=new URL(location.href); u.searchParams.set("demo",d);
     u.searchParams.delete("prov"); u.searchParams.delete("noprov"); u.searchParams.delete("go");
-    u.searchParams.delete("tc");
+    u.searchParams.delete("tc"); u.searchParams.delete("zone");
+    // TC รายโซน: ล็อกโซนตรง ๆ จาก URL ไม่ต้องรอให้แอดมินมอบหมายก่อน (ไว้ดูเดโมให้ลูกค้า)
+    if(d==="tc" && zone){
+      u.searchParams.set("prov", BKK); u.searchParams.set("zone", zone);
+      location.href=u.pathname+u.search; return;
+    }
     // สลับไป TC: เลือกจังหวัด + บัญชีจากการมอบหมายจริงที่แอดมินบันทึกไว้
     // ไม่งั้นจะตกไปใช้ค่าเริ่มต้น "Chiang Mai" ทุกครั้ง แล้วดูไม่เห็นผลของโซนที่เพิ่งมอบหมาย
     if(d==="tc" && territory){
@@ -638,7 +648,8 @@ function App(){
         : (view==="workspace" && mode==="map")
           ? (isTC
               /* TC ถูกล็อกที่จังหวัดเดียว — breadcrumb เป็นข้อความคงที่ ไม่มีลิงก์กลับประเทศ/ลูกโลก */
-              ? html`<div class="crumbs"><span class="crumb-cur">${t("เขตที่รับผิดชอบ ·", "Territory ·")} <b>${provinceTH(user.province||"")}</b></span></div>`
+              ? html`<div class="crumbs"><span class="crumb-cur">${t("เขตที่รับผิดชอบ ·", "Territory ·")} <b>${provinceTH(user.province||"")}${
+                  lockZones && lockZones.length===1 ? " · "+zoneName(lockZones[0]) : ""}</b></span></div>`
               : html`<div class="crumbs crumbs-nav">
               <button class="crumb-link" onClick=${backToGlobe}>${t("หน้าหลัก", "Home")}</button>
               <span class="crumb-sep">›</span>
@@ -700,7 +711,14 @@ function App(){
                     ${[["admin",t("ผู้ดูแลระบบ", "System Administrator")],["management",t("ผู้บริหาร", "Management")],["tc",t("ผู้ประสานงานการค้า (TC)", "Trade Coordinator (TC)")]].map(([d,l])=>html`
                       <div key=${d} class="dd-item" role="menuitem" tabindex="0" onClick=${()=>switchRole(d)}>
                         <${Icon} name="user" size=${15}/>${l}
-                        ${roleDemo===d?html`<span style=${{marginLeft:"auto",color:"var(--accent2)",fontSize:"12px",fontWeight:700}}>${t("ปัจจุบัน", "Current")}</span>`:""}</div>`)}
+                        ${roleDemo===d && !demoZone ?html`<span style=${{marginLeft:"auto",color:"var(--accent2)",fontSize:"12px",fontWeight:700}}>${t("ปัจจุบัน", "Current")}</span>`:""}</div>`)}
+                    <!-- TC รายโซน: ดูแมพแบบที่ TC ของโซนนั้นเห็นจริง ๆ โดยไม่ต้องไปมอบหมายในหน้าแอดมินก่อน -->
+                    <div style=${{fontSize:"11px",color:"var(--dim)",padding:"7px 12px 3px",letterSpacing:".02em"}}>
+                      ${t("TC รายโซน (กรุงเทพฯ)", "TC by zone (Bangkok)")}</div>
+                    ${BKK_ZONES.map(z=>html`
+                      <div key=${"z"+z.key} class="dd-item" role="menuitem" tabindex="0" onClick=${()=>switchRole("tc", z.key)}>
+                        <${Icon} name="pin" size=${15}/>${t("TC · ", "TC · ")}${zoneName(z.key)}
+                        ${demoZone===z.key?html`<span style=${{marginLeft:"auto",color:"var(--accent2)",fontSize:"12px",fontWeight:700}}>${t("ปัจจุบัน", "Current")}</span>`:""}</div>`)}
                   </div>`}
                 </div>`}
                 <div class="dd-item" role="menuitem" tabindex="0" onClick=${()=>{setMenu(null);toast(t("ศูนย์ช่วยเหลือ GeoIntel · เวอร์ชัน 1.0", "GeoIntel Help Centre · version 1.0"),"info");}}><${Icon} name="reports" size=${16}/>${t("ช่วยเหลือ", "Help")}</div>
