@@ -1,4 +1,6 @@
-import {html, useState, Icon, brandMark, roleTH} from "../lib.js";
+// ถอด LANGS ออกจาก import — ค้างมาจากการ merge i18n สองเวอร์ชันเข้าด้วยกัน
+// lib.js ไม่ได้ export ตัวนี้ และไฟล์นี้ไม่ได้เรียกใช้เลย (รายการภาษาอยู่ใน <LangToggle/> แล้ว)
+import {html, useState, Icon, brandMark, roleTH, getLang, setLang} from "../lib.js";
 import {Globe} from "../globe.js";
 import {LangToggle} from "../ui.js";
 import {t} from "../i18n.js";   // สลับภาษา TH/EN — ดู src/i18n.js

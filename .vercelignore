@@ -7,3 +7,10 @@ gen.mjs
 build-dist.mjs
 .env*
 .vercel
+
+# เครื่องมือสำหรับรันในเครื่องเท่านั้น — ห้ามขึ้น Vercel
+# server.mjs เป็น dev server ที่ listen พอร์ต 5173 ถ้าปล่อยไว้ Vercel จะตรวจเจอแล้วเอาไปรัน
+# เป็น serverless function แล้วส่งทุก request เข้าไปที่นั่น ซึ่งในกล่องฟังก์ชันไม่มี src/ data/ config/
+# ผลคือทุกไฟล์ 404 และหน้าเว็บขาวเปล่า (เจอมาแล้วตอน deploy ครั้งแรกของโปรเจกต์ geo-intelligence-heat-map)
+server.mjs
+checkall.mjs

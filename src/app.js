@@ -110,6 +110,8 @@ function App(){
   const [collapsed,setCollapsed] = useState(false);
   const [menu,setMenu] = useState(null);
   const [roleSub,setRoleSub] = useState(false);   // เมนูย่อย "สลับบทบาท (เดโม)" เปิด/ปิด
+  const [langSub,setLangSub] = useState(false);   // เมนูย่อย "ภาษา" เปิด/ปิด
+  // (ภาษาปัจจุบันประกาศไว้แล้วที่บรรทัด 61 — merge จาก remote เคยทำให้ซ้ำกันสองที่)
   const [gsearch,setGsearch] = useState("");
   const [loadingData,setLoadingData] = useState(false);
   const [profileTab,setProfileTab] = useState("info");   // which Profile tab "View Profile / Change Password / Notifications" opens

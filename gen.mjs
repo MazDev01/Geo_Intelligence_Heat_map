@@ -43,13 +43,20 @@ function districtFor(province){
   for(const [name,w] of list){ if(r<w) return name; r-=w; } return list[list.length-1][0];
 }
 
+// ── แยก "ร้านอาหารและคาเฟ่" ออกจาก "อาหารและเครื่องดื่ม" ──────────────
+// ไฟล์ต้นทางของลูกค้ามีหมวดเดียวคือ FoodBeverage ซึ่งรวมทั้งผู้ผลิต/ค้าส่ง และร้านที่ขายหน้าร้าน
+// แยกด้วย "คำในชื่อธุรกิจ" เท่านั้น — ตรวจสอบย้อนกลับได้ ไม่สุ่ม และไม่แต่งหมวดให้รายที่ไม่มีสัญญาณ
+// รายที่ชื่อไม่บอกอะไรเลยจะคงเป็น FoodBeverage ตามข้อมูลต้นทาง (ไม่เดาแทนเจ้าของข้อมูล)
+const RESTAURANT_KW = /cafe|café|coffee|restaurant|bistro|eatery|kitchen|diner|pizza|sushi|noodle|bakery|brunch|steak|grill|buffet|ร้านอาหาร|ภัตตาคาร|คาเฟ|กาแฟ|ครัว|เบเกอรี|ก๋วยเตี๋ยว|หมูกระทะ|ชาบู|สุกี้|บุฟเฟ|ซูชิ|พิซซ่า|สเต็ก|ไอศกรีม|ชานม/i;
+const splitSeg = r => (r.segment==='FoodBeverage' && RESTAURANT_KW.test(r.businessName||'')) ? 'RestaurantCafe' : r.segment;
+
 // ═══════════ 1) ลูกค้า — ข้อมูลจริง อ่านตรงจากไฟล์ ไม่มีการสุ่มใด ๆ ═══════════
 const SOURCE = JSON.parse(await readFile('data/source-customers.json','utf8'));
 const customers = SOURCE.map(r=>({
   id:r.id,                       // = รหัสลูกค้าจากระบบเดิม (AccountNo) · ต่อท้าย -2/-3 เมื่อหนึ่งบัญชีมีหลายสาขา
   accountNo:r.accountNo,
   businessName:r.businessName,
-  segment:r.segment,
+  segment:splitSeg(r),           // FoodBeverage ที่ชื่อบ่งว่าเป็นร้าน/คาเฟ่ ย้ายไป RestaurantCafe
   status:'Existing',
   country:'Thailand',
   province:r.province,
@@ -69,7 +76,7 @@ const PFX=['ABC','Grand','Royal','Riverside','Sunset','Emerald','Golden','Ocean'
 const SFX={
   Manufacturing:['Industry','Manufacturing','Supplies','Works','Materials'],
   HomeLiving:['Furniture','Home','Decor','Living','Interior'],
-  FoodBeverage:['Restaurant','Kitchen','Bistro','Cafe','Eatery','Seafood'],
+  FoodBeverage:['Foods','Beverage','Trading','Provisions','Fresh Market'],
   HealthBeauty:['Clinic','Spa','Salon','Wellness','Beauty','Aesthetic'],
   Retail:['Mall','Plaza','Store','Mart','Outlet','Emporium'],
   ProfessionalServices:['Agency','Consulting','Partners','Advisory','Media','Creative'],
@@ -78,7 +85,8 @@ const SFX={
   Technology:['Tech','Digital','Electronics','Systems','IT Solutions'],
   PetAnimal:['Pet Shop','Animal Care','Pet Clinic','Grooming'],
   ArtsCulture:['Studio','Gallery','Atelier','Craft','Workshop'],
-  RealEstate:['Property','Estate','Residence','Land','Realty'] };
+  RealEstate:['Property','Estate','Residence','Land','Realty'],
+  RestaurantCafe:['Restaurant','Cafe','Coffee','Bistro','Bakery','Eatery','Seafood'] };
 const ROADS=['Sukhumvit','Rama IX','Phahonyothin','Silom','Charoen Krung','Ratchada','Beach','Nimman'];
 const SEGMENTS=SEG;
 const bizName=seg=>pick(PFX)+' '+pick(SFX[seg]);

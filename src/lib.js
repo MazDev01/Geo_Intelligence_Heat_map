@@ -78,7 +78,7 @@ export const pct = n => (n==null?"—":Math.round(n)+"%");
 export const cx = (...a)=>a.filter(Boolean).join(" ");
 
 // 12 เซกเมนต์ + สี/ไอคอน/ชื่อไทย — re-export จาก geoData (นำเข้าไว้บนสุดแล้ว)
-export {SEGMENTS, SEG_COLOR, SEG_ICON, SEG_SVG, SEG_TH};
+export {SEGMENTS, SEG_COLOR, SEG_ICON, SEG_SVG, SEG_TH, SEG_EN};
 // customer status colours (the ONLY thing colour encodes)
 export const STATUS_COLOR = {Existing:"#1565C0", Prospect:"#64B5F6"};
 

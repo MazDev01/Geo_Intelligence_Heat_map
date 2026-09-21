@@ -9,6 +9,7 @@ import {t} from "./i18n.js";
 
 // Post-login globe picker: a FIXED shortlist of four featured provinces.
 // "Pattaya" ใช้ key นี้ทั้งระบบ โดยอิงขอบเขต/พิกัดของพื้นที่ชายฝั่งตะวันออกเดิม
+// label = ชื่อไทยไว้อ่านในโค้ดเท่านั้น — ชื่อที่แสดงบนการ์ดมาจาก provinceTH() จึงสลับภาษาตามผู้ใช้
 const FEATURED_PROVINCES = [
   {province:"Bangkok Metropolis", get label(){ return t("กรุงเทพมหานคร","Bangkok"); }},
   {province:"Chiang Mai",         get label(){ return t("เชียงใหม่","Chiang Mai"); }},
@@ -111,7 +112,7 @@ export function GeoStage({db, mode, activeCountry, flyTarget, globeUnder, onArri
     onClick=${()=>clickCard(f)}>
     <div class="pick-head-row">
       <${Icon} name="pin" size=${15} color="#ff3b5c"/>
-      <span class="pick-name">${f.label}</span>
+      <span class="pick-name">${provinceTH(f.province)}</span>
     </div>
     ${f.area ? html`<div class="pick-body">
       <div class="pick-metric"><span class="pick-num">${num(f.area.customerCount)}</span><span class="pick-lab">${t("ลูกค้า", "Customers")}</span></div>
