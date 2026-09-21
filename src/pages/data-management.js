@@ -1689,8 +1689,12 @@ export function TerritoryManager(){
     for(const pv of provs){ if(tc) next[pv]=tc.id; else delete next[pv]; }
     setAssign(next);
     // บันทึกขึ้นเซิร์ฟเวอร์ทันที — ไม่งั้นรีเฟรชแล้วหาย และ TC ไม่มีวันเห็นว่าตัวเองถือโซนไหน
-    if(loadedRef.current) saveTerritory(next).then(r=>{ if(!r.ok)
-      toast(t("บันทึกขึ้นเซิร์ฟเวอร์ไม่สำเร็จ: ", "Could not save to the server: ")+r.error, "bad"); });
+    if(loadedRef.current) saveTerritory(next).then(r=>{
+      if(!r.ok) toast(t("บันทึกไม่สำเร็จ: ", "Save failed: ")+r.error, "bad");
+      // บันทึกลงเครื่องได้ แต่ขึ้นเซิร์ฟเวอร์ไม่ได้ — ต้องบอก ไม่งั้นแอดมินจะเข้าใจว่า TC เห็นแล้ว
+      else if(r.local) toast(t("บันทึกในเครื่องนี้เท่านั้น — TC ที่เปิดจากเครื่องอื่นจะยังไม่เห็น",
+        "Saved on this device only — a TC on another device will not see it yet"), "warn");
+    });
     const names = provs.map(unitLabel).join(", ");
     pushAudit({ action: tc? t("มอบหมายขอบเขตพื้นที่การขาย", "Assigned a sales territory") : t("ยกเลิกมอบหมายขอบเขตพื้นที่การขาย", "Unassigned a sales territory"), category:"แก้ไข",
       detail: `${provs.length>1?`${provs.length} ${t("จังหวัด ·", "Province ·")} `:""}${names} → ${tc? `${tc.name} (${tc.email})` : t("ไม่มีผู้ดูแล (no man’s land)", "No owner (no man's land)")}` });
