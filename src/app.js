@@ -276,8 +276,17 @@ function App(){
       // ── TC: เข้าสู่ระบบแล้วเข้า "หน้าจังหวัดที่รับผิดชอบ" ทันที ไม่ผ่านลูกโลก · จังหวัดมาจาก session (ในเดโมฝังใน user) ──
       if(tc){
         const noprov=q.get("noprov")==="1"; const prov=noprov?null:(q.get("prov")||"Chiang Mai");
-        setUser({role:"Trade Coordinator", name:"ธนพล ศรีวัฒน์", email:"tc@geointel.io", initials:"TC", province:prov});
-        pushAudit({user:"tc@geointel.io", action:t("เข้าสู่ระบบ", "Sign in"), category:"เข้าสู่ระบบ", detail: prov?(t("พื้นที่รับผิดชอบ: ", "Territory: ")+provinceTH(prov)):t("ยังไม่กำหนดพื้นที่รับผิดชอบ", "No territory assigned yet")});
+        // ⚠ บัญชีเดโมต้องเป็น "คนเดียวกัน" กับที่แอดมินเห็นในหน้ามอบหมาย ไม่งั้นมอบหมายให้ ณัฐริกา
+        //   แล้วเปิดเดโมกลับไม่เห็นอะไรเลย เพราะตาราง assign เก็บเป็น id ของบัญชีจริงใน SEED_USERS
+        //   จึงหยิบ TC ตัวจริงของจังหวัดนั้นมาใช้ (?tc=<email> ระบุเองได้ถ้าจังหวัดมี TC หลายคน)
+        const wantEmail = q.get("tc");
+        const seedTC = SEED_USERS.find(u=>u.role==="Trade Coordinator" &&
+          (wantEmail ? u.email===wantEmail : (prov ? u.province===prov : false)));
+        const initialsOf = n => (n||"TC").trim().slice(0,2);
+        setUser(seedTC
+          ? {role:"Trade Coordinator", name:seedTC.name, email:seedTC.email, initials:initialsOf(seedTC.name), province:prov}
+          : {role:"Trade Coordinator", name:"ธนพล ศรีวัฒน์", email:"tc@geointel.io", initials:"TC", province:prov});
+        pushAudit({user:(seedTC&&seedTC.email)||"tc@geointel.io", action:t("เข้าสู่ระบบ", "Sign in"), category:"เข้าสู่ระบบ", detail: prov?(t("พื้นที่รับผิดชอบ: ", "Territory: ")+provinceTH(prov)):t("ยังไม่กำหนดพื้นที่รับผิดชอบ", "No territory assigned yet")});
         if(prov){
           // เข้าหน้าจังหวัดทันที (ตั้ง view/map ก่อน) แล้วค่อยโหลดข้อมูลเบื้องหลัง —
           // กันอาการค้างที่ลูกโลกถ้า loadCountry ช้า/ล้มเหลว (TC ต้องอยู่หน้าจังหวัดที่รับผิดชอบเสมอ)

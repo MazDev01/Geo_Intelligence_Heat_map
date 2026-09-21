@@ -1579,18 +1579,20 @@ function buildProvincePaths(geo){
   const kx=Math.cos((laMin+laMax)/2*Math.PI/180);
   const W=420, H=Math.round(W*(laMax-laMin)/((lnMax-lnMin)*kx));
   const sx=W/((lnMax-lnMin)*kx), sy=H/(laMax-laMin);
-  const byProv={};
+  const byProv={}, bboxByProv={};
   for(const [nm,pts] of rings){
     let d="M";
+    const bb = bboxByProv[nm] || (bboxByProv[nm]={x0:Infinity,y0:Infinity,x1:-Infinity,y1:-Infinity});
     for(let i=0;i<pts.length;i++){
-      const x=((pts[i][0]-lnMin)*kx*sx).toFixed(1), y=((laMax-pts[i][1])*sy).toFixed(1);
-      d += (i? "L":"")+x+" "+y;
+      const xn=(pts[i][0]-lnMin)*kx*sx, yn=(laMax-pts[i][1])*sy;
+      if(xn<bb.x0)bb.x0=xn; if(xn>bb.x1)bb.x1=xn; if(yn<bb.y0)bb.y0=yn; if(yn>bb.y1)bb.y1=yn;
+      d += (i? "L":"")+xn.toFixed(1)+" "+yn.toFixed(1);
     }
     byProv[nm]=(byProv[nm]||"")+d+"Z";
   }
   // คืนค่าการฉายพิกัดออกไปด้วย เพื่อให้รูปโซน (zones.geojson) ฉายด้วยสเกลเดียวกันเป๊ะ
   // ไม่งั้นโซนจะวางเหลื่อมกับรูปจังหวัดบนภาพเดียวกัน
-  return {W,H,byProv, proj:{lnMin, laMax, kx, sx, sy}};
+  return {W,H,byProv,bboxByProv, proj:{lnMin, laMax, kx, sx, sy}};
 }
 
 /* ฉายรูปโซน (SL/LP/TL) ด้วยการฉายชุดเดียวกับรูปจังหวัด → { zone_id: "d" } */
@@ -1618,6 +1620,7 @@ function buildZonePaths(zonesGeo, proj){
 /* แผนที่ขอบเขต — ระบายสีตาม TC ที่ดูแล · จังหวัดไร้ผู้ดูแลใช้ลายทแยงแดง (เห็นชัดแม้พิมพ์ขาวดำ) */
 function TerritoryMap({paths, assign, focus, onFocus, zonePaths}){
   const [hover,setHover]=useState(null);
+  const [zoom,setZoom]=useState(false);   // ซูมไปที่กรุงเทพฯ เพื่อให้คลิกเลือกโซนได้ถนัด
   if(!paths) return html`<div class="tr-map-load">${t("กำลังโหลดขอบเขตจังหวัด…", "Loading province boundaries…")}</div>`;
   const shown = hover || focus;
   // กรุงเทพฯ เป็นรูปเดียวบนแมพแต่มี 3 โซน — เจ้าของเดียวกันทั้ง 3 จึงระบายสีนั้นได้
@@ -1628,8 +1631,18 @@ function TerritoryMap({paths, assign, focus, onFocus, zonePaths}){
     return TC_BY_ID[ids[0]]||null; };
   // shown เป็นได้ทั้งชื่อจังหวัด ("Chiang Mai") และคีย์หน่วยระดับโซน ("Bangkok Metropolis/LP")
   const ownerOf = key => key && key.includes("/") ? (TC_BY_ID[assign[key]]||null) : tcOf(key);
-  return html`<div class="tr-map">
-    <svg viewBox=${"0 0 "+paths.W+" "+paths.H} class="tr-map-svg" preserveAspectRatio="xMidYMid meet"
+  // ซูม: กรุงเทพฯ กินพื้นที่แค่ ~2% ของภาพทั้งประเทศ โซนย่อยจึงเล็กจนคลิกยาก
+  // กดปุ่มแล้วเปลี่ยน viewBox ไปที่กรอบของกรุงเทพฯ (เผื่อขอบ 25%) — ไม่ต้องแตะรูปหรือสเกลใด ๆ
+  const bb = paths.bboxByProv && paths.bboxByProv[BKK];
+  const zoomBox = bb ? (()=>{ const w=bb.x1-bb.x0, h=bb.y1-bb.y0, pad=Math.max(w,h)*0.25;
+    return `${(bb.x0-pad).toFixed(1)} ${(bb.y0-pad).toFixed(1)} ${(w+pad*2).toFixed(1)} ${(h+pad*2).toFixed(1)}`; })() : null;
+  return html`<div class="tr-map" style=${{position:"relative"}}>
+    ${zoomBox && html`<button type="button" onClick=${()=>setZoom(z=>!z)}
+      style=${{position:"absolute",top:"8px",right:"8px",zIndex:2,padding:"6px 11px",borderRadius:"8px",
+        border:"1px solid var(--stroke2)",background:"var(--panel)",color:"var(--txt)",cursor:"pointer",
+        font:"600 12px var(--font)",boxShadow:"var(--shadow-sm)"}}>
+      ${zoom ? t("ย่อกลับทั้งประเทศ","Back to whole country") : t("ซูมกรุงเทพฯ","Zoom to Bangkok")}</button>`}
+    <svg viewBox=${zoom && zoomBox ? zoomBox : "0 0 "+paths.W+" "+paths.H} class="tr-map-svg" preserveAspectRatio="xMidYMid meet"
       role="img" aria-label=${t("แผนที่ขอบเขตพื้นที่การขายรายจังหวัด", "Sales territory map by province")} onMouseLeave=${()=>setHover(null)}>
       <defs>
         <pattern id="trNoMan" width="7" height="7" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
@@ -1753,8 +1766,10 @@ export function TerritoryManager(){
   // กดบันทึกในกล่องมอบหมาย → เขียนค่าใหม่ + ปิดกล่อง
   const saveAssign = ()=>{ if(!focus) return; applyAssign([focus], pick||null); setFocus(null); };
 
+  // แสดงอีเมลคู่กับชื่อ — บัญชีเดโม (?demo=tc&prov=…) เข้าเป็น TC ของจังหวัดนั้นตามอีเมลนี้
+  // ถ้ามอบหมายให้คนที่ไม่ตรงกับบัญชีเดโม จะเปิดเดโมแล้วไม่เห็นผลอะไรเลย
   const tcOptions = [["",t("— ยังไม่มีคนดูแล —", "— no owner yet —")],
-    ...TC_USERS.map(u=>[String(u.id), u.name])];
+    ...TC_USERS.map(u=>[String(u.id), `${u.name} · ${u.email}`])];
 
 
   return html`<div class="page fade-in tr-wrap">
@@ -1823,6 +1838,10 @@ export function TerritoryManager(){
         </div>
         <div class="dm-alert" style=${{marginBottom:0}}>
           <${Icon} name="info" size=${14}/> ${t("กรุงเทพฯ แบ่งเป็น 3 โซนตามแผนที่ขอบเขตของลูกค้า (สีลม · ลาดพร้าว · ทองหล่อ) — คลิกกรุงเทพฯ บนแผนที่แล้วมอบหมายแยกทีละโซนได้ · จังหวัดอื่นยังเป็นหน่วยเดียวทั้งจังหวัด", "Bangkok is split into 3 zones from the customer's boundary map (Silom · Lat Phrao · Thonglor) — click Bangkok on the map to assign each zone separately. Every other province stays a single unit.")}
+          ${(()=>{ const demo=TC_USERS.find(u=>u.province===BKK); return demo ? html`<div style=${{marginTop:"6px"}}>
+            ${t("ดูผลฝั่ง TC: เปิด ", "To check the TC side: open ")}<code>?demo=tc&prov=Bangkok Metropolis</code>
+            ${t(" จะเข้าเป็น ", " — it signs in as ")}<b>${demo.name} (${demo.email})</b>
+            ${t(" ดังนั้นต้องมอบหมายโซนให้บัญชีนี้ถึงจะเห็นผล", ", so assign the zone to this account for the change to show")}</div>` : ""; })()}
         </div>
       </${Card}>
     </div>
