@@ -164,7 +164,13 @@ export function LeafletMap({db, filters, layers, country="Thailand", onPickArea,
     // ⚠ ไม่มี bundler จึงไม่มี import.meta.env.DEV — ใช้ ?perf=1 เป็นสวิตช์ dev เหมือน mapPerfGuard
     // ⚠ ห้ามใส่ zones ใน deps ของ effect นี้ — cleanup ของมันคือ map.remove()
     let zonesCancelled = false;
-    fetch("/data/zones.geojson").then(r=>r.json()).then(gj=>{
+    // รูปโซน: เอาของที่แอดมินเซฟขึ้นเซิร์ฟเวอร์ก่อน (204 = ยังไม่เคยเซฟ) ไม่มีค่อยใช้ไฟล์ที่มากับ repo
+    // no-store เพราะเซฟเสร็จแล้วรีเฟรชต้องเห็นเส้นใหม่ทันที ไม่ใช่ของที่เบราว์เซอร์แคชไว้
+    const loadZones = () => fetch("/api/zones", {cache:"no-store"})
+      .then(r => (r.ok && r.status!==204) ? r.json() : null)
+      .catch(()=>null)
+      .then(gj => gj || fetch("/data/zones.geojson", {cache:"no-store"}).then(r=>r.json()));
+    loadZones().then(gj=>{
       if(zonesCancelled || !M.current.alive || !M.current.map) return;
       M.current.zonesGeo = gj;        // เก็บรูปดิบไว้ให้ buildMask() เจาะรูตามโซน (ข้อ 4)
       M.current.zones = createZoneLayer(map, gj, {

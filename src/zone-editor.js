@@ -353,6 +353,28 @@ export function createZoneEditor(map, zones) {
       return gj;
     },
 
+    /** เซฟขึ้นเซิร์ฟเวอร์ — ทุกคนเห็นเส้นใหม่ทันทีที่รีเฟรช (ไม่ต้องหอบไฟล์ไปวางเอง) */
+    async publish() {
+      const gj = api.toGeoJSON();
+      const s = statsOf(gj);
+      if (s.overVertices || s.overKb)
+        return { ok: false, error: `เกินเพดาน (${s.vertices} จุด · ${s.kb} KB) — กด "หมุดห่าง" ลดจุดก่อน` };
+      try {
+        const r = await fetch('/api/zones', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(gj),
+        });
+        const body = await r.json().catch(() => ({}));
+        if (!r.ok) return { ok: false, error: body.message || body.error || ('HTTP ' + r.status) };
+        dirty = false;
+        console.log('[zone-editor] เซฟขึ้นเซิร์ฟเวอร์แล้ว', body);
+        return { ok: true, ...body };
+      } catch (e) {
+        return { ok: false, error: e.message };
+      }
+    },
+
     revert() {
       reload(snapshot);
       history.length = 0;
@@ -400,7 +422,8 @@ function buildPanel(map, ed) {
     </div>
     <button data-a="undo">ย้อน 1 ขั้น</button>
     <button data-a="revert">ย้อนทั้งหมด</button>
-    <button class="zed-save" data-a="save">เซฟไฟล์</button>
+    <button class="zed-save" data-a="publish">เซฟขึ้นเซิร์ฟเวอร์</button>
+    <button data-a="save">เซฟเป็นไฟล์ (สำรอง)</button>
     <div class="zed-info"></div>`;
 
   // กันคลิก/สกรอลล์บนแผงไปโดนแมพ (ไม่งั้นกดปุ่มแล้วแมพเลื่อนตาม)
@@ -427,6 +450,15 @@ function buildPanel(map, ed) {
       else if (a === 'undo') ed.undo();
       else if (a === 'revert') ed.revert();
       else if (a === 'save') ed.download();
+      else if (a === 'publish') {
+        info.textContent = 'กำลังเซฟ…';
+        const r = await ed.publish();
+        info.textContent = r.ok
+          ? `เซฟแล้ว ${(r.zones||[]).join(" · ")} · ${r.kb} KB — รีเฟรชแล้วทุกคนเห็นเส้นใหม่`
+          : 'เซฟไม่สำเร็จ: ' + r.error;
+        b.disabled = false;
+        return;                       // ข้าม refresh() ไม่งั้นข้อความผลลัพธ์จะถูกเขียนทับทันที
+      }
     } catch (err) {
       console.error(err);
       info.textContent = 'ผิดพลาด: ' + err.message;

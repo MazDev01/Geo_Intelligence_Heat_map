@@ -79,6 +79,38 @@ createServer(async (req,res)=>{
       return send(405,{error:'รองรับเฉพาะ GET กับ POST'});
     }
 
+    // ── API: รูปขอบเขตโซนที่แอดมินลากเอง (คู่กับ api/zones.js ที่ใช้บน Vercel) ──
+    // ในเครื่องเขียนลง data/zones.geojson ตรง ๆ · GET ตอบ 204 เสมอ ให้หน้าเว็บไปอ่านไฟล์นั้นแทน
+    // (บน Vercel เก็บที่ Blob เพราะเขียนไฟล์ไม่ได้ — พฤติกรรมฝั่งหน้าเว็บเหมือนกันทั้งสองที่)
+    if(p==='/api/zones'){
+      const send = (code,obj)=>{ res.writeHead(code,{'Content-Type':'application/json','Cache-Control':'no-store'});
+        res.end(obj===undefined?'':JSON.stringify(obj)); };
+      const STORE = join(ROOT, 'data', 'zones.geojson');
+      if(req.method==='GET') return send(204);
+      if(req.method==='POST'){
+        let raw=''; for await (const chunk of req){ raw += chunk;
+          if(raw.length > 1.2e6){ return send(413,{error:'ไฟล์ใหญ่เกิน'}); } }
+        const kb = Math.round(Buffer.byteLength(raw,'utf8')/1024);
+        if(kb > 600) return send(413,{error:`ไฟล์ ${kb} KB เกินเพดาน 600 KB — ลดหมุดก่อนเซฟ`});
+        let gj; try{ gj = JSON.parse(raw||'null'); }catch{ return send(400,{error:'JSON ไม่ถูกต้อง'}); }
+        if(!gj || gj.type!=='FeatureCollection' || !Array.isArray(gj.features) || !gj.features.length)
+          return send(400,{error:'รูปโซนใช้ไม่ได้', message:'ต้องเป็น FeatureCollection ที่มี feature อย่างน้อยหนึ่งอัน'});
+        for(const f of gj.features){
+          if(!f || !f.properties || typeof f.properties.zone_id!=='string' || !f.properties.zone_id)
+            return send(400,{error:'รูปโซนใช้ไม่ได้', message:'ทุก feature ต้องมี properties.zone_id'});
+          const g=f.geometry;
+          if(!g || (g.type!=='Polygon' && g.type!=='MultiPolygon'))
+            return send(400,{error:'รูปโซนใช้ไม่ได้', message:`${f.properties.zone_id}: geometry ต้องเป็น Polygon/MultiPolygon`});
+        }
+        const tmp = STORE+'.tmp';
+        await writeFile(tmp, raw);
+        await rename(tmp, STORE);
+        console.log(`[zones] บันทึก ${gj.features.length} โซน · ${kb} KB`);
+        return send(200,{ok:true, zones:gj.features.map(f=>f.properties.zone_id), kb, updatedAt:new Date().toISOString()});
+      }
+      return send(405,{error:'รองรับเฉพาะ GET กับ POST'});
+    }
+
     const file = normalize(join(ROOT, p));
     if(!file.startsWith(ROOT)){ res.writeHead(403).end('forbidden'); return; }
 
