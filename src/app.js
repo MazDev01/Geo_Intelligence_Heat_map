@@ -582,7 +582,20 @@ function App(){
   const isDemoMode = /[?&]demo=/.test(location.search);   // ตัวสลับบทบาทโชว์เฉพาะโหมดเดโม (dev) เท่านั้น
   const roleShort = {admin:"Admin", management:t("ผู้บริหาร", "Management"), tc:"TC"}[roleDemo];
   const switchRole = d => { const u=new URL(location.href); u.searchParams.set("demo",d);
-    u.searchParams.delete("prov"); u.searchParams.delete("noprov"); u.searchParams.delete("go"); location.href=u.pathname+u.search; };
+    u.searchParams.delete("prov"); u.searchParams.delete("noprov"); u.searchParams.delete("go");
+    u.searchParams.delete("tc");
+    // สลับไป TC: เลือกจังหวัด + บัญชีจากการมอบหมายจริงที่แอดมินบันทึกไว้
+    // ไม่งั้นจะตกไปใช้ค่าเริ่มต้น "Chiang Mai" ทุกครั้ง แล้วดูไม่เห็นผลของโซนที่เพิ่งมอบหมาย
+    if(d==="tc" && territory){
+      const keys = Object.keys(territory).filter(k=>territory[k]);
+      const pick = keys.find(k=>k.includes("/")) || keys[0];   // มีโซน = เคสที่น่าดูที่สุด เลือกอันนั้นก่อน
+      if(pick){
+        u.searchParams.set("prov", pick.split("/")[0]);
+        const owner = SEED_USERS.find(x=>x.id===territory[pick]);
+        if(owner) u.searchParams.set("tc", owner.email);       // เข้าเป็นเจ้าของพื้นที่นั้นจริง ๆ
+      }
+    }
+    location.href=u.pathname+u.search; };
 
   return html`<${AppCtx.Provider} value=${ctx}>
   <div class=${"shell"+(isBiz?" no-nav":collapsed?" collapsed":"")}>
