@@ -5,7 +5,7 @@
 // ⚠ ปรับจากต้นฉบับ 1 จุดให้เข้ากับโปรเจกต์นี้: label เป็น getter ที่เรียก t()
 //   ทั้งแอปสลับ TH/EN ได้แล้ว ถ้าปล่อย label เป็นสตริงไทยตายตัว ชื่อโซนจะเป็นจุดเดียวที่ไม่แปล
 //   (คงชื่อ property ว่า `label` และไม่ export zoneName ตามเดิม — เทสต์เดิมยังผ่าน)
-import { t } from "./i18n.js";
+import { t, isEN } from "./i18n.js";
 
 /** property ชื่อ `label` (ไม่ใช่ `name`) กันชนกับ zoneName() ใน geoData.js */
 export const ZONE_META = {
@@ -39,8 +39,17 @@ export function createZoneLayer(map, geojson, opts = {}) {
 
   const renderer = L.canvas({ padding: o.padding, pane: o.paneName });
 
+  // สี/ชื่อมาจาก properties ของ feature ก่อน (ทะเบียนโซน — ดู zone-registry.js)
+  // meta ที่ส่งเข้ามาหรือ ZONE_META เป็นแค่ fallback ให้ไฟล์รุ่นเก่าที่ยังไม่มีฟิลด์ color
+  const metaOf = f => {
+    const p = f.properties || {};
+    const fb = meta[p.zone_id] ?? {};
+    return { color: p.color || fb.color || '#64748b',
+             label: p.zone_name ? (isEN() ? (p.zone_name_en || p.zone_name) : p.zone_name)
+                                : (fb.label ?? p.zone_id) };
+  };
   const styleOf = (f, state) => {
-    const m = meta[f.properties.zone_id] ?? { color: '#64748b' };
+    const m = metaOf(f);
     const on = f.properties.zone_id === activeId;
     return {
       color: m.color,
@@ -162,9 +171,9 @@ export function createZoneLayer(map, geojson, opts = {}) {
     },
 
     list: () => layer.getLayers().map(l => {
-      const p = l.feature.properties;
-      return { zone_id: p.zone_id, label: meta[p.zone_id]?.label ?? p.zone_name,
-               color: meta[p.zone_id]?.color, n_areas: p.n_src };
+      const p = l.feature.properties, m = metaOf(l.feature);
+      return { zone_id: p.zone_id, label: m.label, color: m.color,
+               province: p.province, n_areas: p.n_src };
     }),
 
     selfCheck,

@@ -41,6 +41,16 @@ function validate(gj) {
     if (seen.has(id)) return `zone_id ซ้ำ: ${id}`;
     seen.add(id);
 
+    // metadata ของโซน (ทะเบียนโซน — ดู src/zone-registry.js) ทุกฟิลด์เป็น optional
+    // แต่ถ้าส่งมาต้องถูกชนิด ไม่งั้นค่าขยะจะไปโผล่เป็นชื่อ/สีบนแมพของทุกคน
+    const p = f.properties;
+    if (p.zone_name != null && typeof p.zone_name !== 'string') return `${id}: zone_name ต้องเป็นข้อความ`;
+    if (p.zone_name_en != null && typeof p.zone_name_en !== 'string') return `${id}: zone_name_en ต้องเป็นข้อความ`;
+    if (p.province != null && typeof p.province !== 'string') return `${id}: province ต้องเป็นข้อความ`;
+    if (p.color != null && !/^#[0-9a-fA-F]{6}$/.test(p.color)) return `${id}: color ต้องเป็น #rrggbb`;
+    if (p.districts != null && (!Array.isArray(p.districts) || p.districts.some(d=>typeof d !== 'string')))
+      return `${id}: districts ต้องเป็นอาเรย์ของข้อความ`;
+
     const g = f.geometry;
     if (!g || (g.type !== 'Polygon' && g.type !== 'MultiPolygon'))
       return `${id}: geometry ต้องเป็น Polygon หรือ MultiPolygon`;

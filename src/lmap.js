@@ -6,6 +6,7 @@ import {t, useLang} from "./lib.js";
 import {createZoneLayer} from "./zone-layer.js";   // โซน SL/LP/TL ของ กทม.
 import {mountZoneEditor} from "./zone-editor.js";  // โหมดลากขอบ เปิดด้วย ?edit=1
 import {createZoneResolver} from "./resolveZone.js";   // หาว่าพิกัดอยู่ในโซนไหน (กรองข้อมูลของ TC)
+import {loadZoneRegistry} from "./zone-registry.js";   // ทะเบียนโซน: รูป + ชื่อ + สี ที่เดียว
 import {BASEMAP_MAXZOOM} from "../config/basemap.js";
 import {roleCode} from "./permissions.js";   // แปลง role → code (ADMIN/SALES_MANAGER/TC) กันสตริงดิบกระจาย
 
@@ -164,13 +165,9 @@ export function LeafletMap({db, filters, layers, country="Thailand", onPickArea,
     // ⚠ ไม่มี bundler จึงไม่มี import.meta.env.DEV — ใช้ ?perf=1 เป็นสวิตช์ dev เหมือน mapPerfGuard
     // ⚠ ห้ามใส่ zones ใน deps ของ effect นี้ — cleanup ของมันคือ map.remove()
     let zonesCancelled = false;
-    // รูปโซน: เอาของที่แอดมินเซฟขึ้นเซิร์ฟเวอร์ก่อน (204 = ยังไม่เคยเซฟ) ไม่มีค่อยใช้ไฟล์ที่มากับ repo
-    // no-store เพราะเซฟเสร็จแล้วรีเฟรชต้องเห็นเส้นใหม่ทันที ไม่ใช่ของที่เบราว์เซอร์แคชไว้
-    const loadZones = () => fetch("/api/zones", {cache:"no-store"})
-      .then(r => (r.ok && r.status!==204) ? r.json() : null)
-      .catch(()=>null)
-      .then(gj => gj || fetch("/data/zones.geojson", {cache:"no-store"}).then(r=>r.json()));
-    loadZones().then(gj=>{
+    // รูปโซน + ชื่อ/สี มาจากทะเบียนโซนที่เดียว (zone-registry.js) — ของที่เซฟบนเซิร์ฟเวอร์ก่อน
+    // ไม่มีค่อยใช้ไฟล์ที่มากับ repo · แคชร่วมกับหน้าแอดมิน จึงเห็นค่าเดียวกันทั้งแอป
+    loadZoneRegistry().then(gj=>{
       if(zonesCancelled || !M.current.alive || !M.current.map) return;
       M.current.zonesGeo = gj;        // เก็บรูปดิบไว้ให้ buildMask() เจาะรูตามโซน (ข้อ 4)
       M.current.zones = createZoneLayer(map, gj, {
