@@ -3,6 +3,9 @@ import {readFile, writeFile, rename, stat} from 'node:fs/promises';
 import {createReadStream} from 'node:fs';
 import {extname, join, normalize} from 'node:path';
 import {fileURLToPath} from 'node:url';
+import {createRequire} from 'node:module';
+// ตัวตรวจทะเบียนโซนตัวเดียวกับที่ Vercel ใช้ (api/zones.js) — เป็น .cjs จึงต้องผ่าน createRequire
+const {validateZones} = createRequire(import.meta.url)('./zone-validate.cjs');
 
 const ROOT = fileURLToPath(new URL('.', import.meta.url));
 const PORT = 5173;
@@ -93,15 +96,10 @@ createServer(async (req,res)=>{
         const kb = Math.round(Buffer.byteLength(raw,'utf8')/1024);
         if(kb > 600) return send(413,{error:`ไฟล์ ${kb} KB เกินเพดาน 600 KB — ลดหมุดก่อนเซฟ`});
         let gj; try{ gj = JSON.parse(raw||'null'); }catch{ return send(400,{error:'JSON ไม่ถูกต้อง'}); }
-        if(!gj || gj.type!=='FeatureCollection' || !Array.isArray(gj.features) || !gj.features.length)
-          return send(400,{error:'รูปโซนใช้ไม่ได้', message:'ต้องเป็น FeatureCollection ที่มี feature อย่างน้อยหนึ่งอัน'});
-        for(const f of gj.features){
-          if(!f || !f.properties || typeof f.properties.zone_id!=='string' || !f.properties.zone_id)
-            return send(400,{error:'รูปโซนใช้ไม่ได้', message:'ทุก feature ต้องมี properties.zone_id'});
-          const g=f.geometry;
-          if(!g || (g.type!=='Polygon' && g.type!=='MultiPolygon'))
-            return send(400,{error:'รูปโซนใช้ไม่ได้', message:`${f.properties.zone_id}: geometry ต้องเป็น Polygon/MultiPolygon`});
-        }
+        // ใช้ตัวตรวจ "ตัวเดียวกัน" กับ api/zones.js บน Vercel — ก่อนหน้านี้เขียนแยกกันแล้วไม่เท่ากัน
+        // (สีผิดรูปแบบผ่านในเครื่องแต่ถูกปฏิเสธบน production) ดู zone-validate.cjs
+        const bad = validateZones(gj);
+        if(bad) return send(400,{error:'รูปโซนใช้ไม่ได้', message:bad});
         const tmp = STORE+'.tmp';
         await writeFile(tmp, raw);
         await rename(tmp, STORE);

@@ -16,8 +16,7 @@
 
 const BLOB_PATH = 'zones/zones.geojson';
 const TOKEN = process.env.BLOB_READ_WRITE_TOKEN || '';
-const MAX_VERTICES = 20000;
-const MAX_BYTES = 600 * 1024;
+const { validateZones, MAX_VERTICES, MAX_BYTES } = require('../zone-validate.cjs');
 
 const send = (res, code, obj) => {
   res.statusCode = code;
@@ -25,59 +24,6 @@ const send = (res, code, obj) => {
   res.setHeader('Cache-Control', 'no-store');      // เซฟแล้วต้องเห็นของใหม่ทันที ห้ามแคช
   res.end(obj === undefined ? '' : JSON.stringify(obj));
 };
-
-/** ตรวจว่าเป็น GeoJSON ของโซนที่ใช้งานได้จริง — คืนข้อความ error หรือ null ถ้าผ่าน */
-function validate(gj) {
-  if (!gj || gj.type !== 'FeatureCollection' || !Array.isArray(gj.features))
-    return 'ต้องเป็น FeatureCollection';
-  if (!gj.features.length) return 'ไม่มี feature เลย';
-
-  const seen = new Set();
-  let vertices = 0;
-
-  for (const f of gj.features) {
-    const id = f && f.properties && f.properties.zone_id;
-    if (!id || typeof id !== 'string') return 'ทุก feature ต้องมี properties.zone_id';
-    if (seen.has(id)) return `zone_id ซ้ำ: ${id}`;
-    seen.add(id);
-
-    // metadata ของโซน (ทะเบียนโซน — ดู src/zone-registry.js) ทุกฟิลด์เป็น optional
-    // แต่ถ้าส่งมาต้องถูกชนิด ไม่งั้นค่าขยะจะไปโผล่เป็นชื่อ/สีบนแมพของทุกคน
-    const p = f.properties;
-    if (p.zone_name != null && typeof p.zone_name !== 'string') return `${id}: zone_name ต้องเป็นข้อความ`;
-    if (p.zone_name_en != null && typeof p.zone_name_en !== 'string') return `${id}: zone_name_en ต้องเป็นข้อความ`;
-    if (p.province != null && typeof p.province !== 'string') return `${id}: province ต้องเป็นข้อความ`;
-    if (p.color != null && !/^#[0-9a-fA-F]{6}$/.test(p.color)) return `${id}: color ต้องเป็น #rrggbb`;
-    if (p.districts != null && (!Array.isArray(p.districts) || p.districts.some(d=>typeof d !== 'string')))
-      return `${id}: districts ต้องเป็นอาเรย์ของข้อความ`;
-
-    const g = f.geometry;
-    if (!g || (g.type !== 'Polygon' && g.type !== 'MultiPolygon'))
-      return `${id}: geometry ต้องเป็น Polygon หรือ MultiPolygon`;
-
-    const polys = g.type === 'MultiPolygon' ? g.coordinates : [g.coordinates];
-    if (!polys.length) return `${id}: geometry ว่าง`;
-
-    for (const poly of polys) {
-      if (!Array.isArray(poly) || !poly.length) return `${id}: polygon ว่าง`;
-      for (const ring of poly) {
-        if (!Array.isArray(ring) || ring.length < 4) return `${id}: วงแหวนต้องมีอย่างน้อย 4 จุด`;
-        const a = ring[0], b = ring[ring.length - 1];
-        if (!Array.isArray(a) || !Array.isArray(b) || a[0] !== b[0] || a[1] !== b[1])
-          return `${id}: วงแหวนไม่ปิด (จุดแรกต้องเท่ากับจุดสุดท้าย)`;
-        for (const c of ring) {
-          if (!Array.isArray(c) || c.length < 2 || !Number.isFinite(c[0]) || !Number.isFinite(c[1]))
-            return `${id}: มีพิกัดที่ไม่ใช่ตัวเลข`;
-          if (c[0] < -180 || c[0] > 180 || c[1] < -90 || c[1] > 90)
-            return `${id}: พิกัดหลุดขอบโลก (${c[0]},${c[1]})`;
-          vertices++;
-        }
-      }
-    }
-  }
-  if (vertices > MAX_VERTICES) return `จุดเยอะเกิน ${vertices} (เพดาน ${MAX_VERTICES}) — ลดหมุดก่อนเซฟ`;
-  return null;
-}
 
 async function readBlob() {
   if (!TOKEN) return null;
@@ -128,7 +74,7 @@ module.exports = async (req, res) => {
     try { gj = JSON.parse(raw || 'null'); }
     catch { return send(res, 400, { error: 'JSON ไม่ถูกต้อง' }); }
 
-    const bad = validate(gj);
+    const bad = validateZones(gj);
     if (bad) return send(res, 400, { error: 'รูปโซนใช้ไม่ได้', message: bad });
 
     try {

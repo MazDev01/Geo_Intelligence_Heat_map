@@ -11,6 +11,8 @@
 // ให้ทดสอบใน node ได้โดยไม่ต้องมี Leaflet
 // ---------------------------------------------------------------------------
 
+import { saveZoneRegistry, nextColor } from './zone-registry.js';   // ทะเบียนโซน (แคชกลาง + บันทึกขึ้นเซิร์ฟเวอร์)
+
 const GEOMAN_VER = '2.18.3';
 const GEOMAN_JS  = `https://unpkg.com/@geoman-io/leaflet-geoman-free@${GEOMAN_VER}/dist/leaflet-geoman.min.js`;
 const GEOMAN_CSS = `https://unpkg.com/@geoman-io/leaflet-geoman-free@${GEOMAN_VER}/dist/leaflet-geoman.css`;
@@ -353,26 +355,111 @@ export function createZoneEditor(map, zones) {
       return gj;
     },
 
+    /* ── จัดการโซน: เพิ่ม / เปลี่ยนชื่อ / เปลี่ยนสี / รวม / ลบ ─────────────────
+       ทั้งหมดแก้ที่ properties ของ feature แล้วค่อย publish() ทีเดียว
+       ทะเบียนโซนเป็นแหล่งเดียว (ดู zone-registry.js) จึงไม่ต้องไปแก้โค้ดที่อื่นอีก */
+
+    /** รายการโซนปัจจุบันในตัวแก้ไข */
+    zones() {
+      return zones.layer.getLayers().map(l => {
+        const p = (l.feature && l.feature.properties) || {};
+        let n = 0; const walk = c => Array.isArray(c[0]) ? c.forEach(walk) : n++;
+        if (l.feature && l.feature.geometry) walk(l.feature.geometry.coordinates);
+        return { zone_id: p.zone_id, name: p.zone_name || p.zone_id, color: p.color, province: p.province, vertices: n, _layer: l };
+      });
+    },
+
+    rename(zoneId, name) {
+      const z = api.zones().find(x => x.zone_id === zoneId);
+      if (!z) return { ok: false, error: 'ไม่พบโซน ' + zoneId };
+      if (!name || !name.trim()) return { ok: false, error: 'ต้องใส่ชื่อ' };
+      z._layer.feature.properties.zone_name = name.trim();
+      dirty = true;
+      return { ok: true };
+    },
+
+    recolor(zoneId, hex) {
+      if (!/^#[0-9a-fA-F]{6}$/.test(hex || '')) return { ok: false, error: 'สีต้องเป็น #rrggbb' };
+      const z = api.zones().find(x => x.zone_id === zoneId);
+      if (!z) return { ok: false, error: 'ไม่พบโซน ' + zoneId };
+      z._layer.feature.properties.color = hex;
+      z._layer.setStyle({ color: hex, fillColor: hex });   // เห็นผลทันทีไม่ต้องรีโหลดเลเยอร์
+      dirty = true;
+      return { ok: true };
+    },
+
+    remove(zoneId) {
+      const z = api.zones().find(x => x.zone_id === zoneId);
+      if (!z) return { ok: false, error: 'ไม่พบโซน ' + zoneId };
+      if (api.zones().length <= 1) return { ok: false, error: 'ต้องเหลือไว้อย่างน้อย 1 โซน' };
+      pushHistory();
+      zones.layer.removeLayer(z._layer);
+      dirty = true;
+      return { ok: true };
+    },
+
+    /** รวม b เข้ากับ a — เก็บชื่อ/สีของ a ไว้ · รูปกลายเป็น MultiPolygon ของทั้งสองส่วน */
+    merge(aId, bId) {
+      if (aId === bId) return { ok: false, error: 'เลือกโซนคนละอัน' };
+      const list = api.zones();
+      const a = list.find(x => x.zone_id === aId), b = list.find(x => x.zone_id === bId);
+      if (!a || !b) return { ok: false, error: 'ไม่พบโซนที่เลือก' };
+      const polysOf = f => f.geometry.type === 'MultiPolygon' ? f.geometry.coordinates : [f.geometry.coordinates];
+      const merged = [...polysOf(a._layer.feature), ...polysOf(b._layer.feature)];
+      pushHistory();
+      const props = { ...a._layer.feature.properties };
+      // รายชื่อเขต (ใช้เป็น fallback ตอนไม่มีพิกัด) ต้องรวมกันด้วย ไม่งั้นเขตของ b จะหาโซนไม่เจอ
+      props.districts = [...new Set([...(a._layer.feature.properties.districts || []),
+                                     ...(b._layer.feature.properties.districts || [])])];
+      zones.layer.removeLayer(a._layer);
+      zones.layer.removeLayer(b._layer);
+      zones.layer.addData({ type: 'Feature', properties: props,
+        geometry: { type: 'MultiPolygon', coordinates: merged } });
+      dirty = true;
+      if (on) { api.disable(); api.enable(); }     // ผูก .pm ให้เลเยอร์ที่เพิ่งสร้าง
+      return { ok: true, note: 'รูปเป็น 2 ส่วนแยกกัน (ยังเห็นเส้นแบ่งเดิม) — ถ้าต้องการรูปเดียวไร้รอยต่อ ต้องลากขอบเชื่อมเอง' };
+    },
+
+    /** เพิ่มโซนใหม่โดย "วาด" รูป — คืน Promise ที่ resolve เมื่อวาดเสร็จ */
+    async addByDraw({ zone_id, name, province, color }) {
+      await loadGeoman();
+      const L = window.L;
+      if (!zone_id || !/^[A-Za-z0-9_-]{1,12}$/.test(zone_id))
+        return { ok: false, error: 'รหัสโซนใช้ได้แค่ A-Z 0-9 _ - ยาวไม่เกิน 12' };
+      if (api.zones().some(z => z.zone_id === zone_id)) return { ok: false, error: 'รหัสโซนซ้ำ: ' + zone_id };
+      if (!map.pm) { map.pm = new L.PM.Map(map); map.pm.setGlobalOptions({}); }
+
+      return new Promise(resolve => {
+        const done = e => {
+          map.off('pm:create', done);
+          const gj = e.layer.toGeoJSON();
+          map.removeLayer(e.layer);                 // เอารูปชั่วคราวของ Geoman ออก
+          map.pm.disableDraw();
+          pushHistory();
+          zones.layer.addData({ type: 'Feature',
+            properties: { zone_id, zone_name: name || zone_id, zone_name_en: name || zone_id,
+                          color: color || '#0ea5e9', province: province || 'Bangkok Metropolis', districts: [] },
+            geometry: gj.geometry });
+          dirty = true;
+          if (on) { api.disable(); api.enable(); }
+          resolve({ ok: true });
+        };
+        map.on('pm:create', done);
+        map.pm.enableDraw('Polygon', { snappable: true, snapDistance: 15, finishOn: 'dblclick' });
+        console.log('[zone-editor] คลิกวางจุดรอบพื้นที่ · ดับเบิลคลิกเพื่อจบรูป');
+      });
+    },
+
     /** เซฟขึ้นเซิร์ฟเวอร์ — ทุกคนเห็นเส้นใหม่ทันทีที่รีเฟรช (ไม่ต้องหอบไฟล์ไปวางเอง) */
     async publish() {
       const gj = api.toGeoJSON();
       const s = statsOf(gj);
       if (s.overVertices || s.overKb)
         return { ok: false, error: `เกินเพดาน (${s.vertices} จุด · ${s.kb} KB) — กด "หมุดห่าง" ลดจุดก่อน` };
-      try {
-        const r = await fetch('/api/zones', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(gj),
-        });
-        const body = await r.json().catch(() => ({}));
-        if (!r.ok) return { ok: false, error: body.message || body.error || ('HTTP ' + r.status) };
-        dirty = false;
-        console.log('[zone-editor] เซฟขึ้นเซิร์ฟเวอร์แล้ว', body);
-        return { ok: true, ...body };
-      } catch (e) {
-        return { ok: false, error: e.message };
-      }
+      // ผ่าน zone-registry เพื่อให้แคชกลางกับหน้าอื่น (หน้ามอบหมาย · เมนู TC รายโซน) อัปเดตพร้อมกัน
+      const r = await saveZoneRegistry(gj);
+      if (r.ok) { dirty = false; console.log('[zone-editor] เซฟขึ้นเซิร์ฟเวอร์แล้ว', r); }
+      return r;
     },
 
     revert() {
@@ -404,7 +491,18 @@ const PANEL_CSS = `
 .zed .zed-save:hover:not(:disabled){background:#12489a}
 .zed .zed-info{font-size:11.5px;color:#5b6472;margin-top:7px;border-top:1px solid #e6e9ee;padding-top:7px}
 .zed .zed-row{display:flex;gap:4px}
-.zed .zed-row button{margin:4px 0}`;
+.zed .zed-row button{margin:4px 0}
+/* ── จัดการโซน ── */
+.zed .zed-sec{margin-top:9px;padding-top:8px;border-top:1px solid #e6e9ee;font-size:11.5px;font-weight:700;color:#5b6472}
+.zed .zed-z{display:flex;align-items:center;gap:5px;margin:4px 0}
+.zed .zed-z i{width:10px;height:10px;border-radius:999px;flex:none}
+.zed .zed-z .zed-zn{flex:1;min-width:0;border:1px solid #d4d8de;border-radius:6px;padding:3px 5px;font:inherit;font-size:12px}
+.zed .zed-z input[type=color]{width:22px;height:22px;padding:0;border:1px solid #d4d8de;border-radius:5px;background:none;cursor:pointer;flex:none}
+.zed .zed-z button{width:22px;height:22px;margin:0;padding:0;text-align:center;line-height:1;flex:none;color:#b91c1c}
+.zed .zed-add,.zed .zed-merge{display:flex;flex-wrap:wrap;gap:4px;margin-top:6px}
+.zed .zed-add input{flex:1;min-width:52px;border:1px solid #d4d8de;border-radius:6px;padding:4px 6px;font:inherit;font-size:12px}
+.zed .zed-add button,.zed .zed-merge button{margin:0}
+.zed .zed-merge select{flex:1;min-width:60px;border:1px solid #d4d8de;border-radius:6px;padding:4px;font:inherit;font-size:12px}`;
 
 function buildPanel(map, ed) {
   if (!document.getElementById('zed-style')) {
@@ -424,7 +522,18 @@ function buildPanel(map, ed) {
     <button data-a="revert">ย้อนทั้งหมด</button>
     <button class="zed-save" data-a="publish">เซฟขึ้นเซิร์ฟเวอร์</button>
     <button data-a="save">เซฟเป็นไฟล์ (สำรอง)</button>
-    <div class="zed-info"></div>`;
+    <div class="zed-info"></div>
+    <div class="zed-sec">จัดการโซน</div>
+    <div class="zed-zones"></div>
+    <div class="zed-add">
+      <input class="zed-id" placeholder="รหัส เช่น RM" maxlength="12"/>
+      <input class="zed-nm" placeholder="ชื่อโซน"/>
+      <button data-a="add">+ เพิ่มโซน (วาดรูปใหม่)</button>
+    </div>
+    <div class="zed-merge">
+      <select class="zed-a"></select><select class="zed-b"></select>
+      <button data-a="merge">รวมสองโซน</button>
+    </div>`;
 
   // กันคลิก/สกรอลล์บนแผงไปโดนแมพ (ไม่งั้นกดปุ่มแล้วแมพเลื่อนตาม)
   L.DomEvent.disableClickPropagation(box);
@@ -432,12 +541,39 @@ function buildPanel(map, ed) {
 
   const info = box.querySelector('.zed-info');
   const btn = a => box.querySelector(`[data-a="${a}"]`);
+  const zonesBox = box.querySelector('.zed-zones');
+  const selA = box.querySelector('.zed-a'), selB = box.querySelector('.zed-b');
+
+  /* แถวจัดการโซน: สี · ชื่อ (แก้ได้) · ลบ — สร้างใหม่ทุกครั้งที่รายการเปลี่ยน */
+  const renderZones = () => {
+    const list = ed.zones();
+    zonesBox.innerHTML = '';
+    for (const z of list) {
+      const row = document.createElement('div');
+      row.className = 'zed-z';
+      row.innerHTML = `<i style="background:${z.color}"></i>
+        <input class="zed-zn" value="${(z.name||'').replace(/"/g,'&quot;')}" title="${z.zone_id} · ${z.vertices} หมุด"/>
+        <input type="color" value="${z.color||'#0ea5e9'}"/>
+        <button title="ลบโซน ${z.zone_id}">✕</button>`;
+      const [name, color, del] = [row.querySelector('.zed-zn'), row.querySelector('input[type=color]'), row.querySelector('button')];
+      name.onchange  = () => { const r = ed.rename(z.zone_id, name.value); if(!r.ok) info.textContent = r.error; refresh(); };
+      color.onchange = () => { const r = ed.recolor(z.zone_id, color.value); if(!r.ok) info.textContent = r.error; refresh(); };
+      del.onclick    = () => { if(!confirm(`ลบโซน ${z.name} (${z.zone_id})?\nลูกค้าในโซนนี้จะกลายเป็นไม่มีโซน`)) return;
+                               const r = ed.remove(z.zone_id); info.textContent = r.ok ? `ลบ ${z.zone_id} แล้ว — ยังไม่ได้เซฟ` : r.error; refresh(); };
+      zonesBox.appendChild(row);
+    }
+    const opts = list.map(z=>`<option value="${z.zone_id}">${z.name}</option>`).join('');
+    selA.innerHTML = opts; selB.innerHTML = opts;
+    if (list[1]) selB.value = list[1].zone_id;
+  };
+
   const refresh = () => {
     const s = statsOf(ed.toGeoJSON());
     btn('toggle').textContent = ed.isEnabled() ? 'ปิดโหมดลากขอบ' : 'เปิดโหมดลากขอบ';
     btn('undo').disabled = ed.undoDepth() === 0;
     btn('undo').textContent = `ย้อน 1 ขั้น${ed.undoDepth() ? ` (${ed.undoDepth()})` : ''}`;
-    info.textContent = `${s.vertices} หมุด · ${s.kb} KB` + (ed.isDirty() ? ' · ยังไม่ได้เซฟ' : '');
+    info.textContent = `${ed.zones().length} โซน · ${s.vertices} หมุด · ${s.kb} KB` + (ed.isDirty() ? ' · ยังไม่ได้เซฟ' : '');
+    renderZones();
   };
 
   box.addEventListener('click', async e => {
@@ -449,6 +585,22 @@ function buildPanel(map, ed) {
       else if (a === 'thin') { if (!ed.isEnabled()) await ed.enable(); ed.thin(+b.dataset.m); }
       else if (a === 'undo') ed.undo();
       else if (a === 'revert') ed.revert();
+      else if (a === 'add') {
+        const id = box.querySelector('.zed-id').value.trim().toUpperCase();
+        const nm = box.querySelector('.zed-nm').value.trim();
+        info.textContent = 'คลิกวางจุดรอบพื้นที่ · ดับเบิลคลิกเพื่อจบรูป';
+        const used = ed.zones().map(z=>z.color);
+        const r = await ed.addByDraw({ zone_id:id, name:nm || id, color:nextColor(used) });
+        if (r.ok) { box.querySelector('.zed-id').value=''; box.querySelector('.zed-nm').value='';
+                    info.textContent = `เพิ่มโซน ${id} แล้ว — ยังไม่ได้เซฟ`; }
+        else info.textContent = r.error;
+        b.disabled = false; refresh(); return;
+      }
+      else if (a === 'merge') {
+        const r = ed.merge(selA.value, selB.value);
+        info.textContent = r.ok ? `รวมแล้ว · ${r.note}` : r.error;
+        b.disabled = false; refresh(); return;
+      }
       else if (a === 'save') ed.download();
       else if (a === 'publish') {
         info.textContent = 'กำลังเซฟ…';
