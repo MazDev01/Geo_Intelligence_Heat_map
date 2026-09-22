@@ -11,7 +11,8 @@ import {Reports} from "./pages/reports.js";
 import {Profile} from "./pages/profile.js";
 import {Users, Config, Audit, Monitoring, SEED_USERS} from "./pages/admin.js";
 import {loadTerritory} from "./territory-store.js";   // การมอบหมาย TC ↔ จังหวัด/โซน ที่แอดมินบันทึกไว้
-import {BKK, BKK_ZONES, zoneName} from "./mock/geoData.js";   // โซนของกรุงเทพฯ (SL/LP/TL) สำหรับบทบาท TC รายโซน
+import {BKK} from "./mock/geoData.js";
+import {loadZoneRegistry, zoneRegistry, zonesOf, zoneLabel} from "./zone-registry.js";   // ทะเบียนโซน (แหล่งเดียว)
 import {MasterData} from "./pages/master-data.js";
 import {DataManagement, DataImport, DataFiles, DataLeads, TerritoryManager} from "./pages/data-management.js";
 import {VisitPlanReport} from "./pages/visit-plan-report.js";
@@ -66,6 +67,9 @@ function App(){
   const [territory,setTerritory] = useState(null);  // { คีย์หน่วย: id ของ TC } จากเซิร์ฟเวอร์ · null = ยังไม่เคยตั้ง
   // ?zone=LP — บทบาท "TC รายโซน" สำหรับเดโม: ล็อกโซนจาก URL ตรง ๆ ไม่ต้องรอการมอบหมายจากแอดมิน
   const demoZone = useMemo(()=>{ try{ return new URLSearchParams(location.search).get("zone")||null; }catch(e){ return null; } },[]);
+  // ทะเบียนโซน — เมนู "TC รายโซน" และป้ายชื่อเขตอ่านจากตรงนี้ เพิ่มโซนใหม่แล้วโผล่เองไม่ต้องแก้โค้ด
+  const [zonesReg,setZonesReg] = useState(()=>zoneRegistry());
+  useEffect(()=>{ let alive=true; loadZoneRegistry().then(g=>{ if(alive) setZonesReg(g); }); return ()=>{ alive=false; }; },[]);
   // โหลดการมอบหมายหลังล็อกอิน — โหลดไม่ได้/ยังไม่เคยตั้ง = null แล้วแมพทำงานแบบเดิมทุกประการ
   useEffect(()=>{ if(!user){ setTerritory(null); return; }
     let alive=true;
@@ -649,7 +653,7 @@ function App(){
           ? (isTC
               /* TC ถูกล็อกที่จังหวัดเดียว — breadcrumb เป็นข้อความคงที่ ไม่มีลิงก์กลับประเทศ/ลูกโลก */
               ? html`<div class="crumbs"><span class="crumb-cur">${t("เขตที่รับผิดชอบ ·", "Territory ·")} <b>${provinceTH(user.province||"")}${
-                  lockZones && lockZones.length===1 ? " · "+zoneName(lockZones[0]) : ""}</b></span></div>`
+                  lockZones && lockZones.length===1 ? " · "+zoneLabel(lockZones[0]) : ""}</b></span></div>`
               : html`<div class="crumbs crumbs-nav">
               <button class="crumb-link" onClick=${backToGlobe}>${t("หน้าหลัก", "Home")}</button>
               <span class="crumb-sep">›</span>
@@ -715,10 +719,11 @@ function App(){
                     <!-- TC รายโซน: ดูแมพแบบที่ TC ของโซนนั้นเห็นจริง ๆ โดยไม่ต้องไปมอบหมายในหน้าแอดมินก่อน -->
                     <div style=${{fontSize:"11px",color:"var(--dim)",padding:"7px 12px 3px",letterSpacing:".02em"}}>
                       ${t("TC รายโซน (กรุงเทพฯ)", "TC by zone (Bangkok)")}</div>
-                    ${BKK_ZONES.map(z=>html`
-                      <div key=${"z"+z.key} class="dd-item" role="menuitem" tabindex="0" onClick=${()=>switchRole("tc", z.key)}>
-                        <${Icon} name="pin" size=${15}/>${t("TC · ", "TC · ")}${zoneName(z.key)}
-                        ${demoZone===z.key?html`<span style=${{marginLeft:"auto",color:"var(--accent2)",fontSize:"12px",fontWeight:700}}>${t("ปัจจุบัน", "Current")}</span>`:""}</div>`)}
+                    ${zonesOf(BKK).map(z=>html`
+                      <div key=${"z"+z.zone_id} class="dd-item" role="menuitem" tabindex="0" onClick=${()=>switchRole("tc", z.zone_id)}>
+                        <span style=${{width:"9px",height:"9px",borderRadius:"999px",background:z.color,flex:"none"}}></span>
+                        ${t("TC · ", "TC · ")}${zoneLabel(z.zone_id)}
+                        ${demoZone===z.zone_id?html`<span style=${{marginLeft:"auto",color:"var(--accent2)",fontSize:"12px",fontWeight:700}}>${t("ปัจจุบัน", "Current")}</span>`:""}</div>`)}
                   </div>`}
                 </div>`}
                 <div class="dd-item" role="menuitem" tabindex="0" onClick=${()=>{setMenu(null);toast(t("ศูนย์ช่วยเหลือ GeoIntel · เวอร์ชัน 1.0", "GeoIntel Help Centre · version 1.0"),"info");}}><${Icon} name="reports" size=${16}/>${t("ช่วยเหลือ", "Help")}</div>

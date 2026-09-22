@@ -9,7 +9,9 @@ import {t} from "../i18n.js";   // สลับภาษา TH/EN — ดู src
 import {html, useState, useEffect, useMemo, useRef, useApp, Icon, num, provinceTH, districtTH, PROVINCE_TH, thDate, thDateTime, segTH, getLang, useLang, gapTH} from "../lib.js";
 import {basemap} from "../basemap.js";
 import {Card, Kpi, Btn, Badge, Toggle, Table, Tabs, Modal, Meter, toast} from "../ui.js";
-import {SEGMENTS, PROVINCE_KEYS, tcLabel, BKK, BKK_ZONES, zoneName} from "../mock/geoData.js";
+import {SEGMENTS, PROVINCE_KEYS, tcLabel, BKK, BKK_ZONES} from "../mock/geoData.js";
+import {loadZoneRegistry, zoneRegistry, zonesOf, zoneLabel, zoneColor, saveZoneRegistry, nextColor}
+  from "../zone-registry.js";   // ทะเบียนโซน — แหล่งความจริงเดียวของ id/ชื่อ/สี/จังหวัด
 import {pushAudit} from "../audit.js";
 import {loadTerritory, saveTerritory} from "../territory-store.js";
 import {AddRecordsForm} from "../add-records.js";
@@ -1551,11 +1553,17 @@ const TR_PAGE = 12;
 const unitKey  = (pv, zone) => zone ? `${pv}/${zone}` : pv;
 const unitProv = key => key.split("/")[0];
 const unitZone = key => key.split("/")[1] || null;
-const unitsOf  = pv => pv===BKK ? BKK_ZONES.map(z=>unitKey(pv, z.key)) : [pv];
-const UNITS    = ALL_PROVINCES.flatMap(unitsOf);
+/* โซนของจังหวัดมาจาก "ทะเบียนโซน" (zone-registry.js) ไม่ใช่รายชื่อที่ฝังในโค้ดอีกแล้ว
+   → แอดมินเพิ่ม/รวม/ลบโซนได้เอง แล้วหน่วยที่มอบหมายได้เปลี่ยนตามทันที
+   ยังไม่โหลดทะเบียนเสร็จ = ใช้ BKK_ZONES เป็นค่าตั้งต้น (กันตารางว่างตอนเปิดหน้าครั้งแรก) */
+const zoneKeysOf = pv => { const z = zonesOf(pv);
+  if(z.length) return z.map(x=>x.zone_id);
+  return pv===BKK ? BKK_ZONES.map(x=>x.key) : []; };
+const unitsOf  = pv => { const ks = zoneKeysOf(pv); return ks.length ? ks.map(k=>unitKey(pv,k)) : [pv]; };
+const unitsAll = () => ALL_PROVINCES.flatMap(unitsOf);
 /* ป้ายของหน่วย — โซนกรุงเทพฯ แสดงเป็น "กรุงเทพมหานคร · สีลม" */
 const unitLabel = key => { const z = unitZone(key);
-  return z ? `${provinceTH(unitProv(key))} · ${zoneName(z)}` : provinceTH(key); };
+  return z ? `${provinceTH(unitProv(key))} · ${zoneLabel(z)}` : provinceTH(key); };
 
 /* GeoJSON → เส้นทาง SVG ต่อจังหวัด (equirectangular ปรับแกน x ตาม cos(ละติจูดกลาง) — ไทยแคบ พอเพียงและเบา)
    ลดจำนวนจุดต่อวงแหวนไม่เกิน ~260 จุด เพื่อให้ DOM เบา (รูปทรงจังหวัดยังอ่านออกในขนาดย่อ) */
@@ -1669,8 +1677,8 @@ function TerritoryMap({paths, assign, focus, onFocus, zonePaths}){
           onClick=${()=>onFocus(focus===pv?null:pv)}><title>${provinceTH(pv)} · ${tc==="mixed" ? t("หลายผู้ดูแล (แบ่งตามโซน)","Several owners (split by zone)") : tc?tc.name:t("ยังไม่มีคนดูแล", "No owner yet")}</title></path>`;
       })}
       <!-- โซนของกรุงเทพฯ ตามเส้นที่แอดมินลากไว้ — 1 รูป = 1 หน่วยที่มอบหมายได้ คลิกเลือกได้ทีละโซน -->
-      ${zonePaths && BKK_ZONES.map(z=>{ const d=zonePaths[z.key]; if(!d) return null;
-        const key=unitKey(BKK,z.key), tc=TC_BY_ID[assign[key]]||null, on=shown===key;
+      ${zonePaths && zonesOf(BKK).map(z=>{ const d=zonePaths[z.zone_id]; if(!d) return null;
+        const key=unitKey(BKK,z.zone_id), tc=TC_BY_ID[assign[key]]||null, on=shown===key;
         return html`<path key=${key} d=${d} class=${"tr-path"+(on?" on":"")}
           fill=${tc? tcColor(tc.id)+"55" : "url(#trNoMan)"}
           stroke=${on? "#161d2b" : tc? tcColor(tc.id) : "#dc2626"}
@@ -1712,20 +1720,21 @@ export function TerritoryManager(){
 
   // รูปโซนที่แอดมินลากไว้ (ไฟล์เดียวกับที่แมพหลักใช้) — เอามาวาดทับกรุงเทพฯ ให้เห็นการแบ่งจริง
   // โหลดไม่ได้ = ไม่เป็นไร แผนที่จะวาดกรุงเทพฯ เป็นรูปจังหวัดเดียวเหมือนเดิม
-  const [zonesGeo,setZonesGeo] = useState(null);
+  const [zonesGeo,setZonesGeo] = useState(()=>zoneRegistry());
   useEffect(()=>{ let alive=true;
-    fetch("/data/zones.geojson").then(r=>r.json()).then(g=>{ if(alive) setZonesGeo(g); })
-      .catch(e=>console.warn("[territory] โหลด zones.geojson ไม่สำเร็จ", e));
+    loadZoneRegistry().then(g=>{ if(alive) setZonesGeo(g); })
+      .catch(e=>console.warn("[territory] โหลดทะเบียนโซนไม่สำเร็จ", e));
     return ()=>{ alive=false; }; },[]);
   const zonePaths = useMemo(()=>buildZonePaths(zonesGeo, paths && paths.proj),[zonesGeo, paths]);
 
   const areaBy = db.areaByProvince||{};
   // 1 แถว = 1 หน่วย (กรุงเทพฯ ได้ 3 แถว ตามโซน) · ตัวเลข Lead ยังอ้างระดับจังหวัดตามเดิม
-  const rows = useMemo(()=> UNITS.map(key=>{
+  const rows = useMemo(()=> unitsAll().map(key=>{
     const tc = TC_BY_ID[assign[key]]||null;
     return { key, prov:unitProv(key), zone:unitZone(key), th:unitLabel(key), tc, covered:!!tc,
       area: areaBy[unitProv(key)]||null };
-  }),[assign, areaBy, getLang()]);
+  // zonesGeo อยู่ใน deps เพราะจำนวน "หน่วย" เปลี่ยนตามทะเบียนโซน (เพิ่ม/รวม/ลบโซนแล้วตารางต้องเปลี่ยนตาม)
+  }),[assign, areaBy, getLang(), zonesGeo]);
 
   const coveredN = rows.filter(r=>r.covered).length;
   const noManN   = rows.length-coveredN;
@@ -1798,7 +1807,7 @@ export function TerritoryManager(){
           </div>
           ${isZoned
             ? focusUnits.map(u=>html`<div key=${u.key} class="tr-as-row tr-as-zone">
-                <span class="tr-as-zk">${zoneName(u.zone)}</span>
+                <span class="tr-as-zk">${zoneLabel(u.zone)}</span>
                 <div style=${{flex:1,minWidth:0}}><${Dropdown} value=${assign[u.key]?String(assign[u.key]):""}
                   onChange=${v=>applyAssign([u.key], v||null)} options=${tcOptions}
                   placeholder=${t("เลือก TC ที่จะดูแล…", "Choose the TC to own it…")}/></div>

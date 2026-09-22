@@ -5,7 +5,7 @@ import {Globe} from "./globe.js";
 import {LeafletMap} from "./lmap.js";
 import {filterData} from "./data.js";
 import {CategoryDropdown} from "./category-chips.js";
-import {zoneName} from "./mock/geoData.js";   // ชื่อโซน (สีลม/ลาดพร้าว/ทองหล่อ) ไว้ต่อท้ายชื่อจังหวัดของ TC รายโซน
+import {zoneLabel as zoneName} from "./zone-registry.js";   // ชื่อโซนจากทะเบียน ไว้ต่อท้ายชื่อจังหวัดของ TC รายโซน
 import {t} from "./i18n.js";
 
 // Post-login globe picker: a FIXED shortlist of four featured provinces.
