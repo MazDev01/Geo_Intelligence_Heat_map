@@ -16,12 +16,13 @@ if(typeof document!=="undefined" && !document.getElementById("ztb-css")){
 /* ⚠ ห้ามใส่ flex-wrap:wrap ที่แถวเครื่องมือ — ตอนกด "เลือกโซน" มีปุ่ม รวม/ลบ โผล่เพิ่ม
    ถ้าห่อบรรทัด ปุ่มท้ายแถว (ใช้จริง) จะตกไปบรรทัดล่าง แถบสูงขึ้น ปุ่มขยับหนีมือ
    จึงบังคับบรรทัดเดียว ถ้าจอแคบให้เลื่อนแนวนอนแทนการห่อ */
-.ztb{container-type:inline-size;position:relative;flex:1;min-width:0;display:flex;flex-direction:column;gap:5px;
-  background:var(--panel);border:1px solid var(--stroke2);border-radius:12px;
-  padding:7px 10px;backdrop-filter:blur(14px);box-shadow:var(--shadow)}
+.ztb{container-type:inline-size;position:relative;flex:1;min-width:0;
+  display:flex;flex-direction:column;align-items:flex-start;gap:5px}
 /* 1.12cqw ≈ 12.5px ที่กล่องกว้าง ~1,120px · แคบกว่านั้นย่อลงได้ถึง 9.5px · กว้างกว่าไม่โตเกิน 13px */
-.ztb-row{font-size:clamp(9.5px, 1.12cqw, 13px);
-  display:flex;align-items:center;gap:.5em;flex-wrap:nowrap;overflow-x:auto;overflow-y:hidden;
+.ztb-row{font-size:clamp(9.5px, 1.12cqw, 13px);max-width:100%;
+  background:var(--panel);border:1px solid var(--stroke2);border-radius:.92em;
+  padding:.54em .77em;backdrop-filter:blur(14px);box-shadow:var(--shadow);
+  display:inline-flex;align-items:center;gap:.5em;flex-wrap:nowrap;overflow-x:auto;overflow-y:hidden;
   scrollbar-width:thin;scrollbar-color:var(--stroke2) transparent}
 .ztb-row>*{flex:none}
 .ztb-row::-webkit-scrollbar{height:5px}
@@ -77,7 +78,8 @@ if(typeof document!=="undefined" && !document.getElementById("ztb-css")){
 .ztb-stat{font-size:.92em;color:var(--muted);white-space:nowrap}
 .ztb-stat b{color:var(--txt)}
 .ztb-dirty{color:var(--warn);font-weight:700}
-.ztb-msg{font-size:11.5px;color:var(--muted);line-height:1.35}
+.ztb-msg{font-size:11.5px;color:var(--muted);line-height:1.35;max-width:100%;
+  background:var(--panel);border:1px solid var(--stroke2);border-radius:10px;padding:5px 10px;box-shadow:var(--shadow)}
 .ztb-msg.bad{color:var(--bad)}
 .ztb-msg.good{color:var(--good)}`;
   document.head.appendChild(st);
