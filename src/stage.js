@@ -75,6 +75,11 @@ export function GeoStage({db, mode, activeCountry, flyTarget, globeUnder, onArri
   const [layersOpen, setLayersOpen] = useState(true);    // แผงเลเยอร์เปิดอยู่เป็นค่าเริ่มต้น · กดไอคอนเลเยอร์เพื่อย่อ/ขยาย
   // โหมดแสดงผลแผนที่ปัจจุบันตามระดับซูม (heat/cluster/marker) — แผนที่แจ้งมาผ่าน onMapMode ใช้โชว์ legend Lead เฉพาะตอนซูมออก
   const [mapMode, setMapMode] = useState("heat");
+  // โหมดแก้รูปโซน = โต๊ะเขียนแบบ ไม่ใช่หน้าวิเคราะห์ — ปิดหมุดลูกค้า/Lead · heatmap · เส้นทาง
+  // (ตัวจัดการเลเยอร์กับคำอธิบายสีก็ถูกซ่อนด้านล่าง) เหลือแผนที่ฐาน + เส้นจังหวัด + รูปโซน
+  const mapLayers = zoneEdit
+    ? {...layers, existing:false, prospect:false, heat:false, kde:false, cluster:false, route:false, visit:false, province:false}
+    : layers;
   // ตัวคุมการแก้รูปโซน — lmap สร้างให้แล้วส่งออกมาทาง onZoneEditor เพื่อให้แถบเครื่องมือด้านบนใช้ได้
   const [zoneEd, setZoneEd] = useState(null);
   // ความสูงจริงของแถบด้านบน — ของที่วางใต้มันจะได้ไม่โดนบังเวลาแถบสูงขึ้น (โหมดแก้รูปโซนสูงกว่าแถบค้นหา)
@@ -167,7 +172,7 @@ export function GeoStage({db, mode, activeCountry, flyTarget, globeUnder, onArri
       `}
       <style>${CALLOUT_CSS}</style>`}
     ${mode==="map" && html`
-      <${LeafletMap} db=${db} filters=${filters} layers=${layers} country=${activeCountry||"Thailand"} dark=${mapDark}
+      <${LeafletMap} db=${db} filters=${filters} layers=${mapLayers} country=${activeCountry||"Thailand"} dark=${mapDark}
         focusProvince=${focusProvince} highlight=${highlightCustomer} focusPoint=${tourFocus} onPickArea=${onPickProvince} onPickCustomer=${onPickCustomer}
         onMapMode=${setMapMode} plan=${visitPlan} route=${visitRoute} office=${office} planRoutes=${planRoutes} lockProvince=${lockProvince} lockZones=${lockZones} zoneMode=${zoneMode} canEditZones=${canEditZones} noMask=${noMask} onZoneEditor=${setZoneEd}/>
 
@@ -217,11 +222,11 @@ export function GeoStage({db, mode, activeCountry, flyTarget, globeUnder, onArri
           style=${{position:"absolute",top:0,left:0}}>
           <${Icon} name=${mapDark?"sun":"moon"} size=${19}/></button>
         <!-- ไอคอนเลเยอร์: อยู่ "ใต้" ปุ่มสลับโทน (แนวตั้ง ห่าง 54px) · เมื่อแผงเปิด แผงงอกออกด้านขวา -->
-        ${!layersOpen && html`<button class="layers-fab" title=${t("เลเยอร์แผนที่", "Map layers")} aria-label=${t("เลเยอร์แผนที่", "Map layers")} onClick=${()=>setLayersOpen(true)}
+        ${!zoneEdit && !layersOpen && html`<button class="layers-fab" title=${t("เลเยอร์แผนที่", "Map layers")} aria-label=${t("เลเยอร์แผนที่", "Map layers")} onClick=${()=>setLayersOpen(true)}
           style=${{position:"absolute",top:"54px",left:0}}>
           <${Icon} name="layers" size=${20}/>
         </button>`}
-        ${layersOpen && html`<div class="map-panel tool-panel map-fx layers-pop"
+        ${!zoneEdit && layersOpen && html`<div class="map-panel tool-panel map-fx layers-pop"
           style=${{position:"absolute",top:"54px",left:0,width:"240px",maxWidth:"calc(100vw - 60px)",maxHeight:"calc(100vh - 200px)",overflowY:"auto",padding:"12px 14px"}}>
 
         <!-- หัวแผง + ปุ่มย่อแผง — ใช้ "ไอคอนเลเยอร์" ตัวเดียวกับตอนเปิด จึงเป็นปุ่มสลับชุดเดียวกัน
@@ -274,7 +279,7 @@ export function GeoStage({db, mode, activeCountry, flyTarget, globeUnder, onArri
       </div>
 
       <!-- คำอธิบาย Lead สูง (มุมซ้ายล่าง) — โผล่เฉพาะตอนแผนที่อยู่โหมด Heat (ซูมออก) ตามที่แจ้งผ่าน onMapMode -->
-      ${mapMode==="heat" && html`<div class="map-panel map-fx" style=${{position:"absolute",bottom:"16px",left:"16px",zIndex:500,
+      ${mapMode==="heat" && !zoneEdit && html`<div class="map-panel map-fx" style=${{position:"absolute",bottom:"16px",left:"16px",zIndex:500,
         padding:"10px 14px",display:"flex",flexDirection:"column",gap:"6px"}}>
         <div style=${{fontSize:"11px",color:"var(--dim)",textTransform:"uppercase",letterSpacing:".6px"}}>${t("ความหนาแน่นของธุรกิจ", "Business density")}</div>
         <div style=${{width:"160px",height:"8px",borderRadius:"4px",
