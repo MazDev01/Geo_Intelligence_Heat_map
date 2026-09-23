@@ -4,6 +4,7 @@ import {getLayerOpacity, subscribeLayerOpacity} from "./layer-opacity.js";   // 
 import {loadCountries, loadWorld, loadAreas, loadProvincesGeo, loadDetail, loadCountry, loadDistricts, defaultFilters} from "./data.js";
 import {LoadingScreen, ToastHost, Badge, Btn, toast, LangToggle} from "./ui.js";
 import {Login} from "./pages/login.js";
+import * as auth from "./auth.js";   // โทเคน/บัญชีจริง (ดู api/auth.js · auth-store.cjs)
 import {GeoStage} from "./stage.js";
 import {Dashboard} from "./pages/dashboard.js";
 import {AreaPanel, CustomerPanel} from "./panels.js";
@@ -66,6 +67,13 @@ function App(){
   const [tcDenied,setTcDenied] = useState(null);   // หน้า 403 ของ TC เมื่อพยายามเข้าถึงข้อมูลนอกพื้นที่รับผิดชอบ
   const [zoneEdit,setZoneEdit] = useState(false);    // โหมดแก้รูปโซน: แถบเครื่องมือมาแทนแถบค้นหาบนแมพ
   const [zoneEditFrom,setZoneEditFrom] = useState(null);  // หน้าที่กดเข้ามา — กด "ออก" ต้องพากลับไปหน้านั้น
+  // เซิร์ฟเวอร์เปิดโหมดเดโมอยู่ไหม — ใช้ตัดสินว่าจะโชว์เมนู "สลับบทบาท" ไหม
+  // (เดิมดูแค่ ?demo= ใน URL พอเข้าผ่านหน้าล็อกอินจริงเมนูเลยหาย ทั้งที่ยังเป็นเครื่องเดโม)
+  const [serverDemo,setServerDemo] = useState(false);
+  useEffect(()=>{ let alive=true;
+    auth.call("info").then(r=>{ if(alive && r.ok && r.demo) setServerDemo(true); });
+    return ()=>{ alive=false; };
+  },[]);
   const [territory,setTerritory] = useState(null);  // { คีย์หน่วย: id ของ TC } จากเซิร์ฟเวอร์ · null = ยังไม่เคยตั้ง
   // ?zone=LP — บทบาท "TC รายโซน" สำหรับเดโม: ล็อกโซนจาก URL ตรง ๆ ไม่ต้องรอการมอบหมายจากแอดมิน
   const demoZone = useMemo(()=>{ try{ return new URLSearchParams(location.search).get("zone")||null; }catch(e){ return null; } },[]);
@@ -418,6 +426,8 @@ function App(){
   // Everyone lands on the Geo Intelligence Workspace (globe). The Business Overview lives only in the 'แดชบอร์ดผู้บริหาร (monitoring)' admin page.
   const handleLogin = (u)=>{
     setIntroPlaying(false);
+    // หน้า login ส่งข้อมูลบัญชีจริงมา (ไม่มี initials) — ทำตัวย่อจากชื่อให้เอง
+    u = u && { ...u, initials: u.initials || String(u.name||"?").trim().slice(0,2) };
     // TC ต้องถูกล็อกอยู่ "จังหวัดที่รับผิดชอบ" เสมอ — เข้าหน้าจังหวัดโดยตรง ไม่ผ่านลูกโลก และต้องมี province เสมอ
     // (หน้า login ไม่ได้ส่ง province มา จึงกำหนดค่าเริ่มต้นที่นี่ · ในระบบจริงค่านี้จะมาจากบัญชีผู้ใช้)
     if(u && u.role==="Trade Coordinator"){
@@ -540,6 +550,7 @@ function App(){
   // globe camera. Reset every piece of workspace state; setFlyTarget(null) also triggers the globe's
   // resetView() so the camera zooms back out to the default wide view.
   const logout = ()=>{
+    auth.clearAuth();                       // ทิ้งโทเคนด้วย ไม่งั้นรีเฟรชแล้วกลับเข้ามาเอง
     setUser(null); setView("dashboard"); setMode("globe"); setActiveCountry(null); setOverlay(null);
     setSelectedProvince(null); setSelectedCustomer(null); setFlyTarget(null); setMenu(null);
     setVisitPlans([{id:"plan-1", name:t("แผนที่ 1", "Plan 1"), customers:[], route:null, saved:false, visitDate:""}]); setActivePlanId("plan-1");
@@ -608,7 +619,7 @@ function App(){
   const isAdmin = user.role === "Administrator";
   const isTC = user.role === "Trade Coordinator";   // TC ถูกล็อกไว้ที่จังหวัดที่รับผิดชอบเท่านั้น (ไม่มีลูกโลก/ไม่สลับจังหวัด)
   const roleDemo = user.role==="Administrator" ? "admin" : isTC ? "tc" : "management";   // บทบาทปัจจุบันในรูป demo param
-  const isDemoMode = /[?&]demo=/.test(location.search);   // ตัวสลับบทบาทโชว์เฉพาะโหมดเดโม (dev) เท่านั้น
+  const isDemoMode = /[?&]demo=/.test(location.search) || serverDemo;   // โชว์ตัวสลับบทบาทเฉพาะเครื่องเดโม
   const roleShort = {admin:"Admin", management:t("ผู้บริหาร", "Management"), tc:"TC"}[roleDemo];
   const switchRole = (d, zone) => { const u=new URL(location.href); u.searchParams.set("demo",d);
     u.searchParams.delete("prov"); u.searchParams.delete("noprov"); u.searchParams.delete("go");

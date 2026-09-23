@@ -1,0 +1,59 @@
+<!doctype html><meta charset="utf-8"><title>auth flow check</title>
+<!-- ทดสอบเส้นทางจริง: src/auth.js → /api/auth → auth-store.cjs (ต้องรัน node server.mjs อยู่)
+     เปิดด้วย headless แล้วอ่านบรรทัด RESULT ... END -->
+<div id="out" style="font:12px/1.6 monospace;white-space:pre-wrap"></div>
+<script type="module">
+import * as auth from "../src/auth.js";
+const log = [];
+const T = (name, cond, extra="") => log.push((cond ? "OK  " : "NG  ") + name + (extra ? "  " + extra : ""));
+
+const ADMIN = "admin@geointel.io";
+const p = new URLSearchParams(location.search);
+const PW  = p.get("pw")  || "Start12345";     // รหัสปัจจุบันของแอดมิน
+const PW2 = p.get("pw2") || "Newpass123";     // รหัสใหม่ที่จะตั้ง
+
+try {
+  let r = await auth.login(ADMIN, "รหัสผิดแน่นอน999");
+  T("รหัสผิด เข้าไม่ได้", r.ok === false, r.error || "");
+
+  r = await auth.login(ADMIN, PW);
+  T("รหัสถูก เข้าได้", r.ok === true, r.error || "");
+  T("ได้โทเคนกลับมา", !!r.token);
+  T("ถูกบังคับเปลี่ยนรหัส (รหัสที่แอดมินตั้งให้)", r.mustChange === true);
+  auth.saveAuth({ token: r.token, user: r.user }, false);
+
+  r = await auth.me();
+  T("โทเคนที่เก็บไว้ใช้เรียก me ได้", r.ok === true && r.user && r.user.email === ADMIN);
+
+  r = await auth.listUsers();
+  T("แอดมินดึงรายชื่อผู้ใช้ได้", r.ok === true && Array.isArray(r.users), r.error || "");
+  const n = (r.users || []).length;
+
+  r = await auth.changePassword(PW, "สั้น1");
+  T("รหัสใหม่อ่อนเกิน ถูกปฏิเสธ", r.ok === false, r.error || "");
+
+  r = await auth.changePassword(PW, PW2);
+  T("เปลี่ยนรหัสสำเร็จ", r.ok === true, r.error || "");
+  T("เปลี่ยนแล้วไม่ถูกบังคับอีก", r.ok && r.user && r.user.mustChange === false);
+  if (r.ok) auth.saveAuth({ token: r.token, user: r.user }, false);
+
+  r = await auth.login(ADMIN, PW);
+  T("รหัสเก่าใช้ไม่ได้แล้ว", r.ok === false);
+
+  r = await auth.resetPassword("tc.bkk@geointel.io");
+  T("แอดมินรีเซ็ตรหัสให้ TC ได้ และได้รหัสชั่วคราวกลับมา", r.ok === true && typeof r.password === "string", r.error || "");
+  const temp = r.password;
+
+  auth.clearAuth();
+  r = await auth.listUsers();
+  T("ออกจากระบบแล้ว เรียกรายชื่อไม่ได้", r.ok === false && r.code === 401);
+
+  r = await auth.login("tc.bkk@geointel.io", temp);
+  T("TC เข้าด้วยรหัสชั่วคราวได้ และถูกบังคับเปลี่ยน", r.ok === true && r.mustChange === true, r.error || "");
+  log.push("ผู้ใช้ในระบบ " + n + " คน");
+} catch (e) {
+  log.push("NG  มีข้อผิดพลาด: " + (e && e.message));
+}
+const bad = log.filter(l => l.startsWith("NG")).length;
+document.getElementById("out").textContent = "RESULT " + (bad ? bad + " เคสไม่ผ่าน" : "ผ่านหมด") + " || " + log.join(" || ") + " END";
+</script>

@@ -28,6 +28,35 @@ const zoneStore = makeZoneStore({
   async remove(name){ try{ await unlink(zonePath(name)); }catch{} },
 });
 
+
+// ── บัญชีผู้ใช้: ตรรกะเดียวกับ Vercel (api/auth.js) เก็บเป็นไฟล์ใน data/auth/ ──
+const {makeAuthStore} = _req('./auth-store.cjs');
+const AUTH_DIR = DATA_DIR + 'auth/';
+const SEED_ACCOUNTS = [
+  {id:1, name:'System Administrator', email:'admin@geointel.io',      role:'Administrator'},
+  {id:2, name:'ผู้บริหารภูมิภาค',       email:'management@geointel.io', role:'Management'},
+  {id:3, name:'ณัฐริกา พงษ์ไพบูลย์',     email:'tc.bkk@geointel.io',     role:'Trade Coordinator', province:'Bangkok Metropolis'},
+  {id:4, name:'ศุภมาส เจริญสุข',        email:'tc.pty@geointel.io',     role:'Trade Coordinator', province:'Pattaya'},
+  {id:6, name:'ธนพล ศรีวัฒน์',          email:'tc.cm@geointel.io',      role:'Trade Coordinator', province:'Chiang Mai'},
+  {id:7, name:'ปิยะนุช วงศ์สกุล',        email:'tc.hkt@geointel.io',     role:'Trade Coordinator', province:'Phuket'},
+];
+const authStore = makeAuthStore({
+  async readJSON(name){ try{ return JSON.parse(await readFile(AUTH_DIR+name,'utf8')); }catch{ return null; } },
+  async writeText(name, text){
+    await mkdir(AUTH_DIR, {recursive:true});
+    await writeFile(AUTH_DIR+name+'.tmp', text);
+    await rename(AUTH_DIR+name+'.tmp', AUTH_DIR+name);
+  },
+}, { secret: process.env.AUTH_SECRET || 'geointel-dev-secret', seed: SEED_ACCOUNTS,
+     // ในเครื่อง = เดโมเสมอ ให้กดเข้าดูได้ทันทีโดยไม่ต้องไปตั้งรหัสให้ทุกบัญชีก่อน
+     seedPassword: process.env.DEMO_PASSWORD !== undefined ? process.env.DEMO_PASSWORD : 'geointel2026' });
+
+// อ่าน body แบบข้อความ (ใช้กับ /api/auth)
+const readBodyText = req => new Promise((resolve,reject)=>{
+  let s=''; req.on('data',c=>{ s+=c; if(s.length>1e6){ req.destroy(); reject(new Error('ใหญ่เกินไป')); } });
+  req.on('end',()=>resolve(s)); req.on('error',reject);
+});
+
 const ROOT = fileURLToPath(new URL('.', import.meta.url));
 const PORT = 5173;
 const MIME = {'.html':'text/html','.js':'text/javascript','.mjs':'text/javascript','.json':'application/json','.geojson':'application/json','.css':'text/css','.svg':'image/svg+xml','.png':'image/png','.ico':'image/x-icon','.pmtiles':'application/octet-stream'};
@@ -101,6 +130,42 @@ createServer(async (req,res)=>{
         return send(200,{ok:true, saved:Object.keys(clean).length, updatedAt:out.updatedAt});
       }
       return send(405,{error:'รองรับเฉพาะ GET กับ POST'});
+    }
+
+    // ── API: บัญชีผู้ใช้ + รหัสผ่าน (คู่กับ api/auth.js ที่ใช้บน Vercel) ──
+    // ในเครื่องเก็บเป็นไฟล์ data/auth/users.json (อยู่ใน .gitignore — รหัสผ่านของแต่ละเครื่องไม่ควรขึ้น git)
+    if(p==='/api/auth'){
+      const send = (code,obj)=>{ res.writeHead(code,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store'});
+        res.end(obj===undefined?'':JSON.stringify(obj)); };
+      if(req.method!=='POST') return send(405,{error:'ใช้ POST เท่านั้น'});
+      let body={};
+      try{ body = JSON.parse(await readBodyText(req) || '{}'); }
+      catch(e){ return send(400,{error:'อ่านคำขอไม่ได้'}); }
+      const action = String(body.action||'');
+      const reply = r => send(r && r.ok ? 200 : ((r&&r.code)||400), r);
+      try{
+        if(action==='login')  return reply(await authStore.login(body.email, body.password));
+        if(action==='change'){
+          const who = await authStore.auth(req.headers); if(!who.ok) return send(who.code, who);
+          return reply(await authStore.changePassword(who.user.email, body.oldPassword, body.newPassword));
+        }
+        if(action==='bootstrap'){
+          if(!(await authStore.bootstrapNeeded())) return send(403,{ok:false,error:'ระบบตั้งค่าครั้งแรกไปแล้ว'});
+          const target = await authStore.get(body.email);
+          if(!target || target.role!=='Administrator') return send(400,{ok:false,error:'ตั้งได้เฉพาะบัญชีผู้ดูแลระบบ'});
+          return reply(await authStore.setPassword(body.email, body.password));
+        }
+        if(action==='info') return send(200,{ok:true, demo: authStore.demoMode(), demoPassword: authStore.demoMode()? (process.env.DEMO_PASSWORD || 'geointel2026') : ''});
+        if(action==='me'){ const who = await authStore.auth(req.headers); return send(who.ok?200:who.code, who); }
+        const admin = await authStore.auth(req.headers, 'Administrator');
+        if(!admin.ok) return send(admin.code, admin);
+        if(action==='users.list')     return send(200,{ok:true, users: await authStore.list()});
+        if(action==='users.create')   return reply(await authStore.create(body));
+        if(action==='users.update')   return reply(await authStore.update(body.email, body.patch));
+        if(action==='users.remove')   return reply(await authStore.remove(body.email, admin.user.email));
+        if(action==='users.password') return reply(await authStore.setPassword(body.email, body.password));
+        return send(400,{error:'ไม่รู้จักคำสั่ง: '+action});
+      }catch(e){ console.error('[auth]', e); return send(500,{error:'เซิร์ฟเวอร์ผิดพลาด: '+e.message}); }
     }
 
     // ── API: รูปขอบเขตโซนที่แอดมินลากเอง (คู่กับ api/zones.js ที่ใช้บน Vercel) ──

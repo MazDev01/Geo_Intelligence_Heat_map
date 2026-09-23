@@ -10,6 +10,7 @@ import {calcView, RANGES} from "../timefilter.js";   // thDate มาจาก l
 import {ExportDialog, defaultReportName, downloadXLS} from "./reports.js";   // ป็อปอัพส่งออก (ใช้ร่วมกับหน้ารายงาน)
 import {downloadCSV, areaCoverage} from "../data.js";
 import {canExport, EXPORT_ROLES, EXPORT_FORMATS, getExportPerms, setExportPerms} from "../export-perms.js";
+import * as auth from "../auth.js";   // บัญชีจริง + รหัสผ่าน (api/auth.js · auth-store.cjs)
 import {NOTIF_EVENTS, PRIORITY_TH, getSysNotif, setSysNotif} from "../notifications.js";
 import {getLayerOpacity, setLayerOpacity} from "../layer-opacity.js";
 import {tcColorOf, setTcColor} from "../tc-colors.js";   // สีประจำตัว TC — ย้ายมาจากแท็บข้อมูลหลัก   // ความทึบของแผนที่ — ตั้งที่นี่ที่เดียว
@@ -40,9 +41,44 @@ export function Users(){
   const [delUser,setDelUser]=useState(null);   // บัญชีที่รอยืนยันลบ
   const [roleF,setRoleF]=useState("All");   // ตัวกรองตามบทบาท
   const [search,setSearch]=useState("");    // ค้นหาชื่อ/อีเมล
-  const save=u=>{ setUsers(list=> u.id? list.map(x=>x.id===u.id?u:x) : [...list,{...u,id:Date.now(),status:"Active",last:"—"}]);
-    setEdit(null); toast(u.id?t("อัปเดตผู้ใช้แล้ว", "User updated"):t("สร้างผู้ใช้แล้ว", "User created"),"good"); };
-  const del=u=>{ setUsers(list=>list.filter(x=>x.id!==u.id)); toast(t("ลบผู้ใช้แล้ว", "User deleted"),"bad"); };
+  const [pwShow,setPwShow]=useState(null);     // {email,name,password} รหัสที่เพิ่งตั้ง/รีเซ็ต — แอดมินเห็นครั้งเดียว
+  const [loadErr,setLoadErr]=useState("");
+
+  // รายชื่อจริงมาจาก /api/auth (ไฟล์/Blob ฝั่งเซิร์ฟเวอร์) — ถ้าเรียกไม่ได้ค่อยใช้รายชื่อตั้งต้นเพื่อให้หน้าไม่ว่าง
+  useEffect(()=>{ let alive=true;
+    auth.listUsers().then(r=>{ if(!alive) return;
+      if(r.ok && Array.isArray(r.users)) setUsers(r.users);
+      else setLoadErr(r.error||"");
+    });
+    return ()=>{ alive=false; };
+  },[]);
+  const refresh = async ()=>{ const r=await auth.listUsers(); if(r.ok) setUsers(r.users); };
+
+  /** แอดมินตั้ง/รีเซ็ตรหัสให้ — เว้นว่าง = ระบบสุ่มรหัสชั่วคราวให้ แล้วโชว์ให้ส่งต่อ */
+  const resetPw = async (u)=>{
+    if(!confirm(t("ตั้งรหัสผ่านใหม่ให้ ","Set a new password for ")+u.name+t("?\nรหัสเดิมจะใช้ไม่ได้ทันที และเจ้าตัวต้องตั้งรหัสใหม่ตอนเข้าครั้งถัดไป",
+      "?\nThe old password stops working immediately and they must choose a new one at next sign-in"))) return;
+    const r = await auth.resetPassword(u.email);
+    if(!r.ok) return toast(r.error||t("รีเซ็ตรหัสไม่สำเร็จ","Could not reset the password"),"bad");
+    pushAudit({action:t("รีเซ็ตรหัสผ่าน","Reset password"), category:"แก้ไข", detail:u.name+" · "+u.email});
+    setPwShow({email:u.email, name:u.name, password:r.password});
+    refresh();
+  };
+
+  const save=async u=>{
+    const r = u.id ? await auth.updateUser(u.email, {name:u.name, role:u.role, province:u.province})
+                   : await auth.createUser({name:u.name, email:u.email, role:u.role, province:u.province, password:u.password||undefined});
+    if(!r.ok) return toast(r.error||t("บันทึกไม่สำเร็จ","Could not save"),"bad");
+    setEdit(null); await refresh();
+    toast(u.id?t("อัปเดตผู้ใช้แล้ว", "User updated"):t("สร้างผู้ใช้แล้ว", "User created"),"good");
+    // บัญชีใหม่ต้องมีรหัสตั้งต้นเสมอ — โชว์ให้แอดมินส่งต่อ (ครั้งเดียว)
+    if(!u.id && r.password) setPwShow({email:r.user.email, name:r.user.name, password:r.password});
+  };
+  const del=async u=>{
+    const r = await auth.removeUser(u.email);
+    if(!r.ok) return toast(r.error||t("ลบไม่สำเร็จ","Could not delete"),"bad");
+    await refresh(); toast(t("ลบผู้ใช้แล้ว", "User deleted"),"bad");
+  };
   // บันทึกสิทธิ์: เขียน log ทีละรายการตามกติกา G5 (เปลี่ยนของใคร จากอะไรเป็นอะไร)
   const savePerm=(target, next, changes)=>{
     setUsers(list=>list.map(x=> x.id===target.id ? {...x, role:next.role, scope:next.scope, permOverrides:next.overrides} : x));
@@ -89,13 +125,16 @@ export function Users(){
         {h:t("ผู้ใช้", "User"), render:u=>html`<div class="um-user">
           <span class=${"um-av "+roleCls(u.role)}>${initials(u.name)}</span>
           <div style=${{minWidth:0}}>
-            <div class="um-nm">${u.name}</div>
+            <div class="um-nm">${u.name}${u.hasPassword===false ? html`<span class="um-nopw">${t("ยังไม่ได้ตั้งรหัส","No password yet")}</span>`
+              : u.mustChange ? html`<span class="um-tmppw">${t("ใช้รหัสชั่วคราว","Temporary password")}</span>` : ""}</div>
             <div class="um-em">${u.email}</div></div></div>`},
         {h:t("บทบาท", "Role"), w:"210px", render:u=>html`<span class=${"um-role "+roleCls(u.role)}>${roleTH(u.role)}</span>`},
         {h:t("เข้าสู่ระบบล่าสุด", "Last sign-in"), w:"170px", render:u=>html`<span class="um-last">${u.last==="—"?"—":thDateTime(u.last)}</span>`},
         {h:t("การจัดการ", "Actions"), w:"230px", render:u=>html`<div class="um-act">
           <button class="um-btn" onClick=${()=>setEdit(u)}><${Icon} name="edit" size=${14}/>${t("แก้ไข", "Edit")}</button>
           <button class="um-btn" onClick=${()=>setPerm(u)}><${Icon} name="key" size=${14}/>${t("สิทธิ์", "Permissions")}</button>
+          <button class="um-btn" onClick=${()=>resetPw(u)} title=${t("ตั้งรหัสผ่านใหม่ให้ผู้ใช้คนนี้ (ใช้ตอนลืมรหัส)","Set a new password for this user (use when they forget it)")}>
+            <${Icon} name="refresh" size=${14}/>${t("รีเซ็ตรหัส", "Reset password")}</button>
           <button class="um-del" onClick=${()=>setDelUser(u)} title=${t("ลบบัญชี", "Delete account")}
             aria-label=${t("ลบบัญชี ", "Delete account ")+u.name}><${Icon} name="trash" size=${15}/></button>
         </div>`},
@@ -104,15 +143,39 @@ export function Users(){
     <style>${UM_CSS}</style>
 
 
+    <!-- รหัสที่เพิ่งตั้ง/รีเซ็ต — เห็นครั้งเดียว ระบบไม่เก็บตัวจริงไว้ที่ไหน (เก็บเฉพาะค่าแฮช) -->
+    ${pwShow && html`<${Modal} title=${t("รหัสผ่านชั่วคราว", "Temporary password")} onClose=${()=>setPwShow(null)}
+      footer=${html`<${Btn} variant="outline" icon="copy" onClick=${()=>{ try{ navigator.clipboard.writeText(pwShow.password);
+          toast(t("คัดลอกแล้ว","Copied"),"good"); }catch(e){ toast(t("คัดลอกไม่ได้ ให้จดด้วยมือ","Could not copy — write it down"),"bad"); } }}>
+          ${t("คัดลอก", "Copy")}</${Btn}>
+        <${Btn} variant="primary" onClick=${()=>setPwShow(null)}>${t("เรียบร้อย", "Done")}</${Btn}>`}>
+      <div style=${{fontSize:"13px",lineHeight:1.6}}>
+        <div>${t("ส่งรหัสนี้ให้", "Give this password to")} <b>${pwShow.name}</b> (${pwShow.email})</div>
+        <div style=${{margin:"12px 0",padding:"12px 14px",borderRadius:"10px",background:"var(--surface2)",
+          border:"1px solid var(--stroke2)",fontFamily:"ui-monospace,Menlo,Consolas,monospace",fontSize:"18px",
+          fontWeight:700,letterSpacing:"1px",textAlign:"center",userSelect:"all"}}>${pwShow.password}</div>
+        <div class="dim" style=${{fontSize:"12px"}}>${t("หน้าต่างนี้ปิดแล้วจะดูรหัสนี้ไม่ได้อีก เพราะระบบเก็บเฉพาะค่าที่แฮชไว้ ถ้าหายให้กดรีเซ็ตใหม่",
+          "Once this closes the password cannot be shown again — only its hash is stored. If it is lost, reset again")}</div>
+        <div class="dim" style=${{fontSize:"12px",marginTop:"6px"}}>${t("เจ้าตัวจะถูกบังคับให้ตั้งรหัสของตัวเองทันทีที่เข้าสู่ระบบครั้งถัดไป",
+          "They will be asked to choose their own password at the next sign-in")}</div>
+      </div>
+    </${Modal}>`}
+
     ${edit && html`<${Modal} title=${edit.id?t("แก้ไขผู้ใช้", "Edit user"):t("เพิ่มผู้ใช้", "Add user")} onClose=${()=>setEdit(null)}
       footer=${html`<${Btn} variant="ghost" onClick=${()=>setEdit(null)}>${t("ยกเลิก", "Cancel")}</${Btn}>
         <${Btn} variant="outline" icon="check" onClick=${()=>{const f=window.__uf;
           // สีประจำตัวเก็บแยกที่ tc-colors.js (ผูกด้วย id ของบัญชี) ไม่ปนกับข้อมูลบัญชี
           if(f.tccolor && f.role.value==="Trade Coordinator") setTcColor(edit.id, f.tccolor.value);
-          save({...edit,name:f.name.value,email:f.email.value,role:f.role.value});}}>${t("บันทึก", "Save")}</${Btn}>`}>
+          save({...edit,name:f.name.value,email:f.email.value,role:f.role.value,
+                password:(f.password&&f.password.value)||""});}}>${t("บันทึก", "Save")}</${Btn}>`}>
       <form ref=${el=>window.__uf=el}>
         <${Field} label=${t("ชื่อ-นามสกุล", "Full name")}><input class="input" name="name" defaultValue=${edit.name}/></${Field}>
         <${Field} label=${t("อีเมล", "Email")}><input class="input" name="email" defaultValue=${edit.email}/></${Field}>
+        ${!edit.id && html`<${Field} label=${t("รหัสผ่านตั้งต้น", "Initial password")}>
+          <input class="input" name="password" type="text" autocomplete="off" placeholder=${t("เว้นว่าง = ระบบสุ่มให้","Leave empty and the system generates one")}/>
+          <div class="dim" style=${{fontSize:"11.5px",marginTop:"5px",lineHeight:1.5}}>${t("อย่างน้อย 8 ตัว มีทั้งตัวอักษรและตัวเลข · ผู้ใช้จะถูกบังคับตั้งรหัสของตัวเองตอนเข้าครั้งแรก",
+            "At least 8 characters with letters and digits · the user must choose their own at first sign-in")}</div>
+        </${Field}>`}
         <${Field} label=${t("บทบาท", "Role")}><select class="input" name="role" defaultValue=${edit.role}>
           <option value="Administrator">${t("ผู้ดูแลระบบ", "System Administrator")}</option><option value="Management">${t("ผู้บริหาร", "Management")}</option>
           <option value="Trade Coordinator">${t("ผู้ประสานงานการค้า (TC)", "Trade Coordinator (TC)")}</option></select></${Field}>
@@ -752,14 +815,21 @@ export function Monitoring({defaultTab}={}){
     [...ranked].sort((a,b)=>(b.customerCount+b.prospectCount)-(a.customerCount+a.prospectCount))
       .forEach(u=>rows.push([u.label, u.customerCount, u.prospectCount]));
     // ตารางรายชื่อ "เฉพาะในขอบเขตที่กรอง" — เดิมส่งออกได้แค่ตัวเลขสรุป ไม่มีรายชื่อเลย
-    rows.push([], [t("รายชื่อในขอบเขตที่กรอง", "Records in the current filter")]);
-    rows.push([t("ประเภท", "Type"), t("ชื่อธุรกิจ", "Business name"), t("หมวดธุรกิจ", "Business category"),
-               t("จังหวัด", "Province"), t("อำเภอ/เขต", "District"), t("ที่อยู่", "Address"),
-               t("ผู้รับผิดชอบ", "Owner"), t("วันที่เพิ่ม", "Added on")]);
-    const _line = (o,typ)=>[typ, o.businessName||"", segTH(o.segment)||"", provinceTH(o.province)||"",
-                            DISTRICT_TH[o.district]||o.district||"", o.address||"", o.tc_owner||"", o.created_at||""];
-    if(ds!=="prospect") fCusts.forEach(c=>rows.push(_line(c, t("ลูกค้า", "Customer"))));
-    if(ds!=="existing") fPros.forEach(p=>rows.push(_line(p, "Lead")));
+    // แยกเป็นคนละตาราง (ลูกค้า / Lead) จึงไม่ต้องมีคอลัมน์ "ประเภท" กำกับทีละแถวอีก
+    const _head = [t("ชื่อธุรกิจ", "Business name"), t("หมวดธุรกิจ", "Business category"),
+                   t("จังหวัด", "Province"), t("อำเภอ/เขต", "District"), t("ที่อยู่", "Address"),
+                   t("เบอร์โทร", "Phone"), t("อีเมล", "Email")];
+    const _line = o => [o.businessName||"", segTH(o.segment)||"", provinceTH(o.province)||"",
+                        DISTRICT_TH[o.district]||o.district||"", o.address||"",
+                        o.phone||"", o.email||""];
+    if(ds!=="prospect"){
+      rows.push([], [t("ตารางลูกค้า", "Customers")+" ("+fCusts.length+")"], _head);
+      fCusts.forEach(c=>rows.push(_line(c)));
+    }
+    if(ds!=="existing"){
+      rows.push([], [t("ตาราง Lead", "Leads")+" ("+fPros.length+")"], _head);
+      fPros.forEach(p=>rows.push(_line(p)));
+    }
     return rows; };
   const doExport = ({format, filename, opts, dataSel, count, scope})=>{
     const name=(filename||"").trim().replace(/[\\/:*?"<>|]+/g,"_")||defaultReportName(scope);

@@ -13,6 +13,9 @@ import {SEGMENTS, PROVINCE_KEYS, tcLabel, BKK, BKK_ZONES} from "../mock/geoData.
 import {loadZoneRegistry, zoneRegistry, zonesOf, zoneLabel, zoneColor, saveZoneRegistry, nextColor, ZONE_REST}
   from "../zone-registry.js";   // ทะเบียนโซน — แหล่งความจริงเดียวของ id/ชื่อ/สี/จังหวัด
 import {pushAudit} from "../audit.js";
+import {ExportDialog, defaultReportName, downloadXLS} from "./reports.js";   // ป็อปอัพส่งออกตัวเดียวกับหน้ารายงาน
+import {downloadCSV} from "../data.js";
+import {canExport} from "../export-perms.js";
 import {loadTerritory, saveTerritory} from "../territory-store.js";
 import {AddRecordsForm} from "../add-records.js";
 import {createPortal} from "react-dom";
@@ -1193,10 +1196,13 @@ function useShared(key, gen){
 }
 // หัวหน้าเพจร่วมของทั้ง 4 หน้า — มีแค่ชื่อหน้ากับตัวเลขสรุป
 // (ไม่มีบรรทัดหมวด "การดูแลระบบ" และไม่มีคำบรรยายใต้หัวข้อ ตามที่ผู้ใช้กำหนด)
-const DmHead = ({title, caption}) => html`
-  <div class="page-head"><div><h1>${title}</h1>
-    ${caption ? html`<div class="dm-caption">${caption}</div>` : ""}
-  </div></div>`;
+const DmHead = ({title, caption, action}) => html`
+  <div class="page-head" style=${{display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:"12px",flexWrap:"wrap"}}>
+    <div><h1>${title}</h1>
+      ${caption ? html`<div class="dm-caption">${caption}</div>` : ""}
+    </div>
+    ${action || ""}
+  </div>`;
 
 /* ───────── หน้าหลัก: ตารางข้อมูลลูกค้าและ Lead ที่มีอยู่ในระบบ ───────── */
 /* ตัวช่วยของคอลัมน์ติดต่อในตาราง — เขียนไว้นอกเทมเพลตเพราะ regex ในเทมเพลตทำให้ตัวแยกพัง */
@@ -1206,7 +1212,7 @@ const webShort = v => String(v).replace("https://", "").replace("http://", "");
 
 const REC_PAGE = 15;
 export function DataManagement(){
-  const {db, updateRecord, adminDeleteRecord}=useApp();
+  const {db, user, updateRecord, adminDeleteRecord}=useApp();
   const [editRec,setEditRec]=useState(null);   // ระเบียนที่กำลังแก้ไข (เปิด AddRecordsForm โหมดแก้ไข)
   const [delRec,setDelRec]=useState(null);     // ระเบียนที่รอยืนยันลบ
   const [kind,setKind]=useState("all");      // all | Existing | Prospect
@@ -1214,6 +1220,7 @@ export function DataManagement(){
   const [seg,setSeg]=useState("All");
   const [q,setQ]=useState("");
   const [page,setPage]=useState(1);
+  const [exportOpen,setExportOpen]=useState(false);
 
   const custs=db.customers||[], pros=db.prospects||[];
   const loading = !custs.length && !pros.length;
@@ -1240,6 +1247,61 @@ export function DataManagement(){
   const pageRows=shown.slice((pg-1)*REC_PAGE, pg*REC_PAGE);
   const reset = fn => (...a)=>{ setPage(1); fn(...a); };
 
+  // ── ส่งออกข้อมูลตามตัวกรองบนหน้าจอ (สิทธิ์ตามบทบาท — ดูตาราง "สิทธิ์การส่งออกตามบทบาท" ในตั้งค่าระบบ) ──
+  const _role=(user&&user.role)||"Administrator", _uname=(user&&user.name)||t("ผู้ดูแลระบบ","System Administrator");
+  const _areaLabel = prov==="All" ? t("ทุกจังหวัด","All provinces") : provinceTH(prov);
+  const _segLabel  = seg==="All" ? t("ทุกหมวด","All categories") : segTH(seg);
+  const exportScope = { areaName:_areaLabel, areaLabel:_areaLabel, segLabel:_segLabel,
+    dateLabel:t("ทั้งหมด","All"),
+    counts:{ existing: shown.filter(r=>r._kind==="Existing").length,
+             prospect: shown.filter(r=>r._kind==="Prospect").length } };
+  const buildExportRows = o=>{ const ds=o.dataSel||"both";
+    const pick = ds==="existing" ? shown.filter(r=>r._kind==="Existing")
+               : ds==="prospect" ? shown.filter(r=>r._kind==="Prospect") : shown;
+    const rows=[[t("ข้อมูลลูกค้าและ Lead (GeoIntel)","Customer and Lead data (GeoIntel)")],
+                [t("จัดทำเมื่อ","Prepared on"), thDate(Date.now())],[]];
+    rows.push([t("ขอบเขตข้อมูลที่ส่งออก","Scope of the export")]);
+    rows.push([t("จังหวัด","Province"), _areaLabel]);
+    rows.push([t("หมวดธุรกิจ","Business category"), _segLabel]);
+    rows.push([t("ประเภท","Type"), kind==="all"?t("ลูกค้าและ Lead","Customers and Leads"):kind==="Existing"?t("ลูกค้า","Customers"):"Lead"]);
+    if(q.trim()) rows.push([t("คำค้น","Search term"), q.trim()]);
+    rows.push([t("จำนวนที่ส่งออก","Records exported"), pick.length]);
+    rows.push([]);
+    // แยกเป็นคนละตาราง (ลูกค้า / Lead) จึงไม่ต้องมีคอลัมน์ "ประเภท" กำกับทีละแถวอีก
+    const head = [t("รหัส","ID"), t("ชื่อธุรกิจ","Business name"), t("หมวดธุรกิจ","Business category"),
+                  t("จังหวัด","Province"), t("อำเภอ/เขต","District"), t("ที่อยู่","Address"),
+                  t("เบอร์โทร","Phone"), t("อีเมล","Email"), t("พิกัด","Coordinates")];
+    const line = r => [ r.accountNo||r.id||"", r.businessName||"", segTH(r.segment)||"", provinceTH(r.province)||"",
+      districtTH(r.district)||r.district||"", r.address||"",
+      r.phone||"", r.email||"",
+      (r.latitude&&r.longitude)? r.latitude+", "+r.longitude : "" ];
+    const custRows = pick.filter(r=>r._kind==="Existing"), leadRows = pick.filter(r=>r._kind==="Prospect");
+    if(custRows.length || ds!=="prospect"){
+      rows.push([], [t("ตารางลูกค้า","Customers")+" ("+custRows.length+")"], head);
+      custRows.forEach(r=>rows.push(line(r)));
+    }
+    if(leadRows.length || ds!=="existing"){
+      rows.push([], [t("ตาราง Lead","Leads")+" ("+leadRows.length+")"], head);
+      leadRows.forEach(r=>rows.push(line(r)));
+    }
+    return rows; };
+  const doExport = ({format, filename, opts, dataSel, count, scope})=>{
+    const name=(filename||"").trim().replace(/[\/:*?"<>|]+/g,"_")||defaultReportName(scope);
+    const fmtLabel={pdf:"PDF",excel:"Excel",csv:"CSV"}[format]||format;
+    const scopeStr=scope.areaLabel+" · "+scope.segLabel;
+    // TODO(server): ด่านนี้เป็นชั้นเสริมฝั่งเบราว์เซอร์ ของจริงต้องบังคับที่ API ตอนดึงข้อมูล
+    if(!canExport(_role, format)){
+      pushAudit({user:_uname, action:t("ส่งออกรายงานถูกปฏิเสธ","Report export refused"), category:"ส่งออก",
+        detail:fmtLabel+" · "+scopeStr+" · "+num(count||0)+" "+t("รายการ","records")});
+      toast(t("บทบาทของคุณไม่มีสิทธิ์ส่งออกไฟล์","Your role cannot export files")+" "+fmtLabel,"bad"); setExportOpen(false); return; }
+    const rows=buildExportRows({...opts, dataSel}); setExportOpen(false);
+    if(format==="csv"){ downloadCSV(name+".csv", rows); toast(t("ส่งออกไฟล์ CSV แล้ว","CSV file exported"),"good"); }
+    else if(format==="excel"){ downloadXLS(name+".xls", rows); toast(t("ส่งออกไฟล์ Excel แล้ว","Excel file exported"),"good"); }
+    else { toast(t("กำลังเตรียมไฟล์ PDF…","Preparing the PDF…"),"info"); setTimeout(()=>window.print(),350); }
+    pushAudit({user:_uname, action:t("ส่งออกรายงาน","Export report"), category:"ส่งออก",
+      detail:fmtLabel+" · "+name+" · "+scopeStr+" · "+num(count||0)+" "+t("รายการ","records")});
+  };
+
   const COLS=[
     { h:t("ประเภท", "Type"), w:"104px", render:r=> r._kind==="Existing"
         ? html`<${Badge} tone="good">${t("ลูกค้า", "Customers")}</${Badge}>` : html`<${Badge} tone="neutral">Lead</${Badge}>` },
@@ -1263,7 +1325,11 @@ export function DataManagement(){
 
   return html`<div class="page fade-in">
     <${DmHead} title=${t("จัดการข้อมูล", "Data management")}
-      caption=${`${t("ลูกค้า", "Customers")} ${num(custs.length)} ${t("ราย · Lead", "customers · Leads")} ${num(pros.length)} ${t("ราย · รวม", "· total")} ${num(rows.length)} ${t("รายการ", "records")}`}/>
+      caption=${`${t("ลูกค้า", "Customers")} ${num(custs.length)} ${t("ราย · Lead", "customers · Leads")} ${num(pros.length)} ${t("ราย · รวม", "· total")} ${num(rows.length)} ${t("รายการ", "records")}`}
+      action=${html`<${Btn} variant="outline" icon="download" disabled=${!shown.length}
+        onClick=${()=>setExportOpen(true)}>${t("ส่งออกข้อมูล", "Export data")}</${Btn}>`}/>
+    ${exportOpen && html`<${ExportDialog} scope=${exportScope} role=${_role}
+      buildPreviewRows=${buildExportRows} onClose=${()=>setExportOpen(false)} onExport=${doExport}/>`}
 
     <div class="grid g4" style=${{marginBottom:"14px"}}>
       <${Kpi} label=${t("ลูกค้าในระบบ", "Customers in the system")} value=${num(custs.length)} icon="users"/>

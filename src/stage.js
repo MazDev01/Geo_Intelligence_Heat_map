@@ -227,7 +227,7 @@ export function GeoStage({db, mode, activeCountry, flyTarget, globeUnder, onArri
           <${Icon} name="layers" size=${20}/>
         </button>`}
         ${!zoneEdit && layersOpen && html`<div class="map-panel tool-panel map-fx layers-pop"
-          style=${{position:"absolute",top:"54px",left:0,width:"240px",maxWidth:"calc(100vw - 60px)",maxHeight:"calc(100vh - 200px)",overflowY:"auto",padding:"12px 14px"}}>
+          style=${{position:"absolute",top:"54px",left:0,width:"240px",maxWidth:"calc(100vw - 60px)",maxHeight:"min(520px, calc(100vh - 290px))",overflowY:"auto",padding:"12px 14px"}}>
 
         <!-- หัวแผง + ปุ่มย่อแผง — ใช้ "ไอคอนเลเยอร์" ตัวเดียวกับตอนเปิด จึงเป็นปุ่มสลับชุดเดียวกัน
              (กดที่ไอคอนนี้ = ย่อกลับเป็นไอคอน · กดไอคอนอีกทีก็กางแผงกลับมา) -->
