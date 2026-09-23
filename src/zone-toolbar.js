@@ -53,6 +53,14 @@ if(typeof document!=="undefined" && !document.getElementById("ztb-css")){
 .ztb .ztb-pub:hover:not(:disabled){background:#c6e8d6;border-color:#8ccdae;color:#0a5c2e}
 .ztb input,.ztb select{height:2.56em;border:1px solid var(--stroke2);border-radius:.64em;background:var(--surface);
   color:var(--txt);font-family:var(--font);font-size:1em;padding:0 .55em;min-width:0}
+/* ⚠ <select> ของเบราว์เซอร์วาดพื้นเทาของตัวเองตอนชี้เมาส์/กดค้าง ทำให้ดูไม่เข้าชุดกับที่อื่นในระบบ
+   ปิด appearance แล้ววาดลูกศรเอง ใช้โทนเดียวกับดรอปดาวน์ตัวอื่น (dropdown token) และ hover เหมือนปุ่ม */
+.ztb select{appearance:none;-webkit-appearance:none;cursor:pointer;color-scheme:light;
+  padding-right:1.9em;transition:.15s;
+  background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='10' fill='%239CA3AF'><path d='M0 2l5 6 5-6z'/></svg>");
+  background-repeat:no-repeat;background-position:right .7em center}
+.ztb select:hover:not(:disabled){background-color:var(--surface2);border-color:var(--muted)}
+.ztb select option{background-color:var(--dropdown-bg);color:var(--dropdown-text)}
 .ztb .ztb-id{width:5.9em}
 .ztb .ztb-nm{width:8em}
 /* ช่องเลือกสี: ให้เห็นเป็นแผ่นสีล้วน ไม่ใช่กล่อง input ของเบราว์เซอร์ */

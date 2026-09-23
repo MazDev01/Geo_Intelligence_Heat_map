@@ -38,7 +38,7 @@ const out = () => {
   const txt=b=>b?JSON.stringify(b.textContent.trim()):"-";
   document.getElementById("m").textContent =
     "MEASURE barH="+bar.offsetHeight+" overflow="+(row.scrollWidth>row.clientWidth)+
-    " panelW="+row.getBoundingClientRect().width.toFixed(0)+" boxW="+bar.getBoundingClientRect().width.toFixed(0)+" fontSize="+getComputedStyle(row).fontSize+" content="+[...row.children].reduce((a,c)=>a+c.offsetWidth+8,0)+
+    " selStyle="+(()=>{const el=row.querySelector("select");const c=getComputedStyle(el);return c.appearance+"/"+c.backgroundColor+"/"+(c.backgroundImage!=="none");})()+" panelW="+row.getBoundingClientRect().width.toFixed(0)+" boxW="+bar.getBoundingClientRect().width.toFixed(0)+" fontSize="+getComputedStyle(row).fontSize+" content="+[...row.children].reduce((a,c)=>a+c.offsetWidth+8,0)+
     " save="+(()=>{const b=row.querySelector(".ztb-save"),c=getComputedStyle(b);return c.backgroundColor+"/"+c.color;})()+" pub="+(()=>{const b=row.querySelector(".ztb-pub"),c=getComputedStyle(b);return c.backgroundColor+"/"+c.color;})()+" undoDisabled="+(u&&u.disabled)+" undoTitle="+(u&&u.title)+
     " mergeTxt="+txt(mg)+" mergeSvg="+!!(mg&&mg.querySelector("svg"))+
     " delTxt="+txt(del)+" delSvg="+!!(del&&del.querySelector("svg"))+
