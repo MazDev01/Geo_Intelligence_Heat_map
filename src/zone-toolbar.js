@@ -19,13 +19,13 @@ if(typeof document!=="undefined" && !document.getElementById("ztb-css")){
 .ztb{position:relative;flex:1;min-width:0;display:flex;flex-direction:column;gap:5px;
   background:var(--panel);border:1px solid var(--stroke2);border-radius:12px;
   padding:7px 10px;backdrop-filter:blur(14px);box-shadow:var(--shadow)}
-.ztb-row{display:flex;align-items:center;gap:8px;flex-wrap:nowrap;overflow-x:auto;overflow-y:hidden;
+.ztb-row{display:flex;align-items:center;gap:6px;flex-wrap:nowrap;overflow-x:auto;overflow-y:hidden;
   scrollbar-width:thin;scrollbar-color:var(--stroke2) transparent}
 .ztb-row>*{flex:none}
 .ztb-row::-webkit-scrollbar{height:5px}
 .ztb-row::-webkit-scrollbar-thumb{background:var(--stroke2);border-radius:3px}
 .ztb-sep{width:1px;height:22px;background:var(--stroke2);flex:none}
-.ztb button{display:inline-flex;align-items:center;gap:6px;height:32px;padding:0 11px;border-radius:8px;
+.ztb button{display:inline-flex;align-items:center;gap:5px;height:32px;padding:0 9px;border-radius:8px;
   border:1px solid var(--stroke2);background:var(--surface);color:var(--txt);cursor:pointer;
   font-family:var(--font);font-size:12.5px;font-weight:600;white-space:nowrap}
 .ztb button:hover:not(:disabled){background:var(--surface2);border-color:var(--muted)}
@@ -49,7 +49,7 @@ if(typeof document!=="undefined" && !document.getElementById("ztb-css")){
 .ztb input,.ztb select{height:32px;border:1px solid var(--stroke2);border-radius:8px;background:var(--surface);
   color:var(--txt);font-family:var(--font);font-size:12.5px;padding:0 7px;min-width:0}
 .ztb .ztb-id{width:74px}
-.ztb .ztb-nm{width:112px}
+.ztb .ztb-nm{width:100px}
 /* ช่องเลือกสี: ให้เห็นเป็นแผ่นสีล้วน ไม่ใช่กล่อง input ของเบราว์เซอร์ */
 .ztb input[type=color]{width:30px;padding:2px;cursor:pointer;background:var(--surface)}
 .ztb input[type=color]::-webkit-color-swatch-wrapper{padding:0}
@@ -69,7 +69,7 @@ if(typeof document!=="undefined" && !document.getElementById("ztb-css")){
 .ztb .ztb-nm.bad,.ztb .ztb-nm.bad:focus{border:1.5px solid #dc2626;outline:none;
   box-shadow:0 0 0 3px rgba(220,38,38,.25)}
 .ztb .ztb-nm.bad::placeholder{color:#dc2626}
-.ztb .ztb-gap{max-width:132px}
+.ztb .ztb-gap{max-width:112px}
 .ztb-stat{font-size:11.5px;color:var(--muted);white-space:nowrap}
 .ztb-stat b{color:var(--txt)}
 .ztb-dirty{color:var(--warn);font-weight:700}
@@ -183,7 +183,7 @@ export function ZoneToolbar({ed, onExit}){
       title=${t("สีของโซนใหม่","Colour of the new zone")} aria-label=${t("สีของโซนใหม่","Colour of the new zone")}
       onInput=${e=>setNewColor(e.target.value)}/>
     <button disabled=${busy || s.drawing} onClick=${draw} title=${t("ตั้งชื่อแล้ววาดรูปโซนใหม่บนแมพ","Name it, then draw the new zone on the map")}>
-      ${t("+ วาดโซนใหม่","+ Draw zone")}</button>
+      ${t("+ โซนใหม่","+ New zone")}</button>
 
     <button ref=${zBtnRef} class=${listOpen?"on":""} disabled=${busy || s.drawing} onClick=${toggleList}
       title=${t("รายชื่อโซน · เปลี่ยนสี/เปลี่ยนชื่อ","Zone list · change colour or name")}>
@@ -196,7 +196,7 @@ export function ZoneToolbar({ed, onExit}){
       onChange=${e=>{ const m=+e.target.value; setGap(m);
         run(()=>ed.thin(m), r=>`${t("หมุดห่างอย่างน้อย","Minimum spacing")} ${m} ${t("ม. · เหลือ","m · now")} ${r.after} ${t("จุด (จาก","points (from")} ${r.before})`); }}>
       ${[0,100,200,300,500].map(m=>html`<option key=${m} value=${String(m)} disabled=${m===0}>
-        ${m===0 ? t("หมุดห่าง…","Spacing…") : t("หมุดห่าง","spacing")+" "+m+" "+t("ม.","m")}</option>`)}
+        ${m===0 ? t("หมุดห่าง…","Spacing…") : t("ห่าง","gap")+" "+m+" "+t("ม.","m")}</option>`)}
     </select>
     <!-- ลูกศรซ้าย/ขวา = ย้อน/ทำซ้ำ เหมือนเครื่องมือทั่วไป · จำนวนขั้นอยู่ใน tooltip ไม่รกบนปุ่ม -->
     <button class="ztb-ico" disabled=${busy || (!s.drawing && !s.undo)}
@@ -209,8 +209,10 @@ export function ZoneToolbar({ed, onExit}){
       aria-label=${t("ทำซ้ำ","Redo")}
       title=${t("ทำซ้ำสิ่งที่เพิ่งย้อน","Redo")}${s.redo?` (${s.redo})`:""}>
       <${Icon} name="redo" size=${15}/></button>
-    <button disabled=${busy || s.drawing} onClick=${()=>{ if(confirm(t("ทิ้งการแก้ทั้งหมดกลับเป็นรูปตอนเปิดหน้า?","Discard all edits and go back to the shape at page load?"))) run(()=>ed.revert()); }}>
-      ${t("ทิ้งการแก้","Discard")}</button>
+    <button class="ztb-ico" disabled=${busy || s.drawing}
+      aria-label=${t("ทิ้งการแก้ทั้งหมด","Discard all edits")} title=${t("ทิ้งการแก้ทั้งหมด กลับเป็นรูปตอนเปิดหน้า","Discard all edits and go back to the shape at page load")}
+      onClick=${()=>{ if(confirm(t("ทิ้งการแก้ทั้งหมดกลับเป็นรูปตอนเปิดหน้า?","Discard all edits and go back to the shape at page load?"))) run(()=>ed.revert()); }}>
+      <${Icon} name="refresh" size=${15}/></button>
 
     <span class="ztb-sep"></span>
     <button class="ztb-save" disabled=${busy || s.drawing} onClick=${()=>run(()=>ed.saveDraft(),
