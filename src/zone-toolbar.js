@@ -16,24 +16,28 @@ if(typeof document!=="undefined" && !document.getElementById("ztb-css")){
 /* ⚠ ห้ามใส่ flex-wrap:wrap ที่แถวเครื่องมือ — ตอนกด "เลือกโซน" มีปุ่ม รวม/ลบ โผล่เพิ่ม
    ถ้าห่อบรรทัด ปุ่มท้ายแถว (ใช้จริง) จะตกไปบรรทัดล่าง แถบสูงขึ้น ปุ่มขยับหนีมือ
    จึงบังคับบรรทัดเดียว ถ้าจอแคบให้เลื่อนแนวนอนแทนการห่อ */
-.ztb{position:relative;flex:1;min-width:0;display:flex;flex-direction:column;gap:5px;
+.ztb{container-type:inline-size;position:relative;flex:1;min-width:0;display:flex;flex-direction:column;gap:5px;
   background:var(--panel);border:1px solid var(--stroke2);border-radius:12px;
   padding:7px 10px;backdrop-filter:blur(14px);box-shadow:var(--shadow)}
-.ztb-row{display:flex;align-items:center;gap:6px;flex-wrap:nowrap;overflow-x:auto;overflow-y:hidden;
+/* 1.12cqw ≈ 12.5px ที่กล่องกว้าง ~1,120px · แคบกว่านั้นย่อลงได้ถึง 9.5px · กว้างกว่าไม่โตเกิน 13px */
+.ztb-row{font-size:clamp(9.5px, 1.12cqw, 13px);
+  display:flex;align-items:center;gap:.5em;flex-wrap:nowrap;overflow-x:auto;overflow-y:hidden;
   scrollbar-width:thin;scrollbar-color:var(--stroke2) transparent}
 .ztb-row>*{flex:none}
 .ztb-row::-webkit-scrollbar{height:5px}
 .ztb-row::-webkit-scrollbar-thumb{background:var(--stroke2);border-radius:3px}
-.ztb-sep{width:1px;height:22px;background:var(--stroke2);flex:none}
-.ztb button{display:inline-flex;align-items:center;gap:5px;height:32px;padding:0 9px;border-radius:8px;
+.ztb-sep{width:1px;height:1.75em;background:var(--stroke2);flex:none}
+/* ไอคอนก็ต้องย่อตาม — CSS ชนะ attribute width/height ที่คอมโพเนนต์ Icon ใส่มาเป็น px */
+.ztb-row svg{width:1.2em;height:1.2em}
+.ztb button{display:inline-flex;align-items:center;gap:.4em;height:2.56em;padding:0 .72em;border-radius:.64em;
   border:1px solid var(--stroke2);background:var(--surface);color:var(--txt);cursor:pointer;
-  font-family:var(--font);font-size:12.5px;font-weight:600;white-space:nowrap}
+  font-family:var(--font);font-size:1em;font-weight:600;white-space:nowrap}
 .ztb button:hover:not(:disabled){background:var(--surface2);border-color:var(--muted)}
 .ztb button:disabled{opacity:.45;cursor:default}
 .ztb button.on{background:var(--accent);border-color:var(--accent);color:#fff}
-.ztb .ztb-ico{width:32px;padding:0;justify-content:center;gap:3px}
-.ztb .ztb-ico:has(.ztb-n){width:auto;min-width:32px;padding:0 8px}
-.ztb .ztb-n{font-size:11px;font-weight:700;line-height:1}
+.ztb .ztb-ico{width:2.56em;padding:0;justify-content:center;gap:.24em}
+.ztb .ztb-ico:has(.ztb-n){width:auto;min-width:2.56em;padding:0 .6em}
+.ztb .ztb-n{font-size:.88em;font-weight:700;line-height:1}
 .ztb .ztb-exit{background:none;border-color:transparent;color:var(--muted)}
 .ztb .ztb-exit:hover{color:var(--txt);background:var(--surface)}
 .ztb .ztb-del{color:#b91c1c;border-color:#fca5a5}
@@ -46,12 +50,12 @@ if(typeof document!=="undefined" && !document.getElementById("ztb-css")){
 .ztb button.on:hover:not(:disabled){background:var(--accent);border-color:var(--accent);color:#fff;filter:brightness(1.08)}
 .ztb .ztb-save:hover:not(:disabled){background:#c7dcf8;border-color:#8fb9ec;color:#14418f}
 .ztb .ztb-pub:hover:not(:disabled){background:#c6e8d6;border-color:#8ccdae;color:#0a5c2e}
-.ztb input,.ztb select{height:32px;border:1px solid var(--stroke2);border-radius:8px;background:var(--surface);
-  color:var(--txt);font-family:var(--font);font-size:12.5px;padding:0 7px;min-width:0}
-.ztb .ztb-id{width:74px}
-.ztb .ztb-nm{width:100px}
+.ztb input,.ztb select{height:2.56em;border:1px solid var(--stroke2);border-radius:.64em;background:var(--surface);
+  color:var(--txt);font-family:var(--font);font-size:1em;padding:0 .55em;min-width:0}
+.ztb .ztb-id{width:5.9em}
+.ztb .ztb-nm{width:8em}
 /* ช่องเลือกสี: ให้เห็นเป็นแผ่นสีล้วน ไม่ใช่กล่อง input ของเบราว์เซอร์ */
-.ztb input[type=color]{width:30px;padding:2px;cursor:pointer;background:var(--surface)}
+.ztb input[type=color]{width:2.4em;padding:2px;cursor:pointer;background:var(--surface)}
 .ztb input[type=color]::-webkit-color-swatch-wrapper{padding:0}
 .ztb input[type=color]::-webkit-color-swatch{border:none;border-radius:4px}
 /* แผงรายชื่อโซน — ห้อยใต้แถบเครื่องมือ (แถบต้องเป็นแถวเดียวเสมอ รายการยาวจึงต้องแยกแผง) */
@@ -69,8 +73,8 @@ if(typeof document!=="undefined" && !document.getElementById("ztb-css")){
 .ztb .ztb-nm.bad,.ztb .ztb-nm.bad:focus{border:1.5px solid #dc2626;outline:none;
   box-shadow:0 0 0 3px rgba(220,38,38,.25)}
 .ztb .ztb-nm.bad::placeholder{color:#dc2626}
-.ztb .ztb-gap{max-width:112px}
-.ztb-stat{font-size:11.5px;color:var(--muted);white-space:nowrap}
+.ztb .ztb-gap{max-width:9em}
+.ztb-stat{font-size:.92em;color:var(--muted);white-space:nowrap}
 .ztb-stat b{color:var(--txt)}
 .ztb-dirty{color:var(--warn);font-weight:700}
 .ztb-msg{font-size:11.5px;color:var(--muted);line-height:1.35}
