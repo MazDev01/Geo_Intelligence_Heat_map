@@ -156,6 +156,30 @@ let lineSeq=0;
 // ปัดเพดานแกน Y ให้เป็นเลขกลม เพื่อให้ป้ายสเกลอ่านง่าย (1/2/2.5/5/10 × 10^k)
 const _niceMax = m => { if(m<=0) return 1; const p=Math.pow(10,Math.floor(Math.log10(m)));
   const n=m/p; const nice = n<=1?1:n<=2?2:n<=2.5?2.5:n<=5?5:10; return nice*p; };
+/**
+ * เส้นโค้งผ่านทุกจุดแบบ monotone cubic (Fritsch–Carlson)
+ * ใช้ตัวนี้แทน Catmull-Rom ธรรมดา เพราะข้อมูลเป็น "จำนวนนับ" — เส้นโค้งทั่วไปจะตวัดต่ำกว่าค่าจริง
+ * (เช่น 0 → 3 → 0 จะแอ่นลงไปติดลบ) ซึ่งอ่านแล้วเข้าใจผิดว่าเคยมีค่าน้อยกว่าที่วัดได้
+ */
+function smoothPath(pts){
+  const n = pts.length;
+  if(!n) return "";
+  if(n < 3) return pts.map((p,i)=>`${i?"L":"M"}${p.x},${p.y}`).join(" ");
+  const dx=[], slope=[];
+  for(let i=0;i<n-1;i++){ dx[i]=pts[i+1].x-pts[i].x; slope[i]=(pts[i+1].y-pts[i].y)/(dx[i]||1); }
+  const m=[slope[0]];
+  for(let i=1;i<n-1;i++){
+    if(slope[i-1]*slope[i] <= 0) m[i]=0;                    // จุดยอด/จุดต่ำสุด → ความชัน 0 ไม่ให้เลยค่าจริง
+    else { const w1=2*dx[i]+dx[i-1], w2=dx[i]+2*dx[i-1];
+           m[i]=(w1+w2)/(w1/slope[i-1]+w2/slope[i]); }
+  }
+  m[n-1]=slope[n-2];
+  let d=`M${pts[0].x},${pts[0].y}`;
+  for(let i=0;i<n-1;i++){ const h=dx[i]/3;
+    d += ` C${pts[i].x+h},${pts[i].y+m[i]*h} ${pts[i+1].x-h},${pts[i+1].y-m[i+1]*h} ${pts[i+1].x},${pts[i+1].y}`; }
+  return d;
+}
+
 export function LineChart({series, height=190, format=(v)=>v, labels=[], animate=true}){
   const ref = useRef(null);
   const [W, setW] = useState(560);
@@ -219,7 +243,7 @@ export function LineChart({series, height=190, format=(v)=>v, labels=[], animate
       ${labels.map((lb,i)=> i<n ? html`<text key=${"x"+i} x=${X(i)} y=${height-8} text-anchor="middle" fill="var(--muted)" font-size="10">${lb}</text>` : "")}
       ${hx>=0?html`<line x1=${X(hx)} x2=${X(hx)} y1=${padT} y2=${yBase} stroke="rgba(15,23,42,.32)" stroke-width="1" stroke-dasharray="3 3" vector-effect="non-scaling-stroke"/>`:""}
       <g clip-path=${anim?`url(#lcrev${uid})`:undefined}>
-        ${series.map((s,si)=>{const d=s.points.map((p,i)=>`${i?"L":"M"}${X(i)},${Y(p)}`).join(" ");
+        ${series.map((s,si)=>{const d=smoothPath(s.points.map((p,i)=>({x:X(i), y:Y(p)})));
           return html`<g key=${si}>
             <path d=${`${d} L${X(n-1)},${yBase} L${X(0)},${yBase} Z`} fill=${`url(#lcg${uid}-${si})`}/>
             <path d=${d} fill="none" stroke=${s.color} stroke-width="2.8" stroke-linejoin="round" stroke-linecap="round" vector-effect="non-scaling-stroke"/>

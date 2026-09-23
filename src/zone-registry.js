@@ -30,6 +30,15 @@ const FALLBACK_META = {
   LP: { color: "#f97316", en: "Lat Phrao" },
   TL: { color: "#7c3aed", en: "Thonglor" },
 };
+/**
+ * รหัสหน่วย "พื้นที่ที่เหลือของจังหวัด" — เขตที่ไม่ได้อยู่ในโซนไหนเลย
+ * จังหวัดที่ถูกแบ่งโซนยังมีพื้นที่เหลืออยู่ (กรุงเทพฯ 50 เขต อยู่ในโซน 27 เหลือ 23)
+ * ถ้าไม่มีหน่วยนี้ ลูกค้าในพื้นที่ที่เหลือจะมอบหมายให้ TC ไม่ได้เลย
+ * ⚠ ไม่ใช่โซนในทะเบียน — ไม่มีรูปทรงของตัวเอง นิยามว่า "อยู่ในจังหวัด แต่ไม่อยู่ในโซนใด"
+ */
+export const ZONE_REST = "__rest";
+export const restLabel = () => t("พื้นที่นอกโซน", "Outside any zone");
+
 const PALETTE = ["#ec4899","#f97316","#7c3aed","#0ea5e9","#16a34a","#eab308","#dc2626","#0891b2"];
 export const nextColor = used => PALETTE.find(c=>!used.includes(c)) || PALETTE[used.length % PALETTE.length];
 
@@ -79,17 +88,71 @@ export function loadZoneRegistry({force=false}={}){
 export const zoneRegistry = () => cache;
 export function subscribeZones(fn){ subs.add(fn); return ()=>subs.delete(fn); }
 
-/** บันทึกทะเบียนขึ้นเซิร์ฟเวอร์ แล้วอัปเดตแคชในหน้าให้ตรงกันทันที */
-export async function saveZoneRegistry(fc){
-  const body = JSON.stringify(normalize(fc));
+/* ── รหัสผู้ดูแล ────────────────────────────────────────────────────────────
+   เก็บใน sessionStorage (ปิดแท็บก็หาย) แล้วส่งเป็น Authorization header
+   ⚠ หน้าเว็บเป็น static ไม่มีระบบตัวตนจริง — รหัสนี้กัน "คนนอกที่รู้แค่ URL"
+     ยิงเขียนทับได้ แต่ไม่ได้กันคนที่นั่งอยู่หน้าเครื่องเดียวกัน อย่าเข้าใจผิดว่าเป็น auth */
+const TOK_KEY = "geointel_zones_token";
+export const adminToken = () => { try{ return sessionStorage.getItem(TOK_KEY) || ""; }catch(e){ return ""; } };
+export const setAdminToken = v => { try{ v ? sessionStorage.setItem(TOK_KEY, v) : sessionStorage.removeItem(TOK_KEY); }catch(e){} };
+// ส่งเป็น base64 ของ UTF-8 เพราะ HTTP header เป็น latin-1 — รหัสภาษาไทยส่งดิบ ๆ จะเพี้ยน
+// (เจอมาแล้ว: รหัสถูกแต่เซิร์ฟเวอร์ปฏิเสธ) ฝั่งเซิร์ฟเวอร์รับทั้ง base64 และข้อความดิบ
+const b64 = s => { try{ return btoa(String.fromCharCode(...new TextEncoder().encode(s))); }catch(e){ return s; } };
+const authHeaders = () => { const t = adminToken(); return t ? {Authorization:"Bearer "+b64(t)} : {}; };
+
+async function post(query, body){
   try{
-    const r = await fetch(API, {method:"POST", headers:{"Content-Type":"application/json"}, body});
+    const r = await fetch(API + (query||""), {
+      method:"POST",
+      headers:{...(body!==undefined ? {"Content-Type":"application/json"} : {}), ...authHeaders()},
+      ...(body!==undefined ? {body} : {}),
+    });
     const out = await r.json().catch(()=>({}));
-    if(!r.ok) return {ok:false, error: out.message || out.error || ("HTTP "+r.status)};
-    cache = normalize(fc);
-    subs.forEach(fn=>{ try{ fn(cache); }catch(e){} });
+    if(!r.ok) return {ok:false, code:r.status, error: out.message || out.error || ("HTTP "+r.status)};
     return {ok:true, ...out};
   }catch(e){ return {ok:false, error:e.message}; }
+}
+
+/** บันทึกเป็น "ฉบับร่าง" — ยังไม่มีผลกับ TC/ผู้บริหารจนกดอนุมัติ */
+export const saveZoneDraft = fc => post("", JSON.stringify(normalize(fc)));
+
+/** บันทึกแล้วมีผลทันที (ข้ามขั้นอนุมัติ) — อัปเดตแคชในหน้าให้ตรงกันด้วย */
+export async function saveZoneRegistry(fc){
+  const norm = normalize(fc);
+  const r = await post("?publish=1", JSON.stringify(norm));
+  if(r.ok){ cache = norm; subs.forEach(fn=>{ try{ fn(cache); }catch(e){} }); }
+  return r;
+}
+
+/** อนุมัติฉบับร่างให้มีผลจริง แล้วรีโหลดแคชจากเซิร์ฟเวอร์ */
+export async function approveZoneDraft(){
+  const r = await post("?approve=1");
+  if(r.ok) await loadZoneRegistry({force:true});
+  return r;
+}
+export const discardZoneDraft = () => post("?discard=1");
+
+/** ฉบับร่างที่ค้างอยู่ (null = ไม่มี) */
+export async function loadZoneDraft(){
+  try{ const r = await fetch(API+"?draft=1", {cache:"no-store"});
+    return (r.ok && r.status!==204) ? normalize(await r.json()) : null;
+  }catch(e){ return null; }
+}
+
+/** ประวัติฉบับที่เคยมีผลจริง (ใหม่สุดมาก่อน) */
+export async function listZoneVersions(){
+  try{ const r = await fetch(API+"?history=1", {cache:"no-store"});
+    if(!r.ok) return [];
+    const b = await r.json();
+    return Array.isArray(b.versions) ? b.versions : [];
+  }catch(e){ return []; }
+}
+
+/** ย้อนไปใช้ฉบับในประวัติ — ฉบับปัจจุบันถูกเก็บเข้าประวัติก่อน ไม่หายไปเฉย ๆ */
+export async function restoreZoneVersion(version){
+  const r = await post("?restore="+encodeURIComponent(version));
+  if(r.ok) await loadZoneRegistry({force:true});
+  return r;
 }
 
 /* ── ตัวช่วยอ่านทะเบียน ─────────────────────────────────────────────────── */
@@ -100,7 +163,8 @@ export const zonesOf      = province => feats().filter(f=>f.properties.province=
 export const zoneProps    = id => (feats().find(f=>f.properties.zone_id===id)||{}).properties || null;
 export const zoneColor    = id => { const p=zoneProps(id); return p ? p.color : "#64748b"; };
 /** ชื่อโซนตามภาษาปัจจุบัน · คืน id เดิมถ้าไม่รู้จัก (id เป็นค่าข้อมูล ไม่แปล) */
-export const zoneLabel    = id => { const p=zoneProps(id); if(!p) return id;
+export const zoneLabel    = id => { if(id===ZONE_REST) return restLabel();
+  const p=zoneProps(id); if(!p) return id;
   return getLang()==="en" ? (p.zone_name_en || p.zone_name) : p.zone_name; };
 /** จังหวัดที่มีการแบ่งโซน — ใช้ตัดสินว่าจังหวัดนั้นเป็น "หลายหน่วย" หรือหน่วยเดียว */
 export const zonedProvinces = () => [...new Set(feats().map(f=>f.properties.province))];

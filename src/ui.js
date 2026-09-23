@@ -51,7 +51,7 @@ export function InfoTip({text, side}){
 
 export function Btn({variant="ghost", size, icon, children, onClick, disabled, type}){
   return html`<button type=${type||"button"} class=${cx("btn",variant,size)} onClick=${onClick} disabled=${disabled}>
-    ${icon&&html`<${Icon} name=${icon} size=${size==="sm"?14:16}/>`}${children}</button>`;
+    ${icon&&html`<${Icon} name=${icon} size=${size==="sm"?14:size==="lg"?19:16}/>`}${children}</button>`;
 }
 
 export function Toggle({on, onChange}){

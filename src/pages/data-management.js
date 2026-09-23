@@ -10,7 +10,7 @@ import {html, useState, useEffect, useMemo, useRef, useApp, Icon, num, provinceT
 import {basemap} from "../basemap.js";
 import {Card, Kpi, Btn, Badge, Toggle, Table, Tabs, Modal, Meter, toast} from "../ui.js";
 import {SEGMENTS, PROVINCE_KEYS, tcLabel, BKK, BKK_ZONES} from "../mock/geoData.js";
-import {loadZoneRegistry, zoneRegistry, zonesOf, zoneLabel, zoneColor, saveZoneRegistry, nextColor}
+import {loadZoneRegistry, zoneRegistry, zonesOf, zoneLabel, zoneColor, saveZoneRegistry, nextColor, ZONE_REST}
   from "../zone-registry.js";   // ทะเบียนโซน — แหล่งความจริงเดียวของ id/ชื่อ/สี/จังหวัด
 import {pushAudit} from "../audit.js";
 import {loadTerritory, saveTerritory} from "../territory-store.js";
@@ -20,7 +20,7 @@ import {LeadManagement, genLeads} from "./lead-management.js";
 import {Dropdown} from "../select.js";
 import {loadProvincesGeo} from "../data.js";        // ขอบเขตจังหวัด (GeoJSON 77 จังหวัด) — ใช้วาดแผนที่ขอบเขตพื้นที่การขาย
 import {SEED_USERS} from "./admin.js";              // ผู้ใช้จำลอง — TC มาจากบทบาท "ผู้ประสานงานการค้า"
-import {TC_COLORS, tcMasterColor} from "./master-data.js";   // จานสี + สี TC ที่ตั้งไว้ในข้อมูลหลัก
+import {tcColorOf} from "../tc-colors.js";   // สีประจำตัว TC — ตั้งในฟอร์มผู้ใช้ (หน้าจัดการผู้ใช้)
 
 /* ---------- ตัวช่วยวันที่ พ.ศ. ---------- */
 const beDate=(iso,withTime)=> withTime ? thDateTime(iso) : thDate(iso);   // ใช้ตัวแปลงกลาง
@@ -1513,7 +1513,8 @@ const TC_USERS  = SEED_USERS.filter(u=>u.role==="Trade Coordinator");
 const TC_BY_ID  = Object.fromEntries(TC_USERS.map(u=>[u.id,u]));
 // สีประจำ TC มาจาก "ข้อมูลหลัก › ผู้ประสานงานการค้า (TC)" — แก้ที่นั่นแล้วแผนที่นี้เปลี่ยนตาม
 // ถ้ายังไม่ได้ตั้งค่า จะถอยไปใช้จานสีตั้งต้นตามลำดับรายชื่อ
-const tcColor   = id => tcMasterColor(id) || TC_COLORS[Math.max(0, TC_USERS.findIndex(u=>u.id===id)) % TC_COLORS.length];
+// ลำดับบัญชีใช้เป็นตัวเลือกสีตั้งต้นเมื่อแอดมินยังไม่ได้ตั้งสีเอง
+const tcColor   = id => tcColorOf(id, TC_USERS.findIndex(u=>u.id===id));
 // จังหวัดข้างเคียงที่ TC แต่ละคนดูแลเพิ่มจาก "จังหวัดหลัก" ในโปรไฟล์ผู้ใช้ (ค่าตั้งต้นจำลอง)
 const TC_EXTRA_COVER = { 3:["Nonthaburi","Pathum Thani","Samut Prakan"], 4:["Rayong","Chachoengsao"],
   6:["Lamphun","Chiang Rai"], 7:["Phangnga","Krabi"] };
@@ -1550,6 +1551,8 @@ const TR_PAGE = 12;
    ปกติ 1 จังหวัด = 1 หน่วย · ยกเว้นกรุงเทพฯ ที่ซอยเป็น 3 โซนตามแผนที่ขอบเขตของลูกค้า
    คีย์ของโซนเขียนเป็น "Bangkok Metropolis/SL" — ยังเป็นสตริงแบน ๆ ตัวเดียว
    ตาราง assign จึงยังเป็น { คีย์หน่วย: id ของ TC } เหมือนเดิม ไม่ต้องเปลี่ยนโครงข้อมูล      */
+/* จำนวนคนสูงสุดที่โชว์ในคำอธิบายสีใต้แผนที่ ก่อนจะยุบเป็น "+N คน" */
+const LEGEND_MAX = 8;
 const unitKey  = (pv, zone) => zone ? `${pv}/${zone}` : pv;
 const unitProv = key => key.split("/")[0];
 const unitZone = key => key.split("/")[1] || null;
@@ -1559,7 +1562,10 @@ const unitZone = key => key.split("/")[1] || null;
 const zoneKeysOf = pv => { const z = zonesOf(pv);
   if(z.length) return z.map(x=>x.zone_id);
   return pv===BKK ? BKK_ZONES.map(x=>x.key) : []; };
-const unitsOf  = pv => { const ks = zoneKeysOf(pv); return ks.length ? ks.map(k=>unitKey(pv,k)) : [pv]; };
+// จังหวัดที่ถูกแบ่งโซน ยังเหลือพื้นที่นอกโซนอยู่ (กรุงเทพฯ 50 เขต อยู่ในโซน 27 เหลือ 23)
+// จึงต้องมีหน่วย ZONE_REST ให้มอบหมายได้ด้วย ไม่งั้นลูกค้าในพื้นที่ที่เหลือไม่มีใครดูแลตลอดไป
+const unitsOf  = pv => { const ks = zoneKeysOf(pv);
+  return ks.length ? [...ks.map(k=>unitKey(pv,k)), unitKey(pv, ZONE_REST)] : [pv]; };
 const unitsAll = () => ALL_PROVINCES.flatMap(unitsOf);
 /* ป้ายของหน่วย — โซนกรุงเทพฯ แสดงเป็น "กรุงเทพมหานคร · สีลม" */
 const unitLabel = key => { const z = unitZone(key);
@@ -1666,8 +1672,18 @@ function TerritoryMap({paths, assign, focus, onFocus, zonePaths}){
       ${ALL_PROVINCES.map(pv=>{ const d=paths.byProv[pv]; if(!d) return null;
         // กรุงเทพฯ ที่มีรูปโซนแล้ว: วาดเป็นพื้นกลาง ๆ ไว้ก่อน แล้วค่อยวาดโซนทับด้านล่าง
         // (ไม่ระบายสี TC ตรงนี้ ไม่งั้นสีจังหวัดจะทับซ้อนกับสีโซนจนอ่านไม่ออก)
-        if(pv===BKK && zonePaths)
-          return html`<path key=${pv} d=${d} class="tr-path" fill="rgba(148,163,184,.10)" stroke="#94a3b8" stroke-width="0.7"/>`;
+        // กรุงเทพฯ ที่มีรูปโซนแล้ว: รูปจังหวัดกลายเป็นหน่วย "พื้นที่นอกโซน" (คลิกมอบหมายได้)
+        // โซนถูกวาดทับทีหลัง จึงคลิกโซนได้อยู่ — ตรงที่ไม่มีโซนทับคือพื้นที่ที่เหลือ
+        if(pv===BKK && zonePaths){
+          const rk=unitKey(BKK, ZONE_REST), rtc=TC_BY_ID[assign[rk]]||null, ron=shown===rk;
+          return html`<path key=${pv} d=${d} class=${"tr-path"+(ron?" on":"")}
+            fill=${rtc ? tcColor(rtc.id)+"3d" : "url(#trNoMan)"}
+            stroke=${ron ? "#161d2b" : rtc ? tcColor(rtc.id) : "#dc2626"}
+            stroke-width=${ron ? 2.2 : 0.7}
+            onMouseEnter=${()=>setHover(rk)}
+            onClick=${()=>onFocus(focus===rk?null:rk)}>
+            <title>${unitLabel(rk)} · ${rtc?rtc.name:t("ยังไม่มีคนดูแล", "No owner yet")}</title></path>`;
+        }
         const tc=tcOf(pv), on=shown===pv;
         return html`<path key=${pv} d=${d} class=${"tr-path"+(on?" on":"")}
           fill=${tc==="mixed" ? "url(#trMixed)" : tc? tcColor(tc.id)+"3d" : "url(#trNoMan)"}
@@ -1697,10 +1713,11 @@ function TerritoryMap({paths, assign, focus, onFocus, zonePaths}){
 }
 
 export function TerritoryManager(){
-  const {db}=useApp();
+  const {db,startZoneEdit}=useApp();
   const [assign,setAssign] = useState(seedTerritory);   // { ชื่อจังหวัด(อังกฤษ): id ของ TC }
   const [geo,setGeo]       = useState(()=>db.provincesGeo||null);
   const [focus,setFocus]   = useState(null);            // จังหวัดที่คลิกจากแผนที่ (null = ยังไม่ได้เลือก)
+  const [legendAll,setLegendAll] = useState(false);     // กางคำอธิบายสีให้ครบทุกคน
   const [pick,setPick]     = useState("");              // TC ที่เลือกไว้ในกล่องมอบหมาย (ยังไม่กดบันทึก)
 
   // โหลดการมอบหมายที่เคยบันทึกไว้จากเซิร์ฟเวอร์ — ไม่มีของเก่า = คงค่าตั้งต้นจากโปรไฟล์ TC (seedTerritory)
@@ -1775,14 +1792,17 @@ export function TerritoryManager(){
   // กดบันทึกในกล่องมอบหมาย → เขียนค่าใหม่ + ปิดกล่อง
   const saveAssign = ()=>{ if(!focus) return; applyAssign([focus], pick||null); setFocus(null); };
 
-  // แสดงอีเมลคู่กับชื่อ — บัญชีเดโม (?demo=tc&prov=…) เข้าเป็น TC ของจังหวัดนั้นตามอีเมลนี้
-  // ถ้ามอบหมายให้คนที่ไม่ตรงกับบัญชีเดโม จะเปิดเดโมแล้วไม่เห็นผลอะไรเลย
   const tcOptions = [["",t("— ยังไม่มีคนดูแล —", "— no owner yet —")],
-    ...TC_USERS.map(u=>[String(u.id), `${u.name} · ${u.email}`])];
+    ...TC_USERS.map(u=>[String(u.id), u.name])];
 
 
   return html`<div class="page fade-in tr-wrap">
-    <div class="page-head"><div><h1>${t("จัดการขอบเขตพื้นที่การขาย", "Sales territory management")}</h1></div></div>
+    <!-- ปุ่มแก้รูปโซนอยู่บนหัวหน้ามุมขวา — เดิมอยู่ท้ายหน้า แอดมินต้องเลื่อนจอลงไปสุดทุกครั้ง -->
+    <div class="page-head" style=${{display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:"12px",flexWrap:"wrap"}}>
+      <div><h1>${t("จัดการขอบเขตพื้นที่การขาย", "Sales territory management")}</h1></div>
+      <${Btn} variant="primary" size="lg" icon="map" onClick=${startZoneEdit}>
+        ${t("แก้รูปโซนบนแผนที่", "Edit zone shapes on the map")}</${Btn}>
+    </div>
 
     <div class="grid g4" style=${{margin:"16px 0 14px"}}>
       <${Kpi} label=${t("พื้นที่ทั้งหมด", "All territories")} value=${num(rows.length)} icon="map"/>
@@ -1822,12 +1842,22 @@ export function TerritoryManager(){
 
         <${TerritoryMap} paths=${paths} zonePaths=${zonePaths} assign=${assign}
           focus=${focus && (unitZone(focus) ? focus : unitProv(focus))} onFocus=${focusFromMap}/>
-        <div class="tr-legend">
-          ${TC_USERS.filter(u=>provOf(u.id).length).map(u=>html`<span key=${u.id} class="tr-lg">
-            <span class="tr-sw" style=${{background:tcColor(u.id)+"3d",borderColor:tcColor(u.id)}}></span>
-            ${u.name} <b>${num(provOf(u.id).length)}</b></span>`)}
-          <span class="tr-lg"><span class="tr-sw nm"></span>${t("ยังไม่มีคนดูแล", "No owner yet")} <b>${num(noManN)}</b></span>
-        </div>
+        <!-- คำอธิบายสี: เรียงจากคนที่ถือพื้นที่มากสุด แล้วตัดที่ LEGEND_MAX
+             ถ้าไม่ตัด พอมี TC 20 คนคำอธิบายจะยาวกว่าตัวแผนที่เอง — กดดูครบได้ -->
+        ${(()=>{ const owners = TC_USERS.filter(u=>provOf(u.id).length)
+            .sort((a,b)=>provOf(b.id).length-provOf(a.id).length);
+          const shownList = legendAll ? owners : owners.slice(0, LEGEND_MAX);
+          const hidden = owners.length - shownList.length;
+          return html`<div class="tr-legend">
+            ${shownList.map(u=>html`<span key=${u.id} class="tr-lg">
+              <span class="tr-sw" style=${{background:tcColor(u.id)+"3d",borderColor:tcColor(u.id)}}></span>
+              ${u.name} <b>${num(provOf(u.id).length)}</b></span>`)}
+            ${hidden>0 && html`<button class="tr-lg tr-lg-more" onClick=${()=>setLegendAll(true)}>
+              +${num(hidden)} ${t("คน", "more")}</button>`}
+            ${legendAll && owners.length>LEGEND_MAX && html`<button class="tr-lg tr-lg-more" onClick=${()=>setLegendAll(false)}>
+              ${t("ย่อ", "Show less")}</button>`}
+            <span class="tr-lg"><span class="tr-sw nm"></span>${t("ยังไม่มีคนดูแล", "No owner yet")} <b>${num(noManN)}</b></span>
+          </div>`; })()}
       </${Card}>
 
       <${Card} title=${t("ความครอบคลุมรายบุคคล", "Coverage per person")} sub=${"TC "+TC_USERS.length+t(" คน · จังหวัดหลักมาจากโปรไฟล์ผู้ใช้", " people · the primary province comes from the user profile")}>
@@ -1845,13 +1875,12 @@ export function TerritoryManager(){
               ${list.length ? html`<button class="tr-tc-btn" onClick=${()=>focusFromMap(provKeysOf(u.id)[0])}>${t("ดูพื้นที่", "View the area")}</button>` : ""}
             </div>`; })}
         </div>
-        <div class="dm-alert" style=${{marginBottom:0}}>
-          <${Icon} name="info" size=${14}/> ${t("กรุงเทพฯ แบ่งเป็น 3 โซนตามแผนที่ขอบเขตของลูกค้า (สีลม · ลาดพร้าว · ทองหล่อ) — คลิกกรุงเทพฯ บนแผนที่แล้วมอบหมายแยกทีละโซนได้ · จังหวัดอื่นยังเป็นหน่วยเดียวทั้งจังหวัด", "Bangkok is split into 3 zones from the customer's boundary map (Silom · Lat Phrao · Thonglor) — click Bangkok on the map to assign each zone separately. Every other province stays a single unit.")}
-          ${(()=>{ const demo=TC_USERS.find(u=>u.province===BKK); return demo ? html`<div style=${{marginTop:"6px"}}>
-            ${t("ดูผลฝั่ง TC: เปิด ", "To check the TC side: open ")}<code>?demo=tc&prov=Bangkok Metropolis</code>
-            ${t(" จะเข้าเป็น ", " — it signs in as ")}<b>${demo.name} (${demo.email})</b>
-            ${t(" ดังนั้นต้องมอบหมายโซนให้บัญชีนี้ถึงจะเห็นผล", ", so assign the zone to this account for the change to show")}</div>` : ""; })()}
-        </div>
+        <!-- กล่องคำอธิบายถูกถอดออกจากหน้าจอแล้ว — เป็นพฤติกรรมของระบบ ไม่ใช่สิ่งที่ผู้ใช้ต้องอ่าน
+             พฤติกรรมจริง (ยังทำงานเหมือนเดิม):
+               • จังหวัดที่มีโซนในทะเบียน (ตอนนี้คือกรุงเทพฯ) ถูกซอยเป็นหลายหน่วย — มอบหมายแยกทีละโซนได้
+                 บวกหน่วย "พื้นที่นอกโซน" สำหรับเขตที่ไม่ได้อยู่ในโซนไหน
+               • จังหวัดอื่นเป็นหน่วยเดียวทั้งจังหวัด
+             ดู unitsOf() ด้านบนของไฟล์นี้ และ src/zone-registry.js -->
       </${Card}>
     </div>
 
@@ -1895,7 +1924,11 @@ const TR_CSS=`
 .tr-lg b{color:var(--txt)}
 .tr-sw{width:13px;height:13px;border-radius:4px;border:1.5px solid transparent;flex:none}
 .tr-sw.nm{border-color:#dc2626;background:repeating-linear-gradient(45deg,rgba(220,38,38,.12) 0 3px,rgba(220,38,38,.5) 3px 5px)}
-.tr-tcs{display:flex;flex-direction:column;gap:8px;margin-bottom:12px}
+.tr-lg-more{border:1px dashed var(--stroke2);background:var(--surface);color:var(--accent2);
+  font-family:var(--font);font-size:12px;font-weight:700;padding:2px 9px;border-radius:999px;cursor:pointer}
+.tr-lg-more:hover{border-color:var(--accent2)}
+/* รายชื่อ TC: เลื่อนดูในกรอบ ไม่ดันหน้ายาวขึ้นเรื่อย ๆ เมื่อมีคนเพิ่ม */
+.tr-tcs{display:flex;flex-direction:column;gap:8px;margin-bottom:12px;max-height:340px;overflow-y:auto;padding-right:2px}
 .tr-tc{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:11px;border:1px solid var(--stroke2);background:var(--surface)}
 .tr-tc.idle{border-style:dashed;background:var(--surface2)}
 .tr-tc-main{flex:1;min-width:0}

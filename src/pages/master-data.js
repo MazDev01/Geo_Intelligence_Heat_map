@@ -2,6 +2,7 @@ import {t} from "../i18n.js";   // สลับภาษา TH/EN — ดู src
 // ═══════════════════════════════════════════════════════════════════════════
 // หน้า "ข้อมูลหลัก" (Master Data) — เฉพาะผู้ดูแลระบบ (Administrator)
 // จัดการค่าตัวเลือกที่ใช้ทั้งระบบ (dropdown) แบบไม่ต้องแก้โค้ด: หมวดธุรกิจ · พื้นที่ · สถานะลูกค้า · สถานะ Lead · เหตุผลปฏิเสธ
+// ⚠ ไม่มีหมวด "ผู้ประสานงานการค้า (TC)" — ข้อมูลคนอยู่ที่หน้าจัดการผู้ใช้ที่เดียว (สีประจำตัวอยู่ในฟอร์มผู้ใช้)
 // สแตกจริง = buildless htm/React + ข้อมูลในหน่วยความจำ (ไม่ใช่ Next.js/Supabase ตามหัว prompt) · ข้อความไทยล้วน
 // กติกา: ไม่มีลบถาวร (ปิดใช้งานเท่านั้น) · แถว is_system ล็อก · code แก้ไม่ได้หลังสร้าง · ทุก action ลง Audit Log
 // ═══════════════════════════════════════════════════════════════════════════
@@ -9,15 +10,6 @@ import {html, useState, useEffect, useApp, Icon, SegmentIcon, num} from "../lib.
 import {Card, Btn, Badge, Toggle, Tabs, Modal, Field, toast} from "../ui.js";
 import {SEGMENTS, SEG_TH, SEG_COLOR, SEG_ICON, PROVINCES} from "../mock/geoData.js";
 import {pushAudit} from "../audit.js";
-import {SEED_USERS} from "./admin.js";   // รายชื่อผู้ใช้ — ใช้ตั้งต้นหมวด TC
-import {Dropdown} from "../select.js";
-
-/* บัญชีที่มีบทบาท TC ในระบบ — หมวด "ผู้ประสานงานการค้า" เลือกจากรายชื่อนี้เท่านั้น ไม่ให้พิมพ์เอง */
-const TC_ACCOUNTS = () => SEED_USERS.filter(u=>u.role==="Trade Coordinator");
-
-/* จานสีประจำ TC บนแผนที่ขอบเขต — นิยามไว้ที่นี่ที่เดียว หน้าขอบเขตพื้นที่นำไปใช้ต่อ
-   เลือกให้แยกจากกันได้ชัดและอ่านออกบนพื้นสว่าง (ไม่ผูกกับสีแบรนด์) */
-export const TC_COLORS = ["#2563eb","#15a34a","#7c3aed","#c2410c","#0891b2","#be185d","#4d7c0f","#0f766e"];
 
 // ── นิยาม 5 หมวดข้อมูลหลัก ──
 // label/egLabel/egCode เป็น getter — ค่าคงที่ระดับโมดูลถูกประเมินครั้งเดียวตอนโหลดไฟล์
@@ -33,8 +25,8 @@ const TYPES = [
    get egLabel(){ return t("เช่น รอนัดหมาย","e.g. Awaiting appointment"); },          get egCode(){ return t("เช่น pending_visit","e.g. pending_visit"); }},
   {value:"reject-reasons",   get label(){ return t("เหตุผลการปฏิเสธ","Rejection reasons"); },      color:false, icon:false,
    get egLabel(){ return t("เช่น ไม่มีหลักฐาน","e.g. No evidence"); },                get egCode(){ return t("เช่น no_evidence","e.g. no_evidence"); }},
-  {value:"tc",               get label(){ return t("ผู้ประสานงานการค้า (TC)","Trade Coordinator (TC)"); }, color:true, icon:false,
-   get egLabel(){ return t("เช่น ธนพล ศรีวัฒน์","e.g. Thanaphon Sriwat"); },          get egCode(){ return t("เช่น tc_10","e.g. tc_10"); }},
+  // แท็บ "ผู้ประสานงานการค้า (TC)" ถอดออกแล้ว — เคยเก็บชื่อ TC ซ้ำกับบัญชีผู้ใช้
+  // ชื่อ/อีเมล/บทบาท อยู่ที่หน้าจัดการผู้ใช้ที่เดียว · สีประจำตัวย้ายไปอยู่ในฟอร์มผู้ใช้ (ดู src/tc-colors.js)
 ];
 const typeCfg = t => TYPES.find(x=>x.value===t) || TYPES[0];
 
@@ -42,7 +34,7 @@ const typeCfg = t => TYPES.find(x=>x.value===t) || TYPES[0];
 const slugify = s => (s||"").trim().toLowerCase().replace(/[^a-z0-9]+/g,"_").replace(/^_+|_+$/g,"");
 /* รหัสอัตโนมัติเมื่อสร้างจากชื่อไม่ได้ — คำนำหน้าตามหมวด + เลขที่ว่างถัดไป เช่น reject_6 · segment_13 */
 const CODE_PREFIX = {segments:"segment", areas:"area", "customer-status":"cust_status",
-  "prospect-status":"lead_status", "reject-reasons":"reject", tc:"tc"};
+  "prospect-status":"lead_status", "reject-reasons":"reject"};
 function nextCode(type, rows){
   const pre = CODE_PREFIX[type] || "item";
   let i = rows.length + 1;
@@ -67,10 +59,6 @@ const seed = ()=>({
     {code:"pending_conversion", label_th:"รออนุมัติเปลี่ยนเป็นลูกค้า", color_hex:"#ff3b5c"},
     {code:"rejected",           label_th:"ไม่สนใจ / ปิดโอกาส",       color_hex:"#78716c"},
   ].map((x,i)=>({...x, icon:"", sort_order:i, is_active:true, is_system:false})),
-  // TC + สีประจำตัว — สีนี้คือสีที่ใช้ระบายจังหวัดในหน้า "จัดการขอบเขตพื้นที่การขาย"
-  "tc": SEED_USERS.filter(u=>u.role==="Trade Coordinator")
-    .map((u,i)=>({code:"tc_"+u.id, label_th:u.name, color_hex:TC_COLORS[i%TC_COLORS.length],
-      icon:"", sort_order:i, is_active:true, is_system:false})),
   "reject-reasons": [
     {code:"no_evidence",     label_th:"หลักฐานไม่เพียงพอ"},
     {code:"duplicate",       label_th:"ข้อมูลซ้ำกับที่มีอยู่"},
@@ -81,12 +69,9 @@ const seed = ()=>({
 });
 
 /* สโตร์ข้อมูลหลัก — เก็บที่ระดับโมดูล ไม่ใช่ใน useState เพื่อให้
-   (1) แก้แล้วค่ายังอยู่เมื่อสลับหน้าไป-กลับ  (2) หน้าอื่นอ่านไปใช้ได้ เช่น สี TC บนแผนที่ขอบเขต */
+   (1) แก้แล้วค่ายังอยู่เมื่อสลับหน้าไป-กลับ  (2) หน้าอื่นอ่านไปใช้ได้ */
 let _STORE = null;
 const store = () => (_STORE || (_STORE = seed()));
-const tcRow = id => (store()["tc"]||[]).find(x=>x.code==="tc_"+id);
-/* สีประจำ TC ที่ตั้งไว้ในข้อมูลหลัก — null ถ้ายังไม่ได้ตั้ง (ผู้เรียกค่อย fallback เอง) */
-export const tcMasterColor = id => { const r=tcRow(id); return (r && r.color_hex) || null; };
 
 // ── นับจำนวนที่ข้อมูลจริงใช้ค่านี้อยู่ (usage) — จาก db ในหน่วยความจำ ──
 function usageOf(type, code, db){
@@ -95,7 +80,6 @@ function usageOf(type, code, db){
   if(type==="areas")    return [...cs,...ps].filter(x=>x.province===code).length;
   // ข้อมูลลูกค้าจริงจาก Barter ไม่มีคอลัมน์สถานะการค้า → นับได้ 0 ทุกสถานะ
   if(type==="customer-status") return 0;
-  if(type==="tc") return [...cs,...ps].filter(x=>("tc_"+x.tc_owner)===code || x.tc_owner===code.replace(/^tc_/,"")).length;
   if(type==="prospect-status"){ const m=p=>{ const v=p.visit_status||"ยังไม่เข้าพบ"; if(v==="ครอบคลุมแล้ว")return "visited"; if((p.visitRounds||[]).some(r=>r.status==="นัดแล้ว"))return "appointed"; if(p.dealStatus==="pending")return "pending_conversion"; return "pending_visit"; };
     return ps.filter(p=>m(p)===code).length; }
   return 0;   // reject-reasons: เดโมไม่ได้เก็บ mapping ต่อรหัส จึงแสดง 0
@@ -133,7 +117,7 @@ export function MasterData(){
   };
   const save = form =>{
     const isNew = edit.isNew;
-    if(!form.label_th.trim()){ toast(tab==="tc"?t("กรุณาเลือกบัญชี TC", "Pick a TC account"):t("กรุณากรอกชื่อที่แสดงผล", "Enter a display name"),"warn"); return; }
+    if(!form.label_th.trim()){ toast(t("กรุณากรอกชื่อที่แสดงผล", "Enter a display name"),"warn"); return; }
     if(isNew){
       const code = slugify(form.code||form.label_th) || nextCode(tab, rows);
       if(rows.some(x=>x.code===code)){ toast(t("รหัสอ้างอิงนี้มีอยู่แล้ว", "That reference code already exists"),"warn"); return; }
@@ -203,26 +187,15 @@ export function MasterData(){
 
 function MDModal({edit, cfg, rows=[], onClose, onSave}){
   const it = edit.item;
-  const isTC = cfg.value==="tc";   // หมวด TC: ชื่อมาจากบัญชีผู้ใช้ ไม่ให้พิมพ์เอง
-  // ตัวเลือกบัญชี TC — แสดงทุกคนเสมอ · คนที่มีในรายการ (กำหนดสีไว้แล้ว) จะจางและเลือกไม่ได้
-  const tcOpts = TC_ACCOUNTS().map(u=>{
-    const used = rows.some(r=>r.code==="tc_"+u.id) && ("tc_"+u.id)!==it.code;
-    return {value:String(u.id), label:u.name, disabled:used, note: used?t("กำหนดสีแล้ว", "Colour set"):""};
-  });
+  // หมวด TC ถูกถอดออกจากหน้านี้แล้ว (ชื่อ TC มีแหล่งเดียวคือบัญชีผู้ใช้ · สีย้ายไปฟอร์มผู้ใช้)
+  // ฟอร์มนี้จึงเหลือรูปแบบเดียว: พิมพ์ชื่อ + รหัสอ้างอิงเอง
   const locked = !!it.is_system;   // รายการของระบบเท่านั้นที่ล็อกรหัสอ้างอิง
   const [f, setF] = useState({label_th:it.label_th||"", code:it.code||"", color_hex:it.color_hex||"#38bdf8", icon:it.icon||"", is_active:it.is_active!==false});
   const set=(k,v)=>setF(p=>({...p,[k]:v}));
   return html`<${Modal} title=${edit.isNew?t("เพิ่มรายการใหม่ · ", "New entry · ")+cfg.label:t("แก้ไข · ", "Edit · ")+cfg.label} onClose=${onClose}
     footer=${html`<${Btn} variant="outline" onClick=${onClose}>${t("ยกเลิก", "Cancel")}</${Btn}>
       <${Btn} variant="primary" icon="check" onClick=${()=>onSave(f)}>${t("บันทึก", "Save")}</${Btn}>`}>
-    ${isTC ? html`<${Field} label=${t("บัญชี TC", "TC account")}>
-      ${edit.isNew
-        ? html`<${Dropdown} value=${f.code.replace(/^tc_/,"")} placeholder=${t("เลือกบัญชี TC…", "Pick a TC account…")} options=${tcOpts}
-            onChange=${v=>{ const u=TC_ACCOUNTS().find(x=>String(x.id)===v);
-              setF(pv=>({...pv, code:u?("tc_"+u.id):"", label_th:u?u.name:""})); }}/>`
-        : html`<div style=${{fontSize:"13.5px",fontWeight:600}}>${f.label_th}</div>`}
-    </${Field}>`
-    : html`<${Field} label=${t("ชื่อที่แสดงผล", "Display name")}><input class="input" value=${f.label_th} onInput=${e=>set("label_th",e.target.value)} placeholder=${cfg.egLabel||"เช่น รายการใหม่"}/></${Field}>
+    ${html`<${Field} label=${t("ชื่อที่แสดงผล", "Display name")}><input class="input" value=${f.label_th} onInput=${e=>set("label_th",e.target.value)} placeholder=${cfg.egLabel||"เช่น รายการใหม่"}/></${Field}>
     <${Field} label=${t("รหัสอ้างอิง (code)", "Reference code")}>
       <input class="input" value=${f.code} disabled=${locked} onInput=${e=>set("code",e.target.value)}
         placeholder=${cfg.egCode||"เช่น new_item"} style=${locked?{opacity:.6,cursor:"not-allowed"}:null}/>

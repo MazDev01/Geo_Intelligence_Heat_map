@@ -285,7 +285,7 @@ export function Reports(){
     ontouchstart=${e=>{e.stopPropagation();showTip(e,title,[{label:text,value:""}]);}}>i</span>`;
   // ป้าย delta เทียบช่วงก่อน (เขียว=เพิ่ม / แดง=ลด / เทา=เท่าเดิม)
   const deltaBadge = d => html`<div class=${"rp-delta "+(d>0?"up":d<0?"down":"flat")}>
-    <span>${d>0?"▲":d<0?"▼":"▬"}</span><span>${d>0?"+":""}${num(d)} ${t("จากช่วงก่อน", "vs. the previous period")}</span></div>`;
+    <span>${d===0 ? "—" : html`<${Icon} name=${d>0?"trend":"trendDown"} size=${14} stroke=${2.2}/>`}</span><span>${d>0?"+":""}${num(d)} ${t("จากช่วงก่อน", "vs. the previous period")}</span></div>`;
 
   // ── หมวดธุรกิจที่เครือข่ายยังขาด: Lead รายหมวดของขอบเขตที่เลือก ──
   // ช่องว่าง = จำนวน Lead ในหมวดนั้น − จำนวนสมาชิกเครือข่ายในหมวดเดียวกัน (ไม่ต่ำกว่า 0)

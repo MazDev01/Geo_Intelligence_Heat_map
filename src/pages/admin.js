@@ -11,7 +11,8 @@ import {ExportDialog, defaultReportName, downloadXLS} from "./reports.js";   // 
 import {downloadCSV, areaCoverage} from "../data.js";
 import {canExport, EXPORT_ROLES, EXPORT_FORMATS, getExportPerms, setExportPerms} from "../export-perms.js";
 import {NOTIF_EVENTS, PRIORITY_TH, getSysNotif, setSysNotif} from "../notifications.js";
-import {getLayerOpacity, setLayerOpacity} from "../layer-opacity.js";   // ความทึบของแผนที่ — ตั้งที่นี่ที่เดียว
+import {getLayerOpacity, setLayerOpacity} from "../layer-opacity.js";
+import {tcColorOf, setTcColor} from "../tc-colors.js";   // สีประจำตัว TC — ย้ายมาจากแท็บข้อมูลหลัก   // ความทึบของแผนที่ — ตั้งที่นี่ที่เดียว
 import {ROLES, SCOPES, DEFAULT_SCOPE, PERM_MODULES, PERM_INDEX, PERM_COUNT, GUARD_KEY,
   permByRole, roleGrants, roleForbids, effectivePerms, realOverrides} from "../permissions.js";
 import {t} from "../i18n.js";   // สลับภาษา TH/EN — ดู src/i18n.js
@@ -105,13 +106,26 @@ export function Users(){
 
     ${edit && html`<${Modal} title=${edit.id?t("แก้ไขผู้ใช้", "Edit user"):t("เพิ่มผู้ใช้", "Add user")} onClose=${()=>setEdit(null)}
       footer=${html`<${Btn} variant="ghost" onClick=${()=>setEdit(null)}>${t("ยกเลิก", "Cancel")}</${Btn}>
-        <${Btn} variant="outline" icon="check" onClick=${()=>{const f=window.__uf; save({...edit,name:f.name.value,email:f.email.value,role:f.role.value});}}>${t("บันทึก", "Save")}</${Btn}>`}>
+        <${Btn} variant="outline" icon="check" onClick=${()=>{const f=window.__uf;
+          // สีประจำตัวเก็บแยกที่ tc-colors.js (ผูกด้วย id ของบัญชี) ไม่ปนกับข้อมูลบัญชี
+          if(f.tccolor && f.role.value==="Trade Coordinator") setTcColor(edit.id, f.tccolor.value);
+          save({...edit,name:f.name.value,email:f.email.value,role:f.role.value});}}>${t("บันทึก", "Save")}</${Btn}>`}>
       <form ref=${el=>window.__uf=el}>
         <${Field} label=${t("ชื่อ-นามสกุล", "Full name")}><input class="input" name="name" defaultValue=${edit.name}/></${Field}>
         <${Field} label=${t("อีเมล", "Email")}><input class="input" name="email" defaultValue=${edit.email}/></${Field}>
         <${Field} label=${t("บทบาท", "Role")}><select class="input" name="role" defaultValue=${edit.role}>
           <option value="Administrator">${t("ผู้ดูแลระบบ", "System Administrator")}</option><option value="Management">${t("ผู้บริหาร", "Management")}</option>
           <option value="Trade Coordinator">${t("ผู้ประสานงานการค้า (TC)", "Trade Coordinator (TC)")}</option></select></${Field}>
+        <!-- สีประจำตัว TC ย้ายมาจากแท็บ "ผู้ประสานงานการค้า" ในข้อมูลหลัก — ชื่อคนจะมีแหล่งเดียวคือบัญชีนี้
+             แสดงเฉพาะบัญชีที่มีอยู่แล้ว (ต้องมี id) และเป็น TC — สีนี้ใช้ระบายพื้นที่ในหน้าจัดการขอบเขต -->
+        ${edit.id && edit.role==="Trade Coordinator" && html`
+          <${Field} label=${t("สีประจำตัว (ใช้ระบายพื้นที่ในแผนที่ขอบเขต)", "Personal colour (shades their territory on the map)")}>
+            <div class="row" style=${{gap:"9px",alignItems:"center"}}>
+              <input type="color" name="tccolor" defaultValue=${tcColorOf(edit.id, users.filter(u=>u.role==="Trade Coordinator").findIndex(u=>u.id===edit.id))}
+                style=${{width:"46px",height:"32px",padding:0,border:"1px solid var(--stroke2)",borderRadius:"7px",background:"none",cursor:"pointer"}}/>
+              <span class="dim" style=${{fontSize:"11.5px"}}>${t("ไม่ตั้งก็ใช้สีจากจานสีตามลำดับบัญชี", "Leave it and the palette assigns one by account order")}</span>
+            </div>
+          </${Field}>`}
       </form>
     </${Modal}>`}
 
@@ -671,32 +685,6 @@ export function Monitoring({defaultTab}={}){
   // ── ส่งออกรายงานภาพรวมธุรกิจ (ใช้ป็อปอัพเดียวกับหน้ารายงาน · สิทธิ์ตามบทบาท) ──
   const _role = (user&&user.role)||"Administrator", _uname=(user&&user.name)||t("ผู้ดูแลระบบ","System Administrator");
   const _ROLE_TH={Administrator:t("ผู้ดูแลระบบ", "System Administrator"),Management:t("ผู้บริหาร", "Management"),"Trade Coordinator":t("ผู้ประสานงานการค้า", "Trade Coordinator")};
-  const exportScope = { areaName:t("ทั้งประเทศ", "Nationwide"), areaLabel:t("ทั้งประเทศ", "Nationwide"), segLabel:t("ทั้งหมด", "All"),
-    dateLabel:(range==="all"?t("ทั้งหมด", "All"):v.rangeText), counts:{existing:v.fCusts.length, prospect:v.fPros.length} };
-  const buildExportRows = o=>{ const ds=o.dataSel||"both";
-    const rows=[[t("รายงานภาพรวมธุรกิจ (GeoIntel)", "Business overview report (GeoIntel)")],[t("จัดทำเมื่อ", "Prepared on"), beD(v.ref)],[]];
-    rows.push([t("ขอบเขตข้อมูลที่ส่งออก", "Scope of the export")]); rows.push([t("พื้นที่", "Area"),t("ทั้งประเทศ", "Nationwide")]); rows.push([t("ช่วงเวลา", "Period"), range==="all"?t("ทั้งหมด", "All"):v.rangeText]);
-    rows.push([t("ข้อมูลที่ส่งออก", "Data exported"), ds==="existing"?t("ลูกค้าปัจจุบันอย่างเดียว", "Existing customers only"):ds==="prospect"?t("Lead อย่างเดียว", "Leads only"):t("ทั้งลูกค้าและ Lead", "Both customers and Leads")]); rows.push([]);
-    rows.push([t("ตัวชี้วัด", "Metric"),t("ค่า", "Value")]);
-    if(ds!=="prospect") rows.push([t("ลูกค้าปัจจุบัน", "Existing customers"), v.fCusts.length]);
-    if(ds!=="existing") rows.push(["Lead", v.fPros.length]);
-    rows.push([t("จังหวัดที่มีลูกค้า", "Provinces with customers"), v.provincesWithCust], [t("ดัชนี Lead เฉลี่ย", "Average Lead index"), v.avgOpp]);
-    rows.push([],[t("จังหวัดที่มีลูกค้าสูงสุด", "Provinces with the most customers")]);
-    (v.topByCust||[]).forEach(t=>rows.push([t.label, t.value]));
-    return rows; };
-  const doExport = ({format, filename, opts, dataSel, count, scope})=>{
-    const name=(filename||"").trim().replace(/[\\/:*?"<>|]+/g,"_")||defaultReportName(scope);
-    const fmtLabel={pdf:"PDF",excel:"Excel",csv:"CSV"}[format]||format;
-    const scopeStr=`${scope.areaLabel} · ${scope.segLabel} · ${scope.dateLabel}`;
-    if(!canExport(_role, format)){   // TODO(server): ต้องบังคับด่านนี้ที่เซิร์ฟเวอร์จริง — ฝั่ง client เป็นชั้นเสริม
-      pushAudit({user:_uname, action:t("ส่งออกรายงานถูกปฏิเสธ", "Report export refused"), category:"ส่งออก", detail:`${t("บทบาท", "Role")} ${_ROLE_TH[_role]||_role} ${t("ไม่มีสิทธิ์ส่งออก", "No export permission")} ${fmtLabel} · ${scopeStr} · ${num(count||0)} ${t("รายการ", "records")}`});
-      toast(`${t("บทบาทของคุณไม่มีสิทธิ์ส่งออกไฟล์", "Your role cannot export files")} ${fmtLabel}`,"bad"); setExportOpen(false); return; }
-    const rows=buildExportRows({...opts, dataSel}); setExportOpen(false);
-    if(format==="csv"){ downloadCSV(name+".csv", rows); toast(t("ส่งออกไฟล์ CSV แล้ว", "CSV file exported"),"good"); }
-    else if(format==="excel"){ downloadXLS(name+".xls", rows); toast(t("ส่งออกไฟล์ Excel แล้ว", "Excel file exported"),"good"); }
-    else { toast(t("กำลังเตรียมไฟล์ PDF…", "Preparing the PDF…"),"info"); setTimeout(()=>window.print(),350); }
-    pushAudit({user:_uname, action:t("ส่งออกรายงาน", "Export report"), category:"ส่งออก", detail:`${fmtLabel} · ${name} · ${scopeStr} · ${num(count||0)} ${t("รายการ", "records")}`});
-  };
 
   // ═══════════ แดชบอร์ดผู้บริหาร (ออกแบบใหม่) — เน้นเปรียบเทียบระหว่างจังหวัด + สิ่งที่พบจากข้อมูล ═══════════
   const REF = v.ref, DAY=864e5;
@@ -737,6 +725,55 @@ export function Monitoring({defaultTab}={}){
   // ความครอบคลุมพื้นที่ — "มีลูกค้าแล้วกี่พื้นที่ จากพื้นที่ทั้งหมด" (null = ไม่มีพื้นที่ให้นับ)
   const cov = areaCoverage(fCusts, fPros, fProv);
   const animSig = [range,fProv,fDist,fSeg,fFrom,fTo].join("|");   // เปลี่ยนตัวกรองใด ๆ → กราฟรีเฟรชพร้อมอนิเมชัน
+
+  // ── ส่งออกรายงาน: ยึดตามตัวกรองบนหน้าจอ (จังหวัด · อำเภอ · หมวดธุรกิจ · ช่วงเวลา) ──
+  //    ⚠ ต้องประกาศ "หลัง" fCusts/fPros/rangeText เพราะอ้างถึงค่าพวกนั้นตอนเรนเดอร์
+  const _areaLabel = fDist!=="all" ? provinceTH(fProv)+" · "+(DISTRICT_TH[fDist]||fDist)
+                   : fProv!=="all" ? provinceTH(fProv) : t("ทั้งประเทศ", "Nationwide");
+  const _segLabel  = fSeg==="all" ? t("ทั้งหมด", "All") : segTH(fSeg);
+  const exportScope = { areaName:_areaLabel, areaLabel:_areaLabel, segLabel:_segLabel,
+    dateLabel:rangeText, counts:{existing:fCusts.length, prospect:fPros.length} };
+  const buildExportRows = o=>{ const ds=o.dataSel||"both";
+    const rows=[[t("รายงานภาพรวมธุรกิจ (GeoIntel)", "Business overview report (GeoIntel)")],[t("จัดทำเมื่อ", "Prepared on"), beD(v.ref)],[]];
+    rows.push([t("ขอบเขตข้อมูลที่ส่งออก", "Scope of the export")]);
+    rows.push([t("พื้นที่", "Area"), _areaLabel]);
+    rows.push([t("หมวดธุรกิจ", "Business category"), _segLabel]);
+    rows.push([t("ช่วงเวลา", "Period"), rangeText]);
+    rows.push([t("ข้อมูลที่ส่งออก", "Data exported"), ds==="existing"?t("ลูกค้าปัจจุบันอย่างเดียว", "Existing customers only"):ds==="prospect"?t("Lead อย่างเดียว", "Leads only"):t("ทั้งลูกค้าและ Lead", "Both customers and Leads")]);
+    rows.push([]);
+    rows.push([t("ตัวชี้วัด", "Metric"),t("ค่า", "Value")]);
+    if(ds!=="prospect") rows.push([t("ลูกค้าปัจจุบัน", "Existing customers"), fCusts.length]);
+    if(ds!=="existing") rows.push(["Lead", fPros.length]);
+    const _tot = fCusts.length+fPros.length;
+    rows.push([t("สัดส่วนที่เป็นลูกค้าแล้ว", "Share already customers"), (_tot?Math.round(fCusts.length/_tot*100):0)+"%"]);
+    // สรุปรายหน่วยของระดับที่กรองอยู่: ทั้งประเทศ=รายจังหวัด · เลือกจังหวัด=รายอำเภอ · เลือกอำเภอ=รายหมวดธุรกิจ
+    rows.push([], [t("สรุปราย", "Breakdown by ")+unitNoun]);
+    rows.push([unitNoun, t("ลูกค้า", "Customers"), "Lead"]);
+    [...ranked].sort((a,b)=>(b.customerCount+b.prospectCount)-(a.customerCount+a.prospectCount))
+      .forEach(u=>rows.push([u.label, u.customerCount, u.prospectCount]));
+    // ตารางรายชื่อ "เฉพาะในขอบเขตที่กรอง" — เดิมส่งออกได้แค่ตัวเลขสรุป ไม่มีรายชื่อเลย
+    rows.push([], [t("รายชื่อในขอบเขตที่กรอง", "Records in the current filter")]);
+    rows.push([t("ประเภท", "Type"), t("ชื่อธุรกิจ", "Business name"), t("หมวดธุรกิจ", "Business category"),
+               t("จังหวัด", "Province"), t("อำเภอ/เขต", "District"), t("ที่อยู่", "Address"),
+               t("ผู้รับผิดชอบ", "Owner"), t("วันที่เพิ่ม", "Added on")]);
+    const _line = (o,typ)=>[typ, o.businessName||"", segTH(o.segment)||"", provinceTH(o.province)||"",
+                            DISTRICT_TH[o.district]||o.district||"", o.address||"", o.tc_owner||"", o.created_at||""];
+    if(ds!=="prospect") fCusts.forEach(c=>rows.push(_line(c, t("ลูกค้า", "Customer"))));
+    if(ds!=="existing") fPros.forEach(p=>rows.push(_line(p, "Lead")));
+    return rows; };
+  const doExport = ({format, filename, opts, dataSel, count, scope})=>{
+    const name=(filename||"").trim().replace(/[\\/:*?"<>|]+/g,"_")||defaultReportName(scope);
+    const fmtLabel={pdf:"PDF",excel:"Excel",csv:"CSV"}[format]||format;
+    const scopeStr=`${scope.areaLabel} · ${scope.segLabel} · ${scope.dateLabel}`;
+    if(!canExport(_role, format)){   // TODO(server): ต้องบังคับด่านนี้ที่เซิร์ฟเวอร์จริง — ฝั่ง client เป็นชั้นเสริม
+      pushAudit({user:_uname, action:t("ส่งออกรายงานถูกปฏิเสธ", "Report export refused"), category:"ส่งออก", detail:`${t("บทบาท", "Role")} ${_ROLE_TH[_role]||_role} ${t("ไม่มีสิทธิ์ส่งออก", "No export permission")} ${fmtLabel} · ${scopeStr} · ${num(count||0)} ${t("รายการ", "records")}`});
+      toast(`${t("บทบาทของคุณไม่มีสิทธิ์ส่งออกไฟล์", "Your role cannot export files")} ${fmtLabel}`,"bad"); setExportOpen(false); return; }
+    const rows=buildExportRows({...opts, dataSel}); setExportOpen(false);
+    if(format==="csv"){ downloadCSV(name+".csv", rows); toast(t("ส่งออกไฟล์ CSV แล้ว", "CSV file exported"),"good"); }
+    else if(format==="excel"){ downloadXLS(name+".xls", rows); toast(t("ส่งออกไฟล์ Excel แล้ว", "Excel file exported"),"good"); }
+    else { toast(t("กำลังเตรียมไฟล์ PDF…", "Preparing the PDF…"),"info"); setTimeout(()=>window.print(),350); }
+    pushAudit({user:_uname, action:t("ส่งออกรายงาน", "Export report"), category:"ส่งออก", detail:`${fmtLabel} · ${name} · ${scopeStr} · ${num(count||0)} ${t("รายการ", "records")}`});
+  };
 
   // แถว 1 ซ้าย · สัดส่วนที่เป็นลูกค้าแล้ว รายจังหวัด (เทียบค่าเฉลี่ย) — ไม่ใช้คำว่า Coverage
   const provShare = ranked.map(a=>{ const tot=a.customerCount+a.prospectCount;
@@ -790,9 +827,11 @@ export function Monitoring({defaultTab}={}){
   // หมายเหตุ: ไม่แสดง "อัตราการเปลี่ยนเป็นลูกค้า" เป็นการเปลี่ยนแปลงเทียบช่วงก่อน เพราะค่าจะลดลงเมื่อนำเข้า Lead เพิ่ม
   // แม้จำนวนลูกค้าจะไม่ลดลง → การเติบโตให้ดูจาก "ลูกค้าใหม่" (custTrend / กราฟลูกค้าใหม่รายเดือน) แทน
   // การ์ดแสดงแนวโน้ม ▲/▼ ใต้ตัวเลข KPI
+  // เส้นหยักขึ้น/ลง แทนสามเหลี่ยม ▲▼ — อ่านทิศทางได้ไวกว่าและเข้าชุดกับกราฟแนวโน้มในหน้าเดียวกัน
+  const trendIco = up => html`<${Icon} name=${up?"trend":"trendDown"} size=${14} stroke=${2.2}/>`;
   const kpiTrend = d => d.plain
     ? html`<div class="mg-kpi-d flat">— ${d.txt}</div>`
-    : html`<div class=${"mg-kpi-d "+(d.up?"up":"down")}>${d.up?"▲":"▼"} ${d.txt}<span>${t("จากช่วงก่อน", "vs. the previous period")}</span></div>`;
+    : html`<div class=${"mg-kpi-d "+(d.up?"up":"down")}>${trendIco(d.up)} ${d.txt}<span>${t("จากช่วงก่อน", "vs. the previous period")}</span></div>`;
   // ── การ์ด KPI (อ่านจบใน 3 วิ): ตัวเลขหลัก + การเปลี่ยนแปลง(ลูกศร) + สี ──
   const _delta = arr => { const cur=_cnt(arr,_kwin), prv=_cnt(arr,_kprev); return (cur||prv) ? cur-prv : null; };  // การเปลี่ยนแปลงจำนวน · null=ไม่มีข้อมูลเทียบ
   const custDelta=_delta(catCusts), leadDelta=_delta(catPros);
@@ -803,7 +842,7 @@ export function Monitoring({defaultTab}={}){
   const heroTone = shareDiff<0 ? "bad" : shareDiff>0 ? "good" : "flat";
   const deltaLine=(d,suf)=> d==null
     ? html`<div class="mg-kpi-d flat">— ${suf}</div>`
-    : html`<div class=${"mg-kpi-d "+(d>=0?"up":"down")}>${d>=0?"▲":"▼"} ${d>=0?"+":""}${num(d)} <span>${suf}</span></div>`;
+    : html`<div class=${"mg-kpi-d "+(d>=0?"up":"down")}>${trendIco(d>=0)} ${d>=0?"+":""}${num(d)} <span>${suf}</span></div>`;
 
   // แถว 2 กลาง · อัตราการเปลี่ยนเป็นลูกค้า รายจังหวัด (สัดส่วนลูกค้า/ทั้งหมด)
   const convBars = provShare.map(p=>({label:p.label, value:p.share, color: p.share>=avgShare?"#ff8a9c":"#dbe0e7"}));
@@ -958,11 +997,11 @@ export function Monitoring({defaultTab}={}){
         <div class="mg-kpi-v">${num(fPros.length)}</div>
         ${deltaLine(leadDelta,t("จากเดือนก่อน", "vs. last month"))}</div>
       <div class=${"mg-kpi mg-kpi-hero "+heroTone}>
-        <div class="mg-kpi-hd"><div class="mg-kpi-l">${t("อัตราการเปลี่ยนเป็นลูกค้า", "Conversion rate")}</div><span class="mg-kpi-ic"><${Icon} name="trend" size=${18}/></span></div>
+        <div class="mg-kpi-hd"><div class="mg-kpi-l">${t("อัตราการเปลี่ยนเป็นลูกค้า", "Conversion rate")}</div><span class="mg-kpi-ic"><${Icon} name="percent" size=${18}/></span></div>
         <div class="mg-kpi-v">${curShare}%</div>
         ${shareDiff===0
           ? html`<div class="mg-kpi-d flat">${t("— เทียบค่าเฉลี่ยประเทศ", "— vs. the national average")} ${natShare}%</div>`
-          : html`<div class=${"mg-kpi-d "+(shareDiff>0?"up":"down")}>${shareDiff>0?t("▲ สูงกว่า", "▲ above"):t("▼ ต่ำกว่า", "▼ below ")}${t("ค่าเฉลี่ยประเทศ", "the national average")} ${natShare}%</div>`}</div>
+          : html`<div class=${"mg-kpi-d "+(shareDiff>0?"up":"down")}>${trendIco(shareDiff>0)} ${shareDiff>0?t("สูงกว่า", "above"):t("ต่ำกว่า", "below ")}${t("ค่าเฉลี่ยประเทศ", "the national average")} ${natShare}%</div>`}</div>
       <div class="mg-kpi">
         <div class="mg-kpi-hd"><div class="mg-kpi-l">${t("ความครอบคลุมพื้นที่", "Area coverage")}</div><span class="mg-kpi-ic"><${Icon} name="map" size=${18}/></span></div>
         <div class="mg-kpi-v">${cov ? cov.pct+"%" : "—"}</div>

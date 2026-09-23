@@ -64,6 +64,8 @@ function App(){
   const [db,setDb] = useState({countries:[], world:null, areas:[], areaByProvince:{}, districts:[], customers:[], prospects:[], provincesGeo:null});
   const [user,setUser] = useState(null);
   const [tcDenied,setTcDenied] = useState(null);   // หน้า 403 ของ TC เมื่อพยายามเข้าถึงข้อมูลนอกพื้นที่รับผิดชอบ
+  const [zoneEdit,setZoneEdit] = useState(false);    // โหมดแก้รูปโซน: แถบเครื่องมือมาแทนแถบค้นหาบนแมพ
+  const [zoneEditFrom,setZoneEditFrom] = useState(null);  // หน้าที่กดเข้ามา — กด "ออก" ต้องพากลับไปหน้านั้น
   const [territory,setTerritory] = useState(null);  // { คีย์หน่วย: id ของ TC } จากเซิร์ฟเวอร์ · null = ยังไม่เคยตั้ง
   // ?zone=LP — บทบาท "TC รายโซน" สำหรับเดโม: ล็อกโซนจาก URL ตรง ๆ ไม่ต้องรอการมอบหมายจากแอดมิน
   const demoZone = useMemo(()=>{ try{ return new URLSearchParams(location.search).get("zone")||null; }catch(e){ return null; } },[]);
@@ -326,7 +328,8 @@ function App(){
       if(go==="country"||go==="area"||go==="customer"){
         const cd=await loadCountry("Thailand"); setDb(prev=>({...prev,...cd}));
         setView("workspace"); setActiveCountry("Thailand"); setMode("map");
-        if(go==="area"){ setSelectedProvince(cd.areas[0].province); setOverlay("area"); }
+        // แอดมินไม่มีแผงวิเคราะห์พื้นที่ — ?go=area จึงพาไปที่จังหวัดเฉย ๆ ไม่เปิดแผง
+        if(go==="area"){ setSelectedProvince(cd.areas[0].province); setOverlay(admin ? null : "area"); }
         else if(go==="customer"){ setSelectedCustomer(cd.customers[0]); setOverlay("customer"); }
       }
       // รายงานแผนการเข้าพบเป็นของ TC เท่านั้น — admin/ผู้บริหารเข้า URL ตรง ถูกเปลี่ยนเส้นทางออก (คงอยู่หน้า workspace)
@@ -477,8 +480,11 @@ function App(){
   const notifs = useMemo(()=>buildNotifs(user, db), [user, db.customers, db.prospects]);
 
   const backToGlobe = ()=>{ setView("workspace"); setMode("globe"); setActiveCountry(null); setSelectedProvince(null); setFilters(f=>({...f,province:"All"})); setOverlay(null); setFlyTarget(null); };
+  // คลิกจังหวัด = กรองแผนที่ไปที่จังหวัดนั้น · แผงวิเคราะห์พื้นที่เปิดให้ "ผู้บริหาร" เท่านั้น
+  //   TC    ดูแค่เขตที่รับผิดชอบ ไม่ต้องวิเคราะห์ภาพรวม
+  //   แอดมิน งานคือดูแลระบบ/ขอบเขต/ผู้ใช้ ไม่ใช่วิเคราะห์ตลาด — แผงนี้บังแมพตอนลากขอบโซนด้วย
   const pickProvince = p =>{ setSelectedProvince(p); setFilters(f=>({...f,province:p}));
-    setOverlay(isTC ? null : "area"); };   // TC ไม่มีแผงวิเคราะห์พื้นที่
+    setOverlay(isTC || isAdmin ? null : "area"); };
   const pickCustomer = c =>{ setSelectedCustomer(c); setOverlay("customer"); };
   // topbar-search province result → just zoom to the province (the province-filter effect flies there); no panel
   const pickProvinceZoom = p =>{ if(tcGuard(p, t("พื้นที่ ", "Area ")+provinceTH(p))) return; setSelectedProvince(p); setFilters(f=>({...f,province:p})); setOverlay(null); };
@@ -492,7 +498,7 @@ function App(){
     return false; };
   // enter the map workspace focused on an area / customer (from dashboard tables, search, etc.)
   const openArea = async (p)=>{ if(tcGuard(p, t("พื้นที่ ", "Area ")+provinceTH(p))) return; if(!await withLoading(()=>ensureData("Thailand"))) return;
-    setView("workspace"); setActiveCountry("Thailand"); setMode("map"); setSelectedProvince(p); setFilters(f=>({...f,province:p})); setOverlay("area"); };
+    setView("workspace"); setActiveCountry("Thailand"); setMode("map"); setSelectedProvince(p); setFilters(f=>({...f,province:p})); setOverlay(isAdmin ? null : "area"); };
   const openCustomer = async (c)=>{ if(tcGuard(c&&c.province, c&&c.businessName)) return; if(!await withLoading(()=>ensureData("Thailand"))) return;
     setView("workspace"); setActiveCountry("Thailand"); setMode("map"); setSelectedCustomer(c); setOverlay("customer"); };
 
@@ -558,7 +564,20 @@ function App(){
 
   // ปิดหน้ารายงาน(overlay) กลับไปแผนที่วิเคราะห์เต็มจอ — ใช้จากปุ่มในแดชบอร์ด TC (ไม่สร้างแผนที่ซ้ำสองที่)
   const goMap = ()=>{ setView("workspace"); setMode("map"); setOverlay(null); };
-  const ctx = {db,user,logout,nav,filters,setFilters,routeParams:{area:selectedProvince},profileTab,visitPlans,office:planOffice,lang,setLang,
+  // เข้าโหมดแก้รูปโซน: ปิดหน้าจัดการขอบเขต → ไปแมพใหญ่ → แถบเครื่องมือขึ้นแทนแถบค้นหา
+  // ⚠ เดิมสั่งแค่ "ไปแมพ" โดยไม่สนว่าข้อมูลประเทศโหลดแล้วหรือยัง และไม่ตั้ง activeCountry
+  //    เข้าจากหน้าที่โหลดข้อมูลไว้แล้ว = ได้แมพมีเส้นขอบ/ตัวกรองใช้ได้ · เข้าจากหน้าที่ยังไม่โหลด = ได้แมพเปล่า
+  //    จึงบังคับให้ได้สภาพเดียวกันทุกครั้ง: มีข้อมูล → ตั้งประเทศ → ค่อยเข้าโหมด
+  const startZoneEdit = ()=>{
+    // ต้องมี provincesGeo (รูปจังหวัด) ไม่ใช่แค่ areas (รายชื่อพื้นที่) ไม่งั้นแมพไม่มีเส้นขอบ เลือกจังหวัดแล้วไม่ขยับ
+    // โหลดแบบเบื้องหลัง ไม่บังหน้าจอ — เข้าโหมดได้ทันที แล้ว effect ในแมพวาดเพิ่มเองเมื่อข้อมูลมาถึง
+    if(!(db.areas && db.areas.length && db.provincesGeo)) โหลดเบื้องหลัง();
+    setZoneEditFrom(overlay); setActiveCountry("Thailand");
+    setOverlay(null); setView("workspace"); setMode("map"); setZoneEdit(true);
+  };
+  // ⚠ ไม่ใช่แค่ปิดโหมด — ถ้าปล่อยไว้เฉย ๆ แอดมินจะค้างอยู่บนแมพใหญ่ที่ไม่มีเครื่องมืออะไรเลย
+  const exitZoneEdit = ()=>{ setZoneEdit(false); if(zoneEditFrom) setOverlay(zoneEditFrom); setZoneEditFrom(null); };
+  const ctx = {db,user,logout,nav,filters,setFilters,startZoneEdit,routeParams:{area:selectedProvince},profileTab,visitPlans,office:planOffice,lang,setLang,
 
     deletePlan,setActivePlanId,approveDeal,rejectDeal,addToPlan,goMap,updateRecord,adminDeleteRecord,
     selectedProvince,setSelectedProvince,selectedCustomer,setSelectedCustomer,selectedCountry:activeCountry};
@@ -586,6 +605,7 @@ function App(){
 
   // บทบาทภาคสนาม (ผู้บริหาร/TC) ใช้แผนที่เป็นหลัก — ไม่มีแถบเมนูซ้าย · ผู้ดูแลระบบเห็นแถบเมนูเต็ม
   const isBiz = user.role !== "Administrator";
+  const isAdmin = user.role === "Administrator";
   const isTC = user.role === "Trade Coordinator";   // TC ถูกล็อกไว้ที่จังหวัดที่รับผิดชอบเท่านั้น (ไม่มีลูกโลก/ไม่สลับจังหวัด)
   const roleDemo = user.role==="Administrator" ? "admin" : isTC ? "tc" : "management";   // บทบาทปัจจุบันในรูป demo param
   const isDemoMode = /[?&]demo=/.test(location.search);   // ตัวสลับบทบาทโชว์เฉพาะโหมดเดโม (dev) เท่านั้น
@@ -745,6 +765,7 @@ function App(){
           : html`<${GeoStage} db=${db} mode=${mode} activeCountry=${activeCountry} flyTarget=${flyTarget} globeUnder=${globeUnder}
               lockProvince=${isTC ? user.province : null} lockZones=${lockZones}
               zoneMode=${isTC && lockZones ? "lock" : user.role==="Management" ? "outline" : null}
+              canEditZones=${isAdmin} noMask=${isAdmin} zoneEdit=${zoneEdit && isAdmin} onExitZoneEdit=${exitZoneEdit}
               onArriveCountry=${arriveCountry} onSelectCountry=${selectCountry} onSelectProvince=${selectProvinceFromGlobe} onBackToGlobe=${backToGlobe}
               filters=${filters} setFilters=${setFilters} layers=${layers} setLayers=${setLayers}
               onPickProvince=${pickProvince} onPickCustomer=${pickCustomer}
@@ -755,7 +776,7 @@ function App(){
               gsearch=${gsearch} setGsearch=${setGsearch} searchResults=${results}
               onPickProvinceZoom=${pickProvinceZoom} onPickCustomerNav=${p=>nav("customer",{id:p.id})}/>`}
 
-        ${view==="workspace" && overlay==="area" && selectedProvince && !isTC && html`<${AreaPanel} key=${selectedProvince} db=${db} filters=${filters}
+        ${view==="workspace" && overlay==="area" && selectedProvince && !isTC && !isAdmin && html`<${AreaPanel} key=${selectedProvince} db=${db} filters=${filters}
           province=${selectedProvince} onClose=${()=>setOverlay(null)}
           onReport=${user.role==="Administrator" ? (p=>{setSelectedProvince(p);setOverlay("reports");}) : undefined}
           onOpenCustomer=${p=>{setSelectedCustomer(p);setOverlay("customer");}}/>`}

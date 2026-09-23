@@ -6,7 +6,7 @@ import {t, useLang} from "./lib.js";
 import {createZoneLayer} from "./zone-layer.js";   // โซน SL/LP/TL ของ กทม.
 import {mountZoneEditor} from "./zone-editor.js";  // โหมดลากขอบ เปิดด้วย ?edit=1
 import {createZoneResolver} from "./resolveZone.js";   // หาว่าพิกัดอยู่ในโซนไหน (กรองข้อมูลของ TC)
-import {loadZoneRegistry} from "./zone-registry.js";   // ทะเบียนโซน: รูป + ชื่อ + สี ที่เดียว
+import {loadZoneRegistry, ZONE_REST} from "./zone-registry.js";   // ทะเบียนโซน: รูป + ชื่อ + สี ที่เดียว
 import {BASEMAP_MAXZOOM} from "../config/basemap.js";
 import {roleCode} from "./permissions.js";   // แปลง role → code (ADMIN/SALES_MANAGER/TC) กันสตริงดิบกระจาย
 
@@ -88,13 +88,16 @@ function gapWeigher(cs, ps){
 // แปลงระดับซูมเป็นชื่อโหมด
 function zoomModeOf(z){ return z < ZOOM_HEAT_MAX ? "heat" : z < ZOOM_CLUSTER_MAX ? "cluster" : "marker"; }
 
-export function LeafletMap({db, filters, layers, country="Thailand", onPickArea, onPickCustomer, onMapMode, focusProvince, highlight, focusPoint, plan, route, office, planRoutes, clusters, territories, dark, lockProvince, lockZones, zoneMode, onPickZone}){
+export function LeafletMap({db, filters, layers, country="Thailand", onPickArea, onPickCustomer, onMapMode, focusProvince, highlight, focusPoint, plan, route, office, planRoutes, clusters, territories, dark, lockProvince, lockZones, zoneMode, canEditZones, noMask, onZoneEditor, onPickZone}){
   const ref = useRef();
   const M = useRef({});
   // useApp() คืน undefined ถ้าอยู่นอก Provider → ถือว่า "ไม่เข้าเงื่อนไข" ไว้ก่อน (ปลอดภัยฝั่ง TC)
   const app = useApp();
   const seaFallback = APPLY_TO_TC || (!!app && !!app.user && roleCode(app.user.role) !== "TC");
   const lang = useLang();   // ป้ายชื่อสถานที่บนแผนที่ตามภาษาปัจจุบัน (ดู effect "สลับภาษาป้ายชื่อ" ด้านล่าง)
+  // ⚠ closure ที่ตั้งเวลาไว้ (fitBounds ตอน init · รีทรายบินไปจังหวัด) จะจำค่า filters "ตอนสร้าง" ไว้
+  //    ถ้าจังหวัดถูกเลือกทีหลังไม่กี่ ms คำสั่ง fitBounds ทั้งประเทศจะยิงทับการบินไปจังหวัด = ค้างที่วิวประเทศ
+  M.current.filters = filters;
 
   // init once
   useEffect(()=>{
@@ -151,7 +154,7 @@ export function LeafletMap({db, filters, layers, country="Thailand", onPickArea,
       // frame the whole country so it is centred and fully visible (~75% of the viewport) — BUT only when no
       // province is selected. If we mount already scoped to a province (post-login picker → fly to province),
       // this whole-country fitBounds would clobber the province zoom, so let the province-view effect frame it.
-      const sel = filters.province && filters.province!=="All";
+      const sel = M.current.filters && M.current.filters.province && M.current.filters.province!=="All";
       if(country==="Thailand" && !sel) map.fitBounds(L.latLngBounds(TH_BOUNDS), {padding:[28,28]});
     }, 80);
     // ยาม perf (เฉพาะ ?perf=1) — โหลดแบบ dynamic โหมดปกติไม่แตะไฟล์นี้เลย
@@ -178,15 +181,29 @@ export function LeafletMap({db, filters, layers, country="Thailand", onPickArea,
         onPick: id => onPickZone && onPickZone(id),
         debug: /[?&]perf=1/.test(location.search),
       }).addTo(map);
-      M.current.zoneEditor = mountZoneEditor(map, M.current.zones);   // คืน null ถ้าไม่มี ?edit=1
+      // แอดมินได้ตัวแก้ขอบโซน (canEditZones) · บทบาทอื่นต้องใส่ ?edit=1 เอง
+      // panel:false = ไม่สร้างกล่องลอยมุมแมพ · UI อยู่ที่แถบเครื่องมือด้านบน (stage.js)
+      M.current.zoneEditor = mountZoneEditor(map, M.current.zones, {allow: canEditZones, panel: false});
+      if(onZoneEditor) onZoneEditor(M.current.zoneEditor);   // ส่งตัวคุมออกไปให้แถบเครื่องมือใช้
       applyLockZones();                                              // โซนอาจมาถึงหลัง effect ของ lockZones แล้ว
       buildMask();                                                   // รูปโซนเพิ่งมา — เจาะรูใหม่ตามโซนถ้า TC ถูกล็อกโซนไว้
       buildBase();                                                   // และกรองข้อมูลให้เหลือเฉพาะในโซน (หมุด/คลัสเตอร์/heat)
     }).catch(e=>console.warn("[zone-layer] โหลด /data/zones.geojson ไม่สำเร็จ", e));
 
+    // ⚠ "แมพเทาต้องรีเฟรชหน้า": Leaflet จำขนาดกล่องไว้ตอนสร้างแมพ ถ้าตอนนั้นกล่องยังถูกหน้าอื่นทับหรือสูง 0
+    //    (เช่น เข้าโหมดแก้โซนจากหน้าจัดการขอบเขตที่เพิ่งปิด) ขนาดจริงมาทีหลัง แมพจึงวาดไทล์ผิดตำแหน่ง/ไม่วาดเลย
+    //    invalidateSize() ครั้งเดียวตอน 80ms ไม่พอ — ต้องวัดใหม่ทุกครั้งที่กล่องเปลี่ยนขนาดจริง
+    let sizeT = 0;
+    const ro = typeof ResizeObserver !== "undefined" ? new ResizeObserver(()=>{
+      clearTimeout(sizeT);
+      sizeT = setTimeout(()=>{ if(M.current.alive && ref.current && ref.current.clientHeight > 10) map.invalidateSize(); }, 60);
+    }) : null;
+    if(ro && ref.current) ro.observe(ref.current);
+
     buildBase();
-    return ()=>{ M.current.alive = false; zonesCancelled = true; clearTimeout(M.current.mt);
-      if(M.current.zoneEditor){ M.current.zoneEditor.disable(); M.current.zoneEditor.panel && M.current.zoneEditor.panel.destroy(); M.current.zoneEditor = null; }
+    return ()=>{ M.current.alive = false; zonesCancelled = true; clearTimeout(M.current.mt); clearTimeout(sizeT); ro && ro.disconnect();
+      if(M.current.zoneEditor){ M.current.zoneEditor.disable(); M.current.zoneEditor.panel && M.current.zoneEditor.panel.destroy(); M.current.zoneEditor = null;
+        if(onZoneEditor) onZoneEditor(null); }
       M.current.zones && M.current.zones.destroy(); M.current.zones = null;
       map.remove(); };
   },[]);
@@ -269,10 +286,12 @@ export function LeafletMap({db, filters, layers, country="Thailand", onPickArea,
       // streaming, or buildBase deferred until the map is sized), so poll briefly until provFeatures has it —
       // otherwise selecting a province right after the globe fly-in would silently not zoom.
       let tries=0;
+      const want=filters.province;
       const flyProv=()=>{ if(!m.alive||!m.map) return;
-        const f=m.provFeatures && m.provFeatures[filters.province];
+        if(m.filters && m.filters.province !== want) return;        // ผู้ใช้เปลี่ยนจังหวัดระหว่างรอ = ทิ้งคิวเก่า
+        const f=m.provFeatures && m.provFeatures[want];
         if(f){ m.map.flyToBounds(f.getBounds(), {padding:[40,40], duration:0.8, maxZoom:LOD_ZOOM}); }
-        else if(tries++ < 25){ m._provRetry=setTimeout(flyProv, 150); } };   // up to ~3.75s
+        else if(tries++ < 80){ m._provRetry=setTimeout(flyProv, 150); } };   // up to ~12s — รูปจังหวัดละเอียดขึ้น ใช้เวลาสร้างนานกว่าเดิม
       flyProv();
     }
     // db.provincesGeo is in the deps so a province selected BEFORE the geojson loaded also re-runs on arrival.
@@ -332,11 +351,14 @@ export function LeafletMap({db, filters, layers, country="Thailand", onPickArea,
     // เลือกจังหวัดที่จะ"เปิด" (เจาะรูให้เห็น base)
     let reveal;
     // ภาพรวมทั้งประเทศ (ไม่ล็อกจังหวัด และไม่ได้กรองจังหวัด) → เห็นแผนที่ไทยเต็มตัว ไม่มีแผ่นทึบปิด
-    const wholeCountry = !lockProvince && (!filters.province || filters.province==="All");
+    // noMask (แอดมิน): เลือกจังหวัดแล้วไม่ต้องปิดพื้นที่รอบนอกด้วยสีเทา — งานแอดมินคือดูแลขอบเขต
+    // ต้องเห็นจังหวัดข้างเคียงเป็นบริบทตอนลากขอบโซน · ตัวกรองจังหวัดยังทำงานกับข้อมูลเหมือนเดิม
+    const wholeCountry = noMask || (!lockProvince && (!filters.province || filters.province==="All"));
     if(lockProvince) reveal = new Set([lockProvince]);
     else if(filters.province && filters.province!=="All") reveal = new Set([filters.province]);
     else reveal = new Set(db.provincesGeo.features.map(f=>f.properties.name));   // ครบ 77 จังหวัด
     if(m.maskLayer){ map.removeLayer(m.maskLayer); m.maskLayer=null; }
+    if(m.zoneCover){ map.removeLayer(m.zoneCover); m.zoneCover=null; }
     if(m.outlineLayer){ map.removeLayer(m.outlineLayer); m.outlineLayer=null; }
     if(m.provEdge){ map.removeLayer(m.provEdge); m.provEdge=null; }
     // ── TC ที่ถูกมอบหมายเป็น "รายโซน" → เจาะรูตามรูปโซน ไม่ใช่รูปจังหวัด ──────────
@@ -366,6 +388,22 @@ export function LeafletMap({db, filters, layers, country="Thailand", onPickArea,
     const MASK = dark ? "#0e1626" : "#e9ecf1";                    // สีนอกพื้นที่ (สลับตาม dark mode ของแผนที่)
     if(!wholeCountry)   // มุมมองทั้งประเทศไม่ต้องมีแผ่นทึบ — เห็นแผนที่ไทยเต็มตัว
       m.maskLayer = L.polygon([world, ...holes], {pane:"maskPane", renderer:m.maskRenderer, stroke:false, fillColor:MASK, fillOpacity:1, interactive:false}).addTo(map);
+
+    // TC ที่ถือ "พื้นที่นอกโซน": เจาะรูเป็นรูปจังหวัด แล้วปิดทับเฉพาะโซนอื่นด้วยสีเดียวกับแผ่นทึบ
+    // (เขียนเป็นรู "จังหวัดลบโซน" ในโพลิกอนเดียวไม่ได้ — Leaflet ไม่มี "บวกกลับ" จึงวาดแผ่นปิดทับแทน)
+    if(zoneIds && zoneIds.includes(ZONE_REST) && m.zonesGeo){
+      const owned = zoneIds.filter(z=>z!==ZONE_REST);
+      const cover = [];
+      (m.zonesGeo.features||[]).forEach(f=>{
+        const p=f.properties||{};
+        if(p.province !== lockProvince || owned.includes(p.zone_id)) return;   // โซนที่ตัวเองถือ ไม่ต้องปิด
+        const g=f.geometry, polys = g.type==="Polygon" ? [g.coordinates] : g.type==="MultiPolygon" ? g.coordinates : [];
+        polys.forEach(poly=>{ if(poly[0]) cover.push([poly[0].map(([lng,lat])=>[lat,lng])]); });
+      });
+      if(cover.length)
+        m.zoneCover = L.polygon(cover, {pane:"maskPane", renderer:m.maskRenderer, stroke:false,
+          fillColor:MASK, fillOpacity:1, interactive:false}).addTo(map);
+    }
     if(outlineGeom){                                              // เส้นขอบประเทศไทย (จางสุด 1px) เหนือ mask — บริบทภาพรวม
       const OUT = dark ? "rgba(226,232,240,.28)" : "rgba(30,45,80,.26)";
       m.outlineLayer = L.geoJSON(outlineGeom, {pane:"outlinePane", renderer:m.outlineRenderer, interactive:false, style:{color:OUT, weight:1, fill:false}}).addTo(map);
@@ -378,7 +416,8 @@ export function LeafletMap({db, filters, layers, country="Thailand", onPickArea,
         {pane:"outlinePane", renderer:m.outlineRenderer, interactive:false, style:{color:EDGE, weight:1.2, fill:false}}).addTo(map);
     }
     // clip ป้ายชื่อ(labelPane) ให้เหลือเฉพาะรูปจังหวัดที่เปิด → label ไม่โผล่ทับพื้นที่ที่ถูก mask
-    m.revealFeatures = revealFeatures;
+    // ไม่มีแผ่นทึบ = ไม่ต้อง clip ป้ายชื่อด้วย ไม่งั้นชื่อสถานที่รอบนอกหายไปทั้งที่เห็นแผนที่อยู่
+    m.revealFeatures = noMask ? null : revealFeatures;
     updateLabelClip();
   }
 
@@ -520,11 +559,32 @@ export function LeafletMap({db, filters, layers, country="Thailand", onPickArea,
     const key = ids.slice().sort().join(",");
     if(m.zoneResKey !== key){
       const feats = (m.zonesGeo.features||[]).filter(f=>f.properties && ids.includes(f.properties.zone_id));
-      m.zoneRes = feats.length ? createZoneResolver({type:"FeatureCollection", features:feats}) : null;
+      // โหมด "พื้นที่นอกโซน" ไม่มีรูปของตัวเอง — ใช้ resolver ของทุกโซนในจังหวัดมาหาว่า "ไม่อยู่โซนไหน"
+      m.zoneRes = feats.length ? createZoneResolver({type:"FeatureCollection", features:feats})
+                : ids.includes(ZONE_REST) ? true : null;
       m.zoneResKey = key;
     }
     const res = m.zoneRes;
-    return res ? (x => !!res.zoneAt(+x.latitude, +x.longitude)) : null;
+    if(!res) return null;
+    // หน่วย "พื้นที่นอกโซน" = อยู่ในจังหวัดที่รับผิดชอบ แต่ไม่ตกในโซนใดเลย
+    // (กรุงเทพฯ 50 เขต อยู่ในโซน 27 เหลืออีก 23 เขตที่ยังต้องมีคนดูแล)
+    if(ids.includes(ZONE_REST)){
+      const zonesInProv = (m.zonesGeo.features||[])
+        .filter(f=>f.properties && f.properties.province===lockProvince);
+      if(!m.restRes || m.restResProv!==lockProvince){
+        m.restRes = zonesInProv.length
+          ? createZoneResolver({type:"FeatureCollection", features:zonesInProv}) : null;
+        m.restResProv = lockProvince;
+      }
+      const all = m.restRes, alsoOwned = ids.filter(z=>z!==ZONE_REST);
+      return x => {
+        if(x.province !== lockProvince) return false;
+        if(!all) return true;                              // จังหวัดนี้ยังไม่มีโซน = ทั้งจังหวัดคือพื้นที่นอกโซน
+        const z = all.zoneAt(+x.latitude, +x.longitude);
+        return z ? alsoOwned.includes(z) : true;           // ไม่ตกโซนไหน = อยู่ในพื้นที่นอกโซน
+      };
+    }
+    return x => !!res.zoneAt(+x.latitude, +x.longitude);
   }
 
   // province choropleth + CACHED heatmap — recomputed only when the filtered data changes, never on pan (§10)

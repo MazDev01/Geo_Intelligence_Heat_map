@@ -3,9 +3,30 @@ import {readFile, writeFile, rename, stat} from 'node:fs/promises';
 import {createReadStream} from 'node:fs';
 import {extname, join, normalize} from 'node:path';
 import {fileURLToPath} from 'node:url';
+import {mkdir, readdir, unlink} from 'node:fs/promises';
 import {createRequire} from 'node:module';
-// ตัวตรวจทะเบียนโซนตัวเดียวกับที่ Vercel ใช้ (api/zones.js) — เป็น .cjs จึงต้องผ่าน createRequire
-const {validateZones} = createRequire(import.meta.url)('./zone-validate.cjs');
+// ตรรกะทะเบียนโซนตัวเดียวกับที่ Vercel ใช้ (api/zones.js) — เป็น .cjs จึงต้องผ่าน createRequire
+const _req = createRequire(import.meta.url);
+const {makeZoneStore, checkWriteAuth} = _req('./zone-store.cjs');
+
+// adapter ฝั่งเครื่อง: เก็บเป็นไฟล์ใน data/  (ฉบับจริง = data/zones.geojson ที่เสิร์ฟ static อยู่แล้ว)
+const DATA_DIR = fileURLToPath(new URL('./data/', import.meta.url));
+const zonePath = name => DATA_DIR + name;
+const zoneStore = makeZoneStore({
+  async readJSON(name){ try{ return JSON.parse(await readFile(zonePath(name),'utf8')); }catch{ return null; } },
+  async writeText(name, text){
+    const full = zonePath(name);
+    await mkdir(full.slice(0, Math.max(full.lastIndexOf('/'), full.lastIndexOf('\\'))), {recursive:true});
+    await writeFile(full+'.tmp', text);          // เขียนชั่วคราวก่อน rename กันไฟล์พังถ้าดับกลางคัน
+    await rename(full+'.tmp', full);
+  },
+  async list(prefix){
+    try{ const dir = zonePath(prefix);
+      return (await readdir(dir)).map(n=>prefix+n);
+    }catch{ return []; }
+  },
+  async remove(name){ try{ await unlink(zonePath(name)); }catch{} },
+});
 
 const ROOT = fileURLToPath(new URL('.', import.meta.url));
 const PORT = 5173;
@@ -88,23 +109,27 @@ createServer(async (req,res)=>{
     if(p==='/api/zones'){
       const send = (code,obj)=>{ res.writeHead(code,{'Content-Type':'application/json','Cache-Control':'no-store'});
         res.end(obj===undefined?'':JSON.stringify(obj)); };
-      const STORE = join(ROOT, 'data', 'zones.geojson');
-      if(req.method==='GET') return send(204);
+      const q = new URLSearchParams(qs||'');
+      const reply = r => (r && r.ok) ? (console.log('[zones]', JSON.stringify(r)), send(200,r))
+                                     : send((r&&r.code)||500, r||{error:'ไม่สำเร็จ'});
+      if(req.method==='GET'){
+        if(q.get('history')) return send(200,{versions: await zoneStore.listHistory()});
+        if(q.get('version')){ const v = await zoneStore.getVersion(q.get('version'));
+          return v ? send(200,v) : send(404,{error:'ไม่พบฉบับนี้'}); }
+        if(q.get('draft')){ const d = await zoneStore.readDraft(); return d ? send(200,d) : send(204); }
+        // ฉบับที่มีผลจริงในเครื่อง = data/zones.geojson ที่เสิร์ฟเป็น static อยู่แล้ว
+        // ตอบ 204 เพื่อให้หน้าเว็บไปอ่านไฟล์นั้นตรง ๆ (ไม่ต้องส่ง 120 KB ซ้ำสองทาง)
+        return send(204);
+      }
       if(req.method==='POST'){
+        const auth = checkWriteAuth(req.headers, process.env);
+        if(!auth.ok) return send(auth.code,{error:auth.error});
+        if(q.get('approve')) return reply(await zoneStore.approve());
+        if(q.get('discard')) return reply(await zoneStore.discardDraft());
+        if(q.get('restore')) return reply(await zoneStore.restore(q.get('restore')));
         let raw=''; for await (const chunk of req){ raw += chunk;
           if(raw.length > 1.2e6){ return send(413,{error:'ไฟล์ใหญ่เกิน'}); } }
-        const kb = Math.round(Buffer.byteLength(raw,'utf8')/1024);
-        if(kb > 600) return send(413,{error:`ไฟล์ ${kb} KB เกินเพดาน 600 KB — ลดหมุดก่อนเซฟ`});
-        let gj; try{ gj = JSON.parse(raw||'null'); }catch{ return send(400,{error:'JSON ไม่ถูกต้อง'}); }
-        // ใช้ตัวตรวจ "ตัวเดียวกัน" กับ api/zones.js บน Vercel — ก่อนหน้านี้เขียนแยกกันแล้วไม่เท่ากัน
-        // (สีผิดรูปแบบผ่านในเครื่องแต่ถูกปฏิเสธบน production) ดู zone-validate.cjs
-        const bad = validateZones(gj);
-        if(bad) return send(400,{error:'รูปโซนใช้ไม่ได้', message:bad});
-        const tmp = STORE+'.tmp';
-        await writeFile(tmp, raw);
-        await rename(tmp, STORE);
-        console.log(`[zones] บันทึก ${gj.features.length} โซน · ${kb} KB`);
-        return send(200,{ok:true, zones:gj.features.map(f=>f.properties.zone_id), kb, updatedAt:new Date().toISOString()});
+        return reply(q.get('publish') ? await zoneStore.publish(raw) : await zoneStore.saveDraft(raw));
       }
       return send(405,{error:'รองรับเฉพาะ GET กับ POST'});
     }

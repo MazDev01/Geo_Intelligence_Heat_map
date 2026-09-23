@@ -5,7 +5,8 @@ import {Globe} from "./globe.js";
 import {LeafletMap} from "./lmap.js";
 import {filterData} from "./data.js";
 import {CategoryDropdown} from "./category-chips.js";
-import {zoneLabel as zoneName} from "./zone-registry.js";   // ชื่อโซนจากทะเบียน ไว้ต่อท้ายชื่อจังหวัดของ TC รายโซน
+import {zoneLabel as zoneName} from "./zone-registry.js";
+import {ZoneToolbar} from "./zone-toolbar.js";   // แถบเครื่องมือแก้รูปโซน (แทนแถบค้นหาตอนอยู่โหมดแก้ไข)
 import {t} from "./i18n.js";
 
 // Post-login globe picker: a FIXED shortlist of four featured provinces.
@@ -68,12 +69,17 @@ const CALLOUT_CSS = `
 `;
 
 export function GeoStage({db, mode, activeCountry, flyTarget, globeUnder, onArriveCountry, onSelectCountry, onSelectProvince,
-    filters, setFilters, layers, setLayers, onPickProvince, onPickCustomer, onOpenReports, focusProvince, highlightCustomer, onBackToGlobe, tourPanel, tourFocus, visitPlan, visitRoute, office, planRoutes, lockZones, zoneMode,
+    filters, setFilters, layers, setLayers, onPickProvince, onPickCustomer, onOpenReports, focusProvince, highlightCustomer, onBackToGlobe, tourPanel, tourFocus, visitPlan, visitRoute, office, planRoutes, lockZones, zoneMode, canEditZones, noMask, zoneEdit, onExitZoneEdit,
     gsearch, setGsearch, searchResults, onPickProvinceZoom, onPickCustomerNav, lockProvince}){
   const areaByProvince = db.areaByProvince||{};
   const [layersOpen, setLayersOpen] = useState(true);    // แผงเลเยอร์เปิดอยู่เป็นค่าเริ่มต้น · กดไอคอนเลเยอร์เพื่อย่อ/ขยาย
   // โหมดแสดงผลแผนที่ปัจจุบันตามระดับซูม (heat/cluster/marker) — แผนที่แจ้งมาผ่าน onMapMode ใช้โชว์ legend Lead เฉพาะตอนซูมออก
   const [mapMode, setMapMode] = useState("heat");
+  // ตัวคุมการแก้รูปโซน — lmap สร้างให้แล้วส่งออกมาทาง onZoneEditor เพื่อให้แถบเครื่องมือด้านบนใช้ได้
+  const [zoneEd, setZoneEd] = useState(null);
+  // ความสูงจริงของแถบด้านบน — ของที่วางใต้มันจะได้ไม่โดนบังเวลาแถบสูงขึ้น (โหมดแก้รูปโซนสูงกว่าแถบค้นหา)
+  const navRef = useRef(null);
+  const [navH, setNavH] = useState(36);
   // โหมดสีแผนที่ (สว่าง=ค่าเริ่มต้น / มืด) — เป็น preference ส่วนตัว เก็บใน localStorage แยกจาก session (logout ไม่รีเซ็ต)
   const [mapDark, setMapDark] = useState(()=>{ try{ return localStorage.getItem("geoMapTheme")==="dark"; }catch(e){ return false; } });
   const toggleMapDark = ()=> setMapDark(v=>{ const nv=!v; try{ localStorage.setItem("geoMapTheme", nv?"dark":"light"); }catch(e){} return nv; });
@@ -84,6 +90,15 @@ export function GeoStage({db, mode, activeCountry, flyTarget, globeUnder, onArri
     document.addEventListener("mousedown", onDoc);
     return ()=>document.removeEventListener("mousedown", onDoc);
   }, [layersOpen]);
+  // วัดความสูงแถบด้านบนแบบสด (ResizeObserver) — แถบเครื่องมือโซนสูงขึ้น/ลดลงได้ตามเนื้อหา
+  useEffect(()=>{
+    const el = navRef.current; if(!el || typeof ResizeObserver==="undefined") return;
+    const measure = ()=>setNavH(el.offsetHeight || 36);
+    measure();
+    const ro = new ResizeObserver(measure); ro.observe(el);
+    return ()=>ro.disconnect();
+  },[zoneEdit, mode]);
+
   const featuredCards = FEATURED_PROVINCES.map(f=>({...f, area:areaByProvince[f.province]}));
 
   // ── หน้าเลือกจังหวัด: การ์ดคงที่ 2 ฝั่งซ้าย-ขวา (ไม่ขยับตามการหมุนของลูกโลก) ──
@@ -154,11 +169,16 @@ export function GeoStage({db, mode, activeCountry, flyTarget, globeUnder, onArri
     ${mode==="map" && html`
       <${LeafletMap} db=${db} filters=${filters} layers=${layers} country=${activeCountry||"Thailand"} dark=${mapDark}
         focusProvince=${focusProvince} highlight=${highlightCustomer} focusPoint=${tourFocus} onPickArea=${onPickProvince} onPickCustomer=${onPickCustomer}
-        onMapMode=${setMapMode} plan=${visitPlan} route=${visitRoute} office=${office} planRoutes=${planRoutes} lockProvince=${lockProvince} lockZones=${lockZones} zoneMode=${zoneMode}/>
+        onMapMode=${setMapMode} plan=${visitPlan} route=${visitRoute} office=${office} planRoutes=${planRoutes} lockProvince=${lockProvince} lockZones=${lockZones} zoneMode=${zoneMode} canEditZones=${canEditZones} noMask=${noMask} onZoneEditor=${setZoneEd}/>
 
       <!-- แถบนำทางกระชับแถวเดียว: [ค้นหา] (หมวดหมู่ธุรกิจย้ายไปเป็น dropdown ท้ายแผงเลเยอร์แล้ว)
            หลักการ: ตัวกรอง (หมวดหมู่) อยู่ซ้าย/กลาง · ปุ่ม Action (เพิ่มข้อมูล/รายงาน) แยกไปอยู่ขวาสุด -->
-      <div class="map-nav" style=${{position:"absolute",top:"16px",left:"56px",right:"16px",zIndex:500,display:"flex",alignItems:"center",gap:"10px"}}>
+      <div class="map-nav" ref=${navRef} style=${{position:"absolute",top:"16px",left:"56px",right:"16px",zIndex:500,display:"flex",alignItems:"center",gap:"10px"}}>
+      <!-- โหมดแก้รูปโซน: แถบเครื่องมือมา "แทน" แถบค้นหา (แบบเครื่องมือ GIS) — เห็นชัดว่าอยู่โหมดไหน
+           เข้าโหมดนี้จากปุ่มในหน้าจัดการขอบเขตพื้นที่การขาย -->
+      ${zoneEdit
+        ? html`<${ZoneToolbar} ed=${zoneEd} onExit=${onExitZoneEdit}/>`
+        : html`
       <div data-tour="search" style=${{position:"relative",width:"300px",maxWidth:"100%",flex:"none"}}>
         <div class="searchbox map-fx" style=${{width:"100%",position:"relative",background:"var(--panel)",
           border:"1px solid var(--stroke2)",backdropFilter:"blur(14px)",boxShadow:"var(--shadow)"}}>
@@ -175,7 +195,7 @@ export function GeoStage({db, mode, activeCountry, flyTarget, globeUnder, onArri
             <${Icon} name="building" size=${15}/><div><div style=${{fontSize:"12.5px",fontWeight:600}}>${p.title}</div>
             <div class="dim" style=${{fontSize:"12.5px"}}>${p.sub}</div></div></div>`)}
         </div>`}
-      </div>
+      </div>`}
 
       <!-- ไม่มีปุ่ม Action บนแถบนี้แล้ว — "เพิ่ม Lead" ถูกถอดออก (เพิ่มรายการใหม่ทำผ่านแอดมินเท่านั้น)
            ปุ่ม "รายงาน" อยู่บน header มุมขวาบน เพราะเป็นการเปิดอีกหน้าหนึ่ง ไม่ใช่ควบคุมแผนที่ -->
@@ -265,8 +285,11 @@ export function GeoStage({db, mode, activeCountry, flyTarget, globeUnder, onArri
       </div>`}
 
       <!-- แถบสรุปบางๆ ใต้แถบนำทาง (แทนกล่องใหญ่ลอยทับแผนที่เดิม): ปุ่มกลับ + จังหวัด + ตัวเลขสรุปแบบกระชับ -->
-      <div style=${{position:"absolute",top:"62px",left:"56px",zIndex:490,maxWidth:"calc(100% - 72px)"}}>
-        <div class="map-panel map-fx" style=${{padding:"6px 11px",display:"flex",alignItems:"center",gap:"10px",flexWrap:"wrap",flex:"none"}}>
+      <!-- วางใต้แถบด้านบนโดยวัดความสูงจริง ไม่ใช้เลขคงที่ — โหมดแก้รูปโซนใช้แถบที่สูงกว่า และสูงเปลี่ยนได้ตอนมีข้อความผลลัพธ์ -->
+      <!-- left 84px = เว้นให้พ้นคอลัมน์ปุ่มควบคุมฝั่งซ้าย (ซูม · สลับโทน · เลเยอร์ อยู่ที่ left:10 กว้าง ~44px)
+           เดิม 56px เหลือช่องแค่ ~12px เลยดูเบียดปุ่มสลับโทน -->
+      <div style=${{position:"absolute",top:(16+navH+10)+"px",left:"84px",zIndex:490,maxWidth:"calc(100% - 100px)"}}>
+        <div class=${zoneEdit ? "" : "map-panel map-fx"} style=${{padding: zoneEdit?"0":"6px 11px",display:"flex",alignItems:"center",gap:"10px",flexWrap:"wrap",flex:"none"}}>
           ${lockProvince
             ? html`<span style=${{display:"inline-flex",alignItems:"center",gap:"6px",fontSize:"12.5px",fontWeight:700,color:"var(--accent2)"}}>
                 <${Icon} name="pin" size=${14}/> ${t("เขตที่รับผิดชอบ:", "Territory:")} ${provinceTH(lockProvince)}${
@@ -274,9 +297,10 @@ export function GeoStage({db, mode, activeCountry, flyTarget, globeUnder, onArri
             : html`<div style=${{width:"190px",flex:"none"}}>
                 <${Dropdown} value=${filters.province||"All"} placeholder=${t("ทุกจังหวัด", "All provinces")} options=${provinceOpts}
                   onChange=${v=>setFilters(f=>({...f, province:v}))}/></div>
-          <span style=${{width:"1px",height:"15px",background:"var(--stroke2)",flex:"none"}}></span>
-          <span style=${{fontSize:"12.5px",fontWeight:700}}>${filters.province&&filters.province!=="All"?provinceTH(filters.province):countryTH(activeCountry||"Thailand")}</span>`}
-          <span style=${{fontSize:"12px",color:"var(--muted)"}}>${num(customers.length)} ${t("ลูกค้า ·", "Customers ·")} ${num(prospects.length)} Lead</span>
+          ${!zoneEdit && html`<span style=${{width:"1px",height:"15px",background:"var(--stroke2)",flex:"none"}}></span>
+          <span style=${{fontSize:"12.5px",fontWeight:700}}>${filters.province&&filters.province!=="All"?provinceTH(filters.province):countryTH(activeCountry||"Thailand")}</span>`}`}
+          <!-- โหมดแก้รูปโซนเหลือแค่ตัวกรองจังหวัด — ชื่อพื้นที่กับจำนวนลูกค้า/Lead ไม่เกี่ยวกับการลากเส้น -->
+          ${!zoneEdit && html`<span style=${{fontSize:"12px",color:"var(--muted)"}}>${num(customers.length)} ${t("ลูกค้า ·", "Customers ·")} ${num(prospects.length)} Lead</span>`}
         </div>
       </div>`}
   </div>`;

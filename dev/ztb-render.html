@@ -1,0 +1,56 @@
+<!doctype html><meta charset="utf-8"><title>ztb render test</title>
+<!-- หน้าเทสต์เรนเดอร์แถบเครื่องมือแก้โซนโดยไม่ต้องมีแมพ (Leaflet ไม่ขึ้นตอน headless)
+     ?pick=1 = โหมดเลือกโซน · ?click=1 = กดวาดโซนใหม่ทั้งที่ยังไม่ใส่ชื่อ -->
+<script type="importmap">
+{ "imports":{ "react":"https://esm.sh/react@18.3.1","react-dom":"https://esm.sh/react-dom@18.3.1",
+  "react-dom/client":"https://esm.sh/react-dom@18.3.1/client","htm":"https://esm.sh/htm@3.1.1" }}
+</script>
+<style>*{box-sizing:border-box}/* เหมือน index.html */ #root{display:flex;width:1450px}#m{font:12px monospace}</style>
+<div id="root"></div>
+<div id="m"></div>
+<script type="module">
+import {html} from "../src/lib.js";
+import {createRoot} from "react-dom/client";
+import {ZoneToolbar} from "../src/zone-toolbar.js";
+const picking = location.search.includes("pick");
+let drawing = location.search.includes("draw");
+const ed = {
+  summary:()=>({zones:3,vertices:100,kb:2,dirty:true,over:false,undo:2,redo:1,
+    editing:false,picking,drawing,picked:picking?["A","B"]:[]}),
+  setPickHandler(){}, recolor(id,hex){ window.__rc=(window.__rc||[]).concat(id+":"+hex); return {ok:true}; }, rename(id,nm){ window.__rn=(window.__rn||[]).concat(id+":"+nm); return {ok:true}; }, setDrawHandler(fn){ this._dh=fn; if(location.search.includes("late")) setTimeout(()=>{ drawing=true; fn&&fn(true); }, 800); }, undoVertex(){ window.__uv=(window.__uv||0)+1; return {ok:true}; }, cancelDraw(){}, isDirty:()=>true, zones:()=>[{zone_id:"A",name:"ลาดพร้าว",color:"#f97316"},{zone_id:"B",name:"ทองหล่อ",color:"#7c3aed"}],
+};
+window.__exits=0;
+const edOrNull = location.search.includes("notready") ? null : ed;
+createRoot(document.getElementById("root")).render(html`<${ZoneToolbar} ed=${edOrNull} onExit=${()=>{window.__exits++;}}/>`);
+
+const out = () => {
+  if(location.search.includes("zlist")){ const b=[...document.querySelectorAll(".ztb-row button")].find(x=>(x.title||"").includes("รายชื่อโซน")); b.click();
+    setTimeout(()=>{ const pop=document.querySelector(".ztb-pop"); const sw=pop?pop.querySelectorAll("input[type=color]"):[];
+      if(sw[0]){ sw[0].value="#112233"; sw[0].dispatchEvent(new Event("input",{bubbles:true})); }
+      const tx=pop?pop.querySelectorAll("input[type=text]"):[];
+      if(tx[1]){ tx[1].focus(); tx[1].value="ชื่อใหม่"; tx[1].blur(); }
+      setTimeout(()=>{ document.getElementById("m").textContent="MEASURE zlist rows="+(pop?pop.querySelectorAll(".ztb-zrow").length:0)+" popLeft="+(pop?pop.style.left:"-")+" btnLeft="+(()=>{const b=[...document.querySelectorAll(".ztb-row button")].find(x=>(x.title||"").includes("รายชื่อโซน"));return b?b.offsetLeft+"px":"-";})()+" swatches="+sw.length+" names="+JSON.stringify([...tx].map(i=>i.value))+" recolor="+JSON.stringify(window.__rc||[])+" rename="+JSON.stringify(window.__rn||[])+" barH="+document.querySelector(".ztb-row").offsetHeight+" END"; },150); },250); return; }
+  if(location.search.includes("notready")){ const b=document.querySelector(".ztb-exit"); b&&b.click();
+    document.getElementById("m").textContent="MEASURE notready exitBtn="+!!b+" exitFired="+window.__exits+" END"; return; }
+  const bar=document.querySelector(".ztb"), row=document.querySelector(".ztb-row"), nm=document.querySelector(".ztb-nm");
+  const byLabel=l=>[...row.querySelectorAll("button")].find(b=>(b.getAttribute("aria-label")||"").includes(l));
+  const u=byLabel("ย้อน")||byLabel("Remove"), mg=byLabel("รวม"), del=byLabel("ลบ");
+  const txt=b=>b?JSON.stringify(b.textContent.trim()):"-";
+  document.getElementById("m").textContent =
+    "MEASURE barH="+bar.offsetHeight+" overflow="+(row.scrollWidth>row.clientWidth)+
+    " content="+[...row.children].reduce((a,c)=>a+c.offsetWidth+8,0)+
+    " save="+(()=>{const b=row.querySelector(".ztb-save"),c=getComputedStyle(b);return c.backgroundColor+"/"+c.color;})()+" pub="+(()=>{const b=row.querySelector(".ztb-pub"),c=getComputedStyle(b);return c.backgroundColor+"/"+c.color;})()+" undoDisabled="+(u&&u.disabled)+" undoTitle="+(u&&u.title)+
+    " mergeTxt="+txt(mg)+" mergeSvg="+!!(mg&&mg.querySelector("svg"))+
+    " delTxt="+txt(del)+" delSvg="+!!(del&&del.querySelector("svg"))+
+    " nmClass=["+(nm?nm.className:"-")+"]"+
+    " msgLine="+!!document.querySelector(".ztb-msg")+
+    " focused="+(document.activeElement===nm)+" border="+(nm?getComputedStyle(nm).borderColor:"-")+
+    " ring="+(nm?getComputedStyle(nm).boxShadow:"-")+" END";
+};
+setTimeout(()=>{
+  if (location.search.includes("click")) {
+    [...document.querySelectorAll(".ztb-row button")].find(b=>b.textContent.includes("วาดโซนใหม่")).click();
+    setTimeout(out, 300);
+  } else out();
+}, 2000);
+</script>
