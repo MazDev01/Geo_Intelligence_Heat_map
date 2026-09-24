@@ -22,7 +22,11 @@ const { makeAuthStore } = require('../auth-store.cjs');
 
 const PREFIX = 'auth/';
 const TOKEN  = process.env.BLOB_READ_WRITE_TOKEN || '';
-const SECRET = process.env.AUTH_SECRET || '';
+// ไม่ได้ตั้ง AUTH_SECRET = สุ่มคีย์ใหม่ทุกครั้งที่ฟังก์ชันตื่น
+// ⚠ สุ่มแล้วยังปลอดภัย (เดาไม่ได้) แต่คีย์ไม่คงที่ข้ามอินสแตนซ์ → บางครั้งผู้ใช้ต้องล็อกอินใหม่
+//   ระบบจริงต้องตั้ง AUTH_SECRET เองเพื่อให้เซสชันอยู่ยาวและคงที่ทุกเครื่อง
+const SECRET = process.env.AUTH_SECRET || require('crypto').randomBytes(32).toString('hex');
+const SECRET_IS_RANDOM = !process.env.AUTH_SECRET;
 
 // รายชื่อตั้งต้นครั้งแรก — ยังไม่มีรหัสผ่านสักคน แอดมินต้องตั้งให้ก่อนถึงจะเข้าได้
 const SEED = [
@@ -71,9 +75,9 @@ const adapter = {
   },
 };
 
-// DEMO_PASSWORD ตั้งไว้ = บัญชีตั้งต้นทุกคนใช้รหัสนั้นเข้าได้ทันที (สำหรับเดโมให้ลูกค้าดู)
-// ระบบจริงห้ามตั้ง — ปล่อยว่าง บัญชีจะยังไม่มีรหัสจนกว่าแอดมินจะตั้งให้
-const DEMO_PW = process.env.DEMO_PASSWORD || '';
+// โดยปริยายเป็น "โหมดเดโม": บัญชีตั้งต้นทุกคนใช้รหัสนี้เข้าได้ทันที ไม่ต้องตั้งค่าอะไรก่อนใช้งาน
+// ⚠ ระบบจริง (AWS) ต้องปิดด้วยการตั้ง env DEMO_PASSWORD="" ไม่งั้นใครรู้รหัสนี้ก็เข้าเป็นแอดมินได้
+const DEMO_PW = process.env.DEMO_PASSWORD !== undefined ? process.env.DEMO_PASSWORD : 'geointel2026';
 const store = makeAuthStore(adapter, { secret: SECRET || 'geointel-dev-secret', seed: SEED, seedPassword: DEMO_PW });
 
 const readBody = req => new Promise((resolve, reject) => {
@@ -93,9 +97,6 @@ module.exports = async (req, res) => {
   catch (e) { return send(res, 400, { error: 'อ่านคำขอไม่ได้: ' + e.message }); }
 
   const action = String(body.action || '');
-  // ⚠ ไม่มี AUTH_SECRET = ใครก็ปลอมโทเคนได้ · ยอมให้รันได้เฉพาะตอน dev เท่านั้น
-  if (!SECRET && process.env.VERCEL_ENV === 'production')
-    return send(res, 500, { error: 'เซิร์ฟเวอร์ยังไม่ได้ตั้ง AUTH_SECRET' });
 
   try {
     if (action === 'login') {
@@ -120,7 +121,9 @@ module.exports = async (req, res) => {
       return send(res, r.ok ? 200 : r.code, r);
     }
 
-    if (action === 'info') return send(res, 200, { ok: true, demo: !!DEMO_PW, demoPassword: DEMO_PW });
+    if (action === 'info') return send(res, 200, { ok: true, demo: !!DEMO_PW, demoPassword: DEMO_PW,
+      // หน้าเว็บไม่ได้ใช้ ใส่ไว้ให้ตรวจสถานะจากภายนอกได้ว่าเซิร์ฟเวอร์ตั้งค่าครบหรือยัง
+      stableSessions: !SECRET_IS_RANDOM });
 
     if (action === 'me') {
       const who = await store.auth(req.headers);
