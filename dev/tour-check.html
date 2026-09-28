@@ -24,6 +24,8 @@ f.onload = async () => {
     if (r.bottom > vh) out.push("ล้นล่าง " + Math.round(r.bottom - vh));
 
     // ไฟส่อง: ต้องมีจริง มีขนาด และอยู่ในจอ — ถ้าไม่มี ผู้ใช้จะไม่รู้ว่ากำลังอธิบายอะไรอยู่
+    // กล่องต้อนรับต้องไม่ซ้อนกับคำแนะนำ (จอมืดสองชั้น ไฟส่องโดนของที่ถูกบัง)
+    if(d.querySelector(".ob-card")) out.push("กล่องต้อนรับซ้อนอยู่");
     const sp = d.querySelector(".tour-spot");
     const sr = sp ? sp.getBoundingClientRect() : null;
     const lit = !!sr && sr.width > 4 && sr.height > 4 &&

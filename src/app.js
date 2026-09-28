@@ -319,7 +319,7 @@ function App(){
             else if(go==="area") setOverlay("area");
           }).catch(()=>{});
         }
-        if(q.get("tour")) setTourOpen(true);
+        if(q.get("tour")){ setShowWelcome(false); setTourOpen(true); }
         return;   // จบเส้นทาง TC — ไม่เข้าเส้นทาง admin/user (ที่ลง globe)
       }
       // ไม่ใช่ TC แล้ว → ผู้ดูแลระบบ (admin) หรือ ผู้บริหาร (management/ค่าอื่น) · ไม่มีบทบาท "ผู้ใช้ธุรกิจ" อีกต่อไป
@@ -345,7 +345,7 @@ function App(){
       // เปิดหน้าก่อนแล้วค่อยโหลดเบื้องหลัง ถ้ารอโหลดก่อนแล้วคำขอล้มเหลว หน้าจะไม่ถูกเปิดเลย
       // กันบทบาทที่ไม่ใช่ Administrator บังคับเปิดหน้าผู้ดูแลผ่าน ?go= (เช่น master-data) — ไม่ตั้ง overlay เลย (ไม่มีสิทธิ์)
       else if(go && MODALS[go] && (!ADMIN.has(go) || admin)){ setOverlay(go); ensureData("Thailand").catch(()=>{}); }
-      if(q.get("tour")) setTourOpen(true);   // dev/test entry point for the product-tour framework
+      if(q.get("tour")){ setShowWelcome(false); setTourOpen(true); }   // ทางลัดเปิดคำแนะนำตรง ๆ (ใช้ตอนสาธิต/ทดสอบ)
     }
   })().catch(()=>toast(t("โหลดข้อมูลเริ่มต้นไม่สำเร็จ ลองรีเฟรชหน้าอีกครั้ง", "Could not load the initial data — please refresh the page"),"bad")); },[]);
 
@@ -375,7 +375,7 @@ function App(){
   //    ทั้งที่เปิดมาตั้งแต่แรก (ดู state layers ด้านบน: existing/prospect/heat = true)
   //    ขั้นที่ขึ้นกับบทบาทอยู่ท้ายสุด — แอดมินเห็นเรื่องโซน · ผู้บริหาร/TC เห็นเรื่องรายงาน
   const TOUR_STEPS = [
-    { target:'[data-tour="country"]', placement:"bottom", padding:6, before:tourShowGlobe,
+    { target:['.pick-card', '[data-tour="country"]'], placement:"right", padding:8, before:tourShowGlobe,
       title:t("หน้าเริ่มต้น: ลูกโลกกับการ์ดจังหวัด", "Start here: the globe and province cards"),
       body:html`${t("ลากเพื่อหมุนลูกโลก เลื่อนเพื่อซูม · ชี้ที่การ์ดจังหวัดแนะนำเพื่อหมุนไปที่นั่น แล้วคลิกเพื่อเปิดแผนที่วิเคราะห์",
                     "Drag to spin the globe, scroll to zoom · hover a featured province card to fly there, then click to open the analysis map.")}` },
@@ -890,7 +890,7 @@ function App(){
     </div>
   </div>
   ${introPlaying && mode==="globe" && html`<button class="intro-skip" onClick=${skipIntro}>${t("ข้าม", "Skip")}<${Icon} name="chevronR" size=${14}/></button>`}
-  ${showWelcome && html`<${WelcomeDialog} onStart=${startTour} onSkip=${skipWelcome}/>`}
+  ${showWelcome && !tourOpen && html`<${WelcomeDialog} onStart=${startTour} onSkip=${skipWelcome}/>`}
   <${ProductTour} open=${tourOpen} steps=${TOUR_STEPS} onFinish=${endTour} onSkip=${endTour}/>
   <${HelpTips} user=${user} disabled=${showWelcome||tourOpen}/>
   <${ToastHost}/>
