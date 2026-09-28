@@ -365,7 +365,7 @@ function App(){
 
   // Tour view orchestration — the workspace switches between the globe and the country
   // map as interaction states of the SAME screen (no navigation). Used by step `before` hooks.
-  const tourShowGlobe = ()=>{ setTourPanel(null); setOverlay(null); setView("workspace"); setMode("globe"); setActiveCountry(null); setFlyTarget(null); };
+  const tourShowGlobe = ()=>{ setTourPanel(null); setOverlay(null); setView("workspace"); setMode("globe"); setActiveCountry(null); };
   const tourShowMap = async (panel=null)=>{ const cd=await ensureData("Thailand"); setView("workspace"); setActiveCountry("Thailand"); setMode("map"); setOverlay(null); setTourPanel(panel); return cd; };
   // open a customer detail drawer (map interaction state — no navigation) for the Detail-Panel step
   const tourShowDetail = async ()=>{ const cd=await ensureData("Thailand"); setView("workspace"); setActiveCountry("Thailand"); setMode("map"); setTourPanel(null);
@@ -375,10 +375,17 @@ function App(){
   //    ทั้งที่เปิดมาตั้งแต่แรก (ดู state layers ด้านบน: existing/prospect/heat = true)
   //    ขั้นที่ขึ้นกับบทบาทอยู่ท้ายสุด — แอดมินเห็นเรื่องโซน · ผู้บริหาร/TC เห็นเรื่องรายงาน
   const TOUR_STEPS = [
-    { target:['.pick-card', '[data-tour="country"]'], placement:"right", padding:8, before:tourShowGlobe,
-      title:t("หน้าเริ่มต้น: ลูกโลกกับการ์ดจังหวัด", "Start here: the globe and province cards"),
-      body:html`${t("ลากเพื่อหมุนลูกโลก เลื่อนเพื่อซูม · ชี้ที่การ์ดจังหวัดแนะนำเพื่อหมุนไปที่นั่น แล้วคลิกเพื่อเปิดแผนที่วิเคราะห์",
-                    "Drag to spin the globe, scroll to zoom · hover a featured province card to fly there, then click to open the analysis map.")}` },
+    (user && user.role==="Administrator")
+      ? { target:['.pick-card', '[data-tour="country"]'], placement:"right", padding:8, before:tourShowGlobe,
+          title:t("หน้าเริ่มต้น: ลูกโลกกับการ์ดจังหวัด", "Start here: the globe and province cards"),
+          body:html`${t("ลากเพื่อหมุนลูกโลก เลื่อนเพื่อซูม · ชี้ที่การ์ดจังหวัดแนะนำเพื่อหมุนไปที่นั่น แล้วคลิกเพื่อเปิดแผนที่วิเคราะห์",
+                        "Drag to spin the globe, scroll to zoom · hover a featured province card to fly there, then click to open the analysis map.")}` }
+      : { placement:"center", before:()=>tourShowMap(),
+          title:t("แผนที่วิเคราะห์ทั้งประเทศ", "The nationwide analysis map"),
+          body:html`${t("เข้าสู่ระบบแล้วลูกโลกจะหมุนเข้าประเทศไทยและเปิดแผนที่เต็มจอให้ทันที ไม่ต้องเลือกพื้นที่ก่อน",
+                        "After you sign in the globe flies to Thailand and opens the full map straight away — no area to pick first.")}
+            <div style=${{marginTop:"8px"}}>${t("ทุกอย่างในคำแนะนำนี้อยู่บนหน้าเดียวกันหมด ไม่ต้องเปลี่ยนหน้า",
+                        "Everything in this walkthrough lives on this one screen.")}</div>` },
 
     { target:'[data-tour="search"]', placement:"bottom", before:()=>tourShowMap(),
       title:t("ค้นหา", "Search"),
