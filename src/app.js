@@ -394,9 +394,9 @@ function App(){
         <div style=${{marginTop:"8px"}}>${t("กล่องใต้ช่องค้นหาใช้กรองรายจังหวัด และบอกจำนวนลูกค้ากับ Lead ในขอบเขตที่เลือก",
                     "The box below filters by province and shows how many customers and Leads are in scope.")}</div>` },
 
-    { target:['.layers-pop', '.layers-fab', '[data-tour="layers"]'], placement:"right", before:()=>tourShowMap(),
+    { target:['[data-tour="layers-panel"]', '[data-tour="layers-btn"]'], placement:"right", before:()=>tourShowMap(),
       title:t("เลเยอร์แผนที่", "Map layers"),
-      body:html`${t("เปิด/ปิดสิ่งที่แสดงบนแผนที่ได้จากแผงนี้", "This panel controls what the map shows:")}
+      body:html`${t("ไอคอนชั้นซ้อนนี้เปิด/ปิดแผงเลเยอร์ ซึ่งคุมสิ่งที่แสดงบนแผนที่", "This layers icon opens the panel that controls what the map shows:")}
         <div style=${{margin:"8px 0 0",lineHeight:1.9}}>
           ${t("• ลูกค้าปัจจุบัน (สีทึบ) และ Lead (สีจาง)", "• Existing customers (solid) and Leads (faded)")}<br/>
           ${t("• แผนที่ความร้อน — สลับเป็นกลุ่มตัวเลขและหมุดเดี่ยวเองตามระดับซูม", "• Heatmap — switches to clusters and single pins as you zoom in")}<br/>

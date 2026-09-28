@@ -222,11 +222,11 @@ export function GeoStage({db, mode, activeCountry, flyTarget, globeUnder, onArri
           style=${{position:"absolute",top:0,left:0}}>
           <${Icon} name=${mapDark?"sun":"moon"} size=${19}/></button>
         <!-- ไอคอนเลเยอร์: อยู่ "ใต้" ปุ่มสลับโทน (แนวตั้ง ห่าง 54px) · เมื่อแผงเปิด แผงงอกออกด้านขวา -->
-        ${!zoneEdit && !layersOpen && html`<button class="layers-fab" title=${t("เลเยอร์แผนที่", "Map layers")} aria-label=${t("เลเยอร์แผนที่", "Map layers")} onClick=${()=>setLayersOpen(true)}
+        ${!zoneEdit && !layersOpen && html`<button data-tour="layers-btn" class="layers-fab" title=${t("เลเยอร์แผนที่", "Map layers")} aria-label=${t("เลเยอร์แผนที่", "Map layers")} onClick=${()=>setLayersOpen(true)}
           style=${{position:"absolute",top:"54px",left:0}}>
           <${Icon} name="layers" size=${20}/>
         </button>`}
-        ${!zoneEdit && layersOpen && html`<div class="map-panel tool-panel map-fx layers-pop"
+        ${!zoneEdit && layersOpen && html`<div data-tour="layers-panel" class="map-panel tool-panel map-fx layers-pop"
           style=${{position:"absolute",top:"54px",left:0,width:"240px",maxWidth:"calc(100vw - 60px)",maxHeight:"min(520px, calc(100vh - 290px))",overflowY:"auto",padding:"12px 14px"}}>
 
         <!-- หัวแผง + ปุ่มย่อแผง — ใช้ "ไอคอนเลเยอร์" ตัวเดียวกับตอนเปิด จึงเป็นปุ่มสลับชุดเดียวกัน

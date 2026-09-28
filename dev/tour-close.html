@@ -1,0 +1,28 @@
+<!doctype html><meta charset="utf-8"><title>tour close check</title>
+<!-- เปิดคำแนะนำ → กดปิด (X) → หน้าเว็บต้องยังอยู่ ไม่ขาวทั้งหน้า -->
+<iframe id="f" src="/?demo=management&tour=1" style="width:1280px;height:720px;border:0"></iframe>
+<div id="out" style="font:12px monospace"></div>
+<script type="module">
+const f = document.getElementById("f");
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+f.onload = async () => {
+  await sleep(5000);
+  const d = f.contentDocument, w = f.contentWindow;
+  const errs = [];
+  w.addEventListener("error", e => errs.push(e.message));
+  const jump = +(new URLSearchParams(location.search).get("step") || 1);
+  for(let k=1;k<jump;k++){ const nb=[...d.querySelectorAll(".tour-btn")].find(b=>/ถัดไป/.test(b.textContent)); if(nb) nb.click(); await sleep(1500); }
+  const step = ((d.querySelector(".tour-count") || {}).textContent || "?").trim();
+  const x = d.querySelector(".tour-x");                 // ปุ่มกากบาทมุมการ์ด
+  if (x) x.click();
+  await sleep(1800);
+  const root = d.getElementById("root");
+  const html = root ? root.innerHTML.length : 0;
+  const shell = !!d.querySelector(".shell");
+  const map = !!d.querySelector(".leaflet-container");
+  const tour = !!d.querySelector(".tour-card");
+  document.getElementById("out").textContent =
+    "RESULT ปิดจากขั้น " + step + " | ยังมีโครงหน้า=" + shell + " | ยังมีแผนที่=" + map +
+    " | คำแนะนำปิดแล้ว=" + !tour + " | ขนาด DOM=" + html + " | error=" + (errs.join(";") || "ไม่มี") + " END";
+};
+</script>

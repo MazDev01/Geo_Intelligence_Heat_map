@@ -74,6 +74,20 @@ export function ProductTour({open, steps, onFinish, onSkip, onChange}){
     return ()=>window.removeEventListener("keydown",h);
   },[open,i]);
 
+  // ⚠ hook ทุกตัวต้องถูกเรียกก่อน early return เสมอ — ไม่งั้นจำนวน hook เปลี่ยนตอนปิดทัวร์
+  //    แล้ว React พังทั้งหน้า (เคยทำหน้าเว็บขาวมาแล้ว)
+  const cardRef = useRef(null);
+  const [size, setSize] = useState({w:344, h:200});
+  useEffect(()=>{
+    if(!open) return;
+    const el = cardRef.current; if(!el) return;
+    const fit = ()=>{ const r = el.getBoundingClientRect();
+      setSize(p => (Math.abs(p.w-r.width)<1 && Math.abs(p.h-r.height)<1) ? p : {w:r.width, h:r.height}); };
+    fit();
+    if(typeof ResizeObserver==="undefined") return;
+    const ro = new ResizeObserver(fit); ro.observe(el); return ()=>ro.disconnect();
+  },[open, i]);
+
   if(!open || !list.length) return null;
 
   const step = list[i];
@@ -85,19 +99,6 @@ export function ProductTour({open, steps, onFinish, onSkip, onChange}){
 
   // spotlight box geometry (fixed-position, purely visual — does not affect layout)
   const spot = rect ? {left:rect.left-pad, top:rect.top-pad, width:rect.width+2*pad, height:rect.height+2*pad} : null;
-
-  // ⚠ เดิมคำนวณตำแหน่งโดยเดาว่าการ์ดสูง ~180px ตายตัว ขั้นที่เนื้อหายาวจึงล้นขอบจอ
-  //    วัดขนาดจริงหลังวาดแล้วคำนวณใหม่ (รอบเดียว) ให้กล่องอยู่ในจอเสมอ
-  const cardRef = useRef(null);
-  const [size, setSize] = useState({w:344, h:200});
-  useEffect(()=>{
-    const el = cardRef.current; if(!el) return;
-    const fit = ()=>{ const r = el.getBoundingClientRect();
-      setSize(p => (Math.abs(p.w-r.width)<1 && Math.abs(p.h-r.height)<1) ? p : {w:r.width, h:r.height}); };
-    fit();
-    if(typeof ResizeObserver==="undefined") return;
-    const ro = new ResizeObserver(fit); ro.observe(el); return ()=>ro.disconnect();
-  },[open, i, step.title]);
 
   const pos = cardPos(rect, step.placement||"auto", size);
 
