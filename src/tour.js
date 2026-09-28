@@ -43,9 +43,16 @@ export function ProductTour({open, steps, onFinish, onSkip, onChange}){
     const measure = ()=>{
       const s = stepsRef.current[i];
       const list = !s || !s.target ? [] : (Array.isArray(s.target) ? s.target : [s.target]);
-      let el = null;
-      for(const sel of list){ el = document.querySelector(sel); if(el) break; }
-      setRect(el ? el.getBoundingClientRect() : null);
+      let found = null;
+      for(const sel of list){
+        const el = document.querySelector(sel);
+        if(!el) continue;
+        const r = el.getBoundingClientRect();
+        // กล่องครอบที่ลูกเป็น absolute ทั้งหมดจะมีขนาด 0×0 — ส่องแล้วเห็นเป็นจุดจิ๋ว ข้ามไปหาตัวถัดไป
+        if(r.width < 4 || r.height < 4) continue;
+        found = r; break;
+      }
+      setRect(found);
     };
     measure();
     const iv = setInterval(measure, 250);
@@ -156,6 +163,22 @@ function cardPos(rect, placement, size){
   else { bx = rect.left - m - W; by = ty - H/2; }
   bx = clamp(bx, m, Math.max(m, vw - m - W));
   by = clamp(by, m, Math.max(m, vh - m - H));
+
+  // หลังดันเข้าจอแล้วการ์ดอาจไปทับเป้าหมายเอง (เป้าหมายชิดขอบ/การ์ดกว้างกว่าที่ว่าง)
+  // ลองด้านอื่นที่ไม่ทับ ถ้าไม่มีเลยก็ยอมทับ (ยังดีกว่าดันออกนอกจอ)
+  const hits = (x,y) => !(x+W <= rect.left-4 || x >= rect.right+4 || y+H <= rect.top-4 || y >= rect.bottom+4);
+  if (hits(bx,by)) {
+    const tries = [
+      ["bottom", tx - W/2, rect.bottom + m],
+      ["top",    tx - W/2, rect.top - m - H],
+      ["right",  rect.right + m, ty - H/2],
+      ["left",   rect.left - m - W, ty - H/2],
+    ];
+    for (const [pl, x0, y0] of tries) {
+      const x = clamp(x0, m, Math.max(m, vw - m - W)), y = clamp(y0, m, Math.max(m, vh - m - H));
+      if (!hits(x,y)) { place = pl; bx = x; by = y; break; }
+    }
+  }
 
   // ลูกศรชี้กลับไปที่เป้าหมาย และต้องไม่เลยมุมโค้งของการ์ด
   const arrowStyle = (place==="bottom" || place==="top")

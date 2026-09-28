@@ -394,7 +394,7 @@ function App(){
         <div style=${{marginTop:"8px"}}>${t("กล่องใต้ช่องค้นหาใช้กรองรายจังหวัด และบอกจำนวนลูกค้ากับ Lead ในขอบเขตที่เลือก",
                     "The box below filters by province and shows how many customers and Leads are in scope.")}</div>` },
 
-    { target:'[data-tour="layers"]', placement:"left", before:()=>tourShowMap(),
+    { target:['.layers-pop', '.layers-fab', '[data-tour="layers"]'], placement:"right", before:()=>tourShowMap(),
       title:t("เลเยอร์แผนที่", "Map layers"),
       body:html`${t("เปิด/ปิดสิ่งที่แสดงบนแผนที่ได้จากแผงนี้", "This panel controls what the map shows:")}
         <div style=${{margin:"8px 0 0",lineHeight:1.9}}>
@@ -403,7 +403,7 @@ function App(){
           ${t("• ความทึบของแต่ละชั้น ปรับได้จากแถบเลื่อน", "• Each layer's opacity has its own slider")}
         </div>` },
 
-    { target:'[data-tour="segments"]', placement:"left", before:()=>tourShowMap(),
+    { target:'[data-tour="segments"]', placement:"right", before:()=>tourShowMap(),
       title:t("กรองตามหมวดธุรกิจ", "Filter by business category"),
       body:html`${t("ดรอปดาวน์ท้ายแผงเลเยอร์ใช้เลือกเฉพาะหมวดที่สนใจ เลือกได้หลายหมวดพร้อมกัน หรือกดล้างเพื่อดูทั้งหมด",
                     "The dropdown at the bottom of the layer panel picks the categories you care about — several at once, or clear to see everything.")}` },

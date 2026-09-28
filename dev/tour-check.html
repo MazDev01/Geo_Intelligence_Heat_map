@@ -26,10 +26,15 @@ f.onload = async () => {
     // ไฟส่อง: ต้องมีจริง มีขนาด และอยู่ในจอ — ถ้าไม่มี ผู้ใช้จะไม่รู้ว่ากำลังอธิบายอะไรอยู่
     // กล่องต้อนรับต้องไม่ซ้อนกับคำแนะนำ (จอมืดสองชั้น ไฟส่องโดนของที่ถูกบัง)
     if(d.querySelector(".ob-card")) out.push("กล่องต้อนรับซ้อนอยู่");
+    // อ่านจากสไตล์ที่ตั้งไว้จริง — getBoundingClientRect อ่านระหว่างอนิเมชันได้ค่ากลางทาง
     const sp = d.querySelector(".tour-spot");
-    const sr = sp ? sp.getBoundingClientRect() : null;
+    const px = k => sp ? parseFloat(sp.style[k]) || 0 : 0;
+    const sr = sp ? {left:px("left"), top:px("top"), width:px("width"), height:px("height"),
+                     right:px("left")+px("width"), bottom:px("top")+px("height")} : null;
     const lit = !!sr && sr.width > 4 && sr.height > 4 &&
                 sr.right > 0 && sr.bottom > 0 && sr.left < vw && sr.top < vh;
+    // การ์ดต้องไม่ทับไฟส่อง ไม่งั้นผู้ใช้มองไม่เห็นจุดที่กำลังอธิบาย
+    if(sr && !(r.right<=sr.left+2 || r.left>=sr.right-2 || r.bottom<=sr.top+2 || r.top>=sr.bottom-2)) out.push("การ์ดทับไฟส่อง");
     const isCenter = !!d.querySelector(".arw-center");   // ขั้นกลางจอ ตั้งใจไม่มีไฟส่อง
     if (!lit && !isCenter) out.push("ไม่มีไฟส่องจุดที่พูดถึง");
 
