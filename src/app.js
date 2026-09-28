@@ -358,10 +358,11 @@ function App(){
   const openProfile=(tab="info")=>{ setProfileTab(tab); setMenu(null); setOverlay("profile"); };
 
   // First login only: show the welcome dialog once. Dismissing (either button) marks it seen.
-  useEffect(()=>{ if(user && !isOnboarded(user.email)) setShowWelcome(true); },[user]);
+  useEffect(()=>{ if(user && !tourOpen && !isOnboarded(user.email)) setShowWelcome(true); },[user, tourOpen]);
   const startTour = ()=>{ markOnboarded(user.email); setShowWelcome(false); setTourOpen(true); };
   const skipWelcome = ()=>{ markOnboarded(user.email); setShowWelcome(false); };
-  const endTour = ()=>{ setTourOpen(false); setTourPanel(null); setTourFocus(null); };
+  const endTour = ()=>{ if(user && user.email) markOnboarded(user.email);
+    setShowWelcome(false); setTourOpen(false); setTourPanel(null); setTourFocus(null); };
 
   // Tour view orchestration — the workspace switches between the globe and the country
   // map as interaction states of the SAME screen (no navigation). Used by step `before` hooks.

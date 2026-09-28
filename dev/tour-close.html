@@ -21,8 +21,9 @@ f.onload = async () => {
   const shell = !!d.querySelector(".shell");
   const map = !!d.querySelector(".leaflet-container");
   const tour = !!d.querySelector(".tour-card");
+  const welcome = !!d.querySelector(".ob-card");   // กล่องต้อนรับต้องไม่โผล่หลังปิดทัวร์
   document.getElementById("out").textContent =
     "RESULT ปิดจากขั้น " + step + " | ยังมีโครงหน้า=" + shell + " | ยังมีแผนที่=" + map +
-    " | คำแนะนำปิดแล้ว=" + !tour + " | ขนาด DOM=" + html + " | error=" + (errs.join(";") || "ไม่มี") + " END";
+    " | คำแนะนำปิดแล้ว=" + !tour + " | ขนาด DOM=" + html + " | กล่องต้อนรับโผล่=" + welcome + " | error=" + (errs.join(";") || "ไม่มี") + " END";
 };
 </script>
