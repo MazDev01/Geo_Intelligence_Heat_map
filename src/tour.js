@@ -37,9 +37,14 @@ export function ProductTour({open, steps, onFinish, onSkip, onChange}){
   // keep the spotlight glued to its target across layout, scroll, resize & animation
   useEffect(()=>{
     if(!open) return;
+    // ⚠ บางขั้นเล็งไปที่ของที่ "บางจังหวะไม่มี" (เช่นหมุดเดี่ยวตอนแผนที่ยังรวมเป็นกลุ่ม)
+    //    ถ้าไม่เจอจะไม่มีไฟส่อง = ผู้ใช้ไม่รู้ว่ากำลังพูดถึงอะไร จึงให้ใส่ตัวสำรองได้หลายตัว
+    //    (target เป็นสตริงเดียวหรืออาเรย์ก็ได้ — ไล่หาจากตัวแรกไปจนเจอ)
     const measure = ()=>{
       const s = stepsRef.current[i];
-      const el = s && s.target ? document.querySelector(s.target) : null;
+      const list = !s || !s.target ? [] : (Array.isArray(s.target) ? s.target : [s.target]);
+      let el = null;
+      for(const sel of list){ el = document.querySelector(sel); if(el) break; }
       setRect(el ? el.getBoundingClientRect() : null);
     };
     measure();
@@ -74,7 +79,20 @@ export function ProductTour({open, steps, onFinish, onSkip, onChange}){
   // spotlight box geometry (fixed-position, purely visual — does not affect layout)
   const spot = rect ? {left:rect.left-pad, top:rect.top-pad, width:rect.width+2*pad, height:rect.height+2*pad} : null;
 
-  const pos = cardPos(rect, step.placement||"auto");
+  // ⚠ เดิมคำนวณตำแหน่งโดยเดาว่าการ์ดสูง ~180px ตายตัว ขั้นที่เนื้อหายาวจึงล้นขอบจอ
+  //    วัดขนาดจริงหลังวาดแล้วคำนวณใหม่ (รอบเดียว) ให้กล่องอยู่ในจอเสมอ
+  const cardRef = useRef(null);
+  const [size, setSize] = useState({w:344, h:200});
+  useEffect(()=>{
+    const el = cardRef.current; if(!el) return;
+    const fit = ()=>{ const r = el.getBoundingClientRect();
+      setSize(p => (Math.abs(p.w-r.width)<1 && Math.abs(p.h-r.height)<1) ? p : {w:r.width, h:r.height}); };
+    fit();
+    if(typeof ResizeObserver==="undefined") return;
+    const ro = new ResizeObserver(fit); ro.observe(el); return ()=>ro.disconnect();
+  },[open, i, step.title]);
+
+  const pos = cardPos(rect, step.placement||"auto", size);
 
   return html`<div class="tour-root">
     <!-- click blocker: keeps the rest of the UI inactive while the tour runs -->
@@ -85,7 +103,7 @@ export function ProductTour({open, steps, onFinish, onSkip, onChange}){
 
     <div class=${"tour-pos arw-"+pos.place} style=${{left:pos.left+"px",top:pos.top+"px",transform:pos.transform}}>
       ${pos.place!=="center" && html`<span class="tour-arrow" style=${pos.arrowStyle}></span>`}
-      <div class="tour-card" key=${i}>
+      <div class="tour-card" ref=${cardRef} key=${i}>
         <button class="tour-x" onClick=${onSkip} aria-label=${t("ข้าม", "Skip")}>✕</button>
         <div class="tour-count">${i+1} / ${list.length}</div>
         ${step.title && html`<h3 class="tour-title">${step.title}</h3>`}
@@ -109,38 +127,42 @@ export function ProductTour({open, steps, onFinish, onSkip, onChange}){
 // Decide where the tooltip card sits relative to the highlighted rect, clamped
 // to the viewport. Returns anchor left/top, the CSS transform that places the
 // card, the resolved placement, and an arrow offset that keeps pointing at the target.
-function cardPos(rect, placement){
-  const W = 344, m = 16;
+function cardPos(rect, placement, size){
+  const m = 16;
+  const W = (size && size.w) || 344;
+  const H = (size && size.h) || 200;
   const vw = typeof window!=="undefined" ? window.innerWidth : 1440;
   const vh = typeof window!=="undefined" ? window.innerHeight : 900;
   if(!rect || placement==="center"){ return {left:vw/2, top:vh/2, transform:"translate(-50%,-50%)", place:"center", arrowStyle:{}}; }
 
+  // เลือกด้านที่มีที่ว่างพอสำหรับ "ความสูงจริง" ของการ์ด ไม่ใช่ค่าคงที่
   let place = placement;
-  if(place==="auto"){
-    place = (rect.bottom + 190 + m < vh) ? "bottom"
-      : (rect.top - 190 - m > 0) ? "top"
-      : (rect.right + W + m < vw) ? "right" : "left";
-  }
+  const fitsBelow = rect.bottom + m + H + m <= vh;
+  const fitsAbove = rect.top - m - H - m >= 0;
+  const fitsRight = rect.right + m + W + m <= vw;
+  if(place==="auto") place = fitsBelow ? "bottom" : fitsAbove ? "top" : fitsRight ? "right" : "left";
+  // ด้านที่ระบุมาแต่ไม่มีที่พอ → พลิกไปด้านตรงข้ามแทนที่จะปล่อยให้ล้น
+  else if(place==="bottom" && !fitsBelow && fitsAbove) place = "top";
+  else if(place==="top" && !fitsAbove && fitsBelow) place = "bottom";
+  else if(place==="right" && !fitsRight && rect.left - m - W - m >= 0) place = "left";
+  else if(place==="left" && rect.left - m - W - m < 0 && fitsRight) place = "right";
 
-  const cx = clamp(rect.left + rect.width/2, m + W/2, vw - m - W/2);
-  const cy = clamp(rect.top + rect.height/2, m + 90, vh - m - 90);
-  let left, top, transform, arrowStyle = {};
+  // มุมซ้ายบนของกล่องตามด้านที่เลือก แล้วดันทั้งใบให้อยู่ในจอ
+  const tx = rect.left + rect.width/2, ty = rect.top + rect.height/2;
+  let bx, by;
+  if(place==="bottom"){ bx = tx - W/2; by = rect.bottom + m; }
+  else if(place==="top"){ bx = tx - W/2; by = rect.top - m - H; }
+  else if(place==="right"){ bx = rect.right + m; by = ty - H/2; }
+  else { bx = rect.left - m - W; by = ty - H/2; }
+  bx = clamp(bx, m, Math.max(m, vw - m - W));
+  by = clamp(by, m, Math.max(m, vh - m - H));
 
-  if(place==="bottom"){ left=cx; top=rect.bottom+m; transform="translateX(-50%)";
-    arrowStyle = {left:`calc(50% + ${rect.left+rect.width/2 - cx}px)`, top:"-6px"}; }
-  else if(place==="top"){ left=cx; top=rect.top-m; transform="translate(-50%,-100%)";
-    arrowStyle = {left:`calc(50% + ${rect.left+rect.width/2 - cx}px)`, bottom:"-6px"}; }
-  else if(place==="right"){
-    // clamp so the full-width card (transform: none — left edge anchored at `left`) never
-    // runs past the right edge of the viewport, even when the target sits close to it
-    left = clamp(rect.right+m, m, vw-m-W); top=cy; transform="translateY(-50%)";
-    arrowStyle = {top:`calc(50% + ${rect.top+rect.height/2 - cy}px)`, left:"-6px"}; }
-  else {
-    // clamp so the card (anchored by its right edge at `left`) never runs past the left edge
-    left = clamp(rect.left-m, m+W, vw-m); top=cy; transform="translate(-100%,-50%)";
-    arrowStyle = {top:`calc(50% + ${rect.top+rect.height/2 - cy}px)`, right:"-6px"}; }
+  // ลูกศรชี้กลับไปที่เป้าหมาย และต้องไม่เลยมุมโค้งของการ์ด
+  const arrowStyle = (place==="bottom" || place==="top")
+    ? { left: clamp(tx - bx, 18, W - 18) + "px", [place==="bottom" ? "top" : "bottom"]: "-6px" }
+    : { top:  clamp(ty - by, 18, H - 18) + "px", [place==="right" ? "left" : "right"]: "-6px" };
 
-  return {left, top, transform, place, arrowStyle};
+  return {left:bx, top:by, transform:"none", place, arrowStyle};
 }
 const clamp = (v,a,b)=> Math.max(a, Math.min(v,b));
 
@@ -157,7 +179,8 @@ const CSS = `
 .arw-top .tour-arrow{border-left:none;border-top:none}
 .arw-right .tour-arrow{border-top:none;border-right:none}
 .arw-left .tour-arrow{border-bottom:none;border-left:none}
-.tour-card{position:relative;width:344px;max-width:calc(100vw - 32px);padding:20px 20px 16px;border-radius:18px;
+.tour-card{position:relative;width:344px;max-width:calc(100vw - 32px);max-height:calc(100vh - 32px);overflow-y:auto;
+  padding:20px 20px 16px;border-radius:18px;
   background:var(--panel);border:1px solid var(--stroke2);box-shadow:0 24px 64px rgba(0,0,0,.55);
   backdrop-filter:blur(14px);animation:tour-in .32s cubic-bezier(.2,.9,.25,1)}
 .tour-x{position:absolute;top:12px;right:12px;width:26px;height:26px;border:none;border-radius:8px;cursor:pointer;

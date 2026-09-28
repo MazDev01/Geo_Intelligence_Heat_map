@@ -365,44 +365,82 @@ function App(){
 
   // Tour view orchestration — the workspace switches between the globe and the country
   // map as interaction states of the SAME screen (no navigation). Used by step `before` hooks.
-  const tourShowGlobe = ()=>{ setTourPanel(null); setOverlay(null); setView("workspace"); setMode("globe"); setActiveCountry(null); };
+  const tourShowGlobe = ()=>{ setTourPanel(null); setOverlay(null); setView("workspace"); setMode("globe"); setActiveCountry(null); setFlyTarget(null); };
   const tourShowMap = async (panel=null)=>{ const cd=await ensureData("Thailand"); setView("workspace"); setActiveCountry("Thailand"); setMode("map"); setOverlay(null); setTourPanel(panel); return cd; };
   // open a customer detail drawer (map interaction state — no navigation) for the Detail-Panel step
   const tourShowDetail = async ()=>{ const cd=await ensureData("Thailand"); setView("workspace"); setActiveCountry("Thailand"); setMode("map"); setTourPanel(null);
     const c = cd.customers && cd.customers[0]; if(c){ setSelectedCustomer(c); setOverlay("customer"); } };
+  // ── ขั้นตอนแนะนำระบบ ──
+  // ⚠ เนื้อหาต้องตรงกับที่ระบบทำได้ "ตอนนี้" — เคยมีขั้นที่บอกว่าหมุดปิดอยู่โดยค่าเริ่มต้น
+  //    ทั้งที่เปิดมาตั้งแต่แรก (ดู state layers ด้านบน: existing/prospect/heat = true)
+  //    ขั้นที่ขึ้นกับบทบาทอยู่ท้ายสุด — แอดมินเห็นเรื่องโซน · ผู้บริหาร/TC เห็นเรื่องรายงาน
   const TOUR_STEPS = [
-    { target:"#globe-canvas", placement:"center", padding:0, before:tourShowGlobe,
-      title:t("ลูกโลกสามมิติ", "3D globe"),
-      body:html`${t("นี่คือพื้นที่หลักของระบบ", "This is the main workspace")}<br/>${t("ใช้สำหรับวิเคราะห์ข้อมูลเชิงพื้นที่", "used for spatial analysis.")}` },
-    { target:'[data-tour="country"]', placement:"bottom", before:tourShowGlobe,
-      title:t("เลือกประเทศ", "Pick a country"),
-      body:html`${t("เลือกประเทศที่ต้องการวิเคราะห์", "Pick the country you want to analyse —")}<br/>${t("ลูกโลกจะหมุนไปยังประเทศนั้นโดยอัตโนมัติ", "the globe spins to it automatically,")}<br/>${t("โดยไม่เปลี่ยนหน้า", "without leaving the page.")}` },
+    { target:'[data-tour="country"]', placement:"bottom", padding:6, before:tourShowGlobe,
+      title:t("หน้าเริ่มต้น: ลูกโลกกับการ์ดจังหวัด", "Start here: the globe and province cards"),
+      body:html`${t("ลากเพื่อหมุนลูกโลก เลื่อนเพื่อซูม · ชี้ที่การ์ดจังหวัดแนะนำเพื่อหมุนไปที่นั่น แล้วคลิกเพื่อเปิดแผนที่วิเคราะห์",
+                    "Drag to spin the globe, scroll to zoom · hover a featured province card to fly there, then click to open the analysis map.")}` },
+
     { target:'[data-tour="search"]', placement:"bottom", before:()=>tourShowMap(),
-      title:t("ค้นหาจังหวัด / ลูกค้า", "Search provinces / customers"),
-      body:html`${t("พิมพ์ชื่อจังหวัด ลูกค้า หรือLead", "Type a province, customer or Lead name")}<br/>${t("เพื่อค้นหาและซูมไปยังตำแหน่งนั้นได้ทันที", "to find it and zoom straight to that location.")}` },
-    { target:'[data-tour="segments"]', placement:"right", before:()=>tourShowMap(),
-      title:t("กรองตามหมวดธุรกิจ", "Filter by business category"),
-      body:html`${t("เลือกหมวดธุรกิจจาก dropdown ท้ายแผงเลเยอร์ เพื่อเปิด/ปิดการแสดงผลบนแผนที่", "Pick business categories from the dropdown at the bottom of the layer panel to show or hide them on the map")}` },
+      title:t("ค้นหา", "Search"),
+      body:html`${t("พิมพ์ชื่อจังหวัด ชื่อธุรกิจ หรือ Lead แล้วกดผลลัพธ์เพื่อซูมไปยังตำแหน่งนั้นทันที",
+                    "Type a province, business or Lead name, then click a result to zoom straight to it.")}
+        <div style=${{marginTop:"8px"}}>${t("กล่องใต้ช่องค้นหาใช้กรองรายจังหวัด และบอกจำนวนลูกค้ากับ Lead ในขอบเขตที่เลือก",
+                    "The box below filters by province and shows how many customers and Leads are in scope.")}</div>` },
+
     { target:'[data-tour="layers"]', placement:"left", before:()=>tourShowMap(),
       title:t("เลเยอร์แผนที่", "Map layers"),
-      body:html`${t("ปรับการแสดงผลบนแผนที่ได้ 2 ชั้น", "The map has two display layers:")}
-        <div style=${{margin:"8px 0 0",lineHeight:1.9}}>${t("• Heat map Lead สูง (อัตโนมัติตามระดับซูม)", "• High-Lead heatmap (automatic, by zoom level)")}<br/>${t("• สถานะ marker (ลูกค้าปัจจุบัน/Lead แยกทึบแสงได้)", "• Marker status (customers / Leads, with separate opacity)")}<br/>${t("• ชั้นพื้นที่จังหวัด — สีไล่ระดับตามดัชนีช่องว่าง", "• Province layer — shaded by the gap index")}</div>` },
-    { target:".geo-mk", placement:"auto", padding:6,
+      body:html`${t("เปิด/ปิดสิ่งที่แสดงบนแผนที่ได้จากแผงนี้", "This panel controls what the map shows:")}
+        <div style=${{margin:"8px 0 0",lineHeight:1.9}}>
+          ${t("• ลูกค้าปัจจุบัน (สีทึบ) และ Lead (สีจาง)", "• Existing customers (solid) and Leads (faded)")}<br/>
+          ${t("• แผนที่ความร้อน — สลับเป็นกลุ่มตัวเลขและหมุดเดี่ยวเองตามระดับซูม", "• Heatmap — switches to clusters and single pins as you zoom in")}<br/>
+          ${t("• ความทึบของแต่ละชั้น ปรับได้จากแถบเลื่อน", "• Each layer's opacity has its own slider")}
+        </div>` },
+
+    { target:'[data-tour="segments"]', placement:"left", before:()=>tourShowMap(),
+      title:t("กรองตามหมวดธุรกิจ", "Filter by business category"),
+      body:html`${t("ดรอปดาวน์ท้ายแผงเลเยอร์ใช้เลือกเฉพาะหมวดที่สนใจ เลือกได้หลายหมวดพร้อมกัน หรือกดล้างเพื่อดูทั้งหมด",
+                    "The dropdown at the bottom of the layer panel picks the categories you care about — several at once, or clear to see everything.")}` },
+
+    // เล็งหมุดเดี่ยวก่อน ถ้ายังอยู่ระดับกลุ่มให้ส่องวงกลมตัวเลขแทน (ซูม 14 = ระดับที่แตกเป็นหมุดแล้ว)
+    { target:[".geo-mk", ".geo-cluster"], placement:"auto", padding:6,
       before:async ()=>{ const cd=await tourShowMap(null); const c=cd&&cd.customers&&cd.customers[0];
-        if(c) setTourFocus({lat:c.latitude,lng:c.longitude,zoom:12,seq:Date.now()}); },
-      title:t("หมุดลูกค้า (Marker)", "Customer markers"),
-      body:html`${t("Marker แสดงตำแหน่งลูกค้า", "Markers show where customers are.")}
-        <div style=${{margin:"8px 0 0",lineHeight:1.9}}>${t("ลูกค้าปัจจุบัน", "Existing customers")}<br/>Lead</div>
-        <div style=${{marginTop:"8px"}}>${t("ค่าเริ่มต้น marker ปิดอยู่ ต้องเปิดเองที่กล่องเลเยอร์แผนที่", "Markers are off by default — turn them on in the map layers panel.")}</div>
-        <div style=${{marginTop:"8px"}}>${t("คลิกเพื่อดูรายละเอียด", "Click one for details.")}</div>` },
+        if(c) setTourFocus({lat:c.latitude,lng:c.longitude,zoom:14,seq:Date.now()}); },
+      title:t("หมุดบนแผนที่", "Map pins"),
+      body:html`${t("ซูมออกจะรวมเป็นวงกลมพร้อมตัวเลขจำนวนราย ซูมเข้าจะแตกเป็นหมุดรายธุรกิจ",
+                    "Zoomed out, pins group into circles with a count; zoom in and they split into individual businesses.")}
+        <div style=${{marginTop:"8px"}}>${t("คลิกที่หมุดเพื่อดูรายละเอียดของรายนั้น", "Click a pin to see that record's details.")}</div>` },
+
     { target:'[data-tour="detail"]', placement:"left", before:tourShowDetail,
-      title:t("รายละเอียดลูกค้า", "Customer details"),
-      body:html`${t("เมื่อคลิก Marker", "When you click a marker,")}<br/>${t("ระบบจะแสดงข้อมูลลูกค้า", "the customer's details appear.")}<br/>${t("โดยไม่เปลี่ยนหน้า", "without leaving the page.")}
-        <div style=${{marginTop:"8px"}}>${t("ลูกค้าปัจจุบันแสดงฝั่งซ้าย", "Existing customers show on the left,")}<br/>${t("Leadแสดงฝั่งขวา", "Leads on the right.")}</div>` },
+      title:t("รายละเอียดรายธุรกิจ", "Business details"),
+      body:html`${t("แผงรายละเอียดเปิดข้างแผนที่โดยไม่เปลี่ยนหน้า แสดงหมวดธุรกิจ ที่อยู่ ช่องทางติดต่อ และผู้รับผิดชอบพื้นที่",
+                    "The detail panel opens beside the map without leaving the page: category, address, contact and the owner of that territory.")}` },
+  ];
+
+  // ขั้นเฉพาะบทบาท — ต่อท้ายก่อนขั้นปิดท้าย
+  if(user && user.role==="Administrator"){
+    TOUR_STEPS.push(
+      { target:'[data-tour="nav-territory"]', placement:"right", before:()=>{ setOverlay(null); },
+        title:t("จัดการขอบเขตพื้นที่การขาย", "Sales territory management"),
+        body:html`${t("หน้านี้ใช้มอบหมายพื้นที่ให้ TC และมีปุ่มแก้รูปโซนที่พาไปลากเส้นบนแผนที่ใหญ่",
+                      "Assign territories to TCs here — and the edit button takes you to the full map to redraw zone boundaries.")}
+          <div style=${{marginTop:"8px"}}>${t("เส้นที่ลากจะเป็นขอบเขตจริงที่ TC เห็นหลังกดใช้จริง",
+                      "What you draw becomes the real boundary a TC sees once you publish it.")}</div>` });
+  } else {
+    TOUR_STEPS.push(
+      { target:'[data-tour="reports"]', placement:"bottom", before:()=>tourShowMap(),
+        title:t("รายงานและการส่งออก", "Reports and exports"),
+        body:html`${t("เปิดหน้ารายงานเพื่อดูภาพรวมตามตัวกรองที่เลือก แล้วส่งออกเป็น CSV หรือ Excel ได้",
+                      "Open reports for an overview of whatever you filtered, then export it as CSV or Excel.")}
+          <div style=${{marginTop:"8px"}}>${t("ไฟล์ที่ได้ยึดตามตัวกรองบนหน้าจอ และแยกเป็นตารางลูกค้ากับตาราง Lead พร้อมเบอร์โทรและอีเมล",
+                      "The file follows the filters on screen and splits into a customer table and a Lead table, with phone and email.")}</div>` });
+  }
+
+  TOUR_STEPS.push(
     { placement:"center", final:true, finishLabel:t("เริ่มใช้งาน", "Get started"), before:()=>setTourPanel(null),
       title:t("พร้อมเริ่มใช้งาน", "You're all set"),
-      body:html`${t("คุณพร้อมใช้งานระบบแล้ว", "You're ready to go —")}<br/>${t("เริ่มวิเคราะห์ข้อมูลลูกค้า ค้นหาโอกาสทางธุรกิจ", "start analysing customer data, finding opportunities,")}<br/>${t("และวางแผนการเข้าพบลูกค้าได้ทันที", "and planning customer visits right away.")}` },
-  ];
+      body:html`${t("เปิดคำแนะนำนี้ซ้ำได้ทุกเมื่อจากเมนูโปรไฟล์ › ช่วยเหลือ",
+                    "You can reopen this walkthrough any time from the profile menu › Help.")}` });
+
 
   // Lazily fetch + cache one country's working set, merge into db.
   const ensureData = async (country="Thailand")=>{
@@ -657,7 +695,7 @@ function App(){
             // กดเมนูหลักขณะที่อยู่หน้านั้นอยู่แล้ว = พับ/กางเมนูย่อย · กดจากที่อื่น = ไปหน้านั้นแล้วกาง
             const onMain = ()=> (subs.length && activeNav===it.id) ? toggleSub(it.id) : navItem(it.id);
             return html`<div key=${it.id}>
-              <div class=${"nav-item"+(activeNav===it.id?" on":"")+(openSub?" has-sub":"")} onClick=${onMain}>
+              <div data-tour=${"nav-"+it.id} class=${"nav-item"+(activeNav===it.id?" on":"")+(openSub?" has-sub":"")} onClick=${onMain}>
                 <span class="ic"><${Icon} name=${it.icon} size=${18}/></span><span class="lb">${it.label}</span></div>
               ${openSub && subs.length ? html`<div class="nav-sub">
                 ${subs.map(sb=>html`<div key=${sb.id} class=${"nav-subitem"+(activeNav===sb.id?" on":"")}
@@ -695,7 +733,7 @@ function App(){
         <div class="tb-right">
           <!-- สลับภาษา ไทย/อังกฤษ — แสดงทุกบทบาท · ค่าถูกจำไว้ใน localStorage -->
           <${LangToggle}/>
-          ${isBiz && view==="workspace" && mode==="map" && html`<button title=${t("เปิดหน้ารายงาน","Open reports")} onClick=${()=>navItem("reports")}
+          ${isBiz && view==="workspace" && mode==="map" && html`<button data-tour="reports" title=${t("เปิดหน้ารายงาน","Open reports")} onClick=${()=>navItem("reports")}
             style=${{display:"inline-flex",alignItems:"center",gap:"7px",height:"38px",padding:"0 14px",marginRight:"8px",
               borderRadius:"10px",border:"1px solid var(--stroke2)",background:"var(--panel)",color:"var(--txt)",
               fontFamily:"var(--font)",fontSize:"12.5px",fontWeight:600,cursor:"pointer",backdropFilter:"blur(8px)"}}>
@@ -757,7 +795,7 @@ function App(){
                         ${demoZone===z.zone_id?html`<span style=${{marginLeft:"auto",color:"var(--accent2)",fontSize:"12px",fontWeight:700}}>${t("ปัจจุบัน", "Current")}</span>`:""}</div>`)}
                   </div>`}
                 </div>`}
-                <div class="dd-item" role="menuitem" tabindex="0" onClick=${()=>{setMenu(null);toast(t("ศูนย์ช่วยเหลือ GeoIntel · เวอร์ชัน 1.0", "GeoIntel Help Centre · version 1.0"),"info");}}><${Icon} name="reports" size=${16}/>${t("ช่วยเหลือ", "Help")}</div>
+                <div class="dd-item" role="menuitem" tabindex="0" onClick=${()=>{setMenu(null); setTourOpen(true);}}><${Icon} name="reports" size=${16}/>${t("ช่วยเหลือ", "Help")}</div>
               </div>
 
               <!-- ออกจากระบบ (ตรึงล่างสุด · สี destructive · ไม่ใช่ default focus) -->

@@ -230,7 +230,7 @@ function custReportRows(c, segGap){
     rows.push([t("เบอร์โทรศัพท์", "Phone"), c.phone||"-"], [t("เว็บไซต์", "Website"), c.website||"-"], [t("เฟซบุ๊ก", "Facebook"), c.facebook||"-"],
       [t("วันที่เริ่มเป็นลูกค้า", "Customer since"), c.dateJoin||"-"], [t("ผู้ประสานงานการค้า (TC)", "Trade Coordinator (TC)"), c.tc_owner||t("ยังไม่มีผู้ดูแล","No owner yet")]);
   } else if(segGap){
-    rows.push([t("อีเมล", "Email"), c.email||"-"]);
+    rows.push([t("เบอร์โทร", "Phone"), c.phone||"-"], [t("อีเมล", "Email"), c.email||"-"]);
     rows.push([t("หมวดที่ยังขาดในย่านนี้", "Category short in this neighbourhood"), segTH(c.segment)+t(" — ขาด ", " — short by ")+segGap.gap+t(" ราย", " businesses")],
       [t("อุปสงค์ในหมวดนี้ (ราย)", "Demand in this category"), segGap.demand], [t("สมาชิกเครือข่ายในหมวดนี้ (ราย)", "Network members in this category"), segGap.supply],
       [t("ดัชนี Lead ของย่าน", "Neighbourhood Lead index"), segGap.areaScore+" ("+gapTH(segGap.areaLevel)+")"]);
@@ -372,6 +372,7 @@ export function CustomerPanel({db, customer, onClose, onOpenArea, setCustomer, o
       ${row(t("ที่อยู่", "Address"), (c.address||"")+", "+provinceTH(c.province))}
       ${row(t("ผู้ดูแลการขาย", "Sales owner"), salesOwner(c))}
       ${c.source ? row(t("แหล่งที่มา", "Source"), html`<${Badge} tone="neutral">${c.source}</${Badge}>`) : ""}
+      ${row(t("เบอร์โทร", "Phone"), c.phone||html`<span class="dim">—</span>`)}
       ${row(t("อีเมล", "Email"), c.email||html`<span class="dim">—</span>`)}`)}
 
     <!-- ปุ่ม/สถานะ "แผนการเข้าพบ" ของ Lead — ท้ายสุดของรายละเอียด เหนือกล่องคำแนะนำ และจัดกึ่งกลาง

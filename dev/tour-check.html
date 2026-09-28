@@ -1,0 +1,47 @@
+<!doctype html><meta charset="utf-8"><title>tour steps check</title>
+<!-- เดินทัวร์ทุกขั้นแล้ววัด 2 อย่าง: การ์ดล้นขอบจอไหม · มีไฟส่อง (spotlight) ตรงจุดที่พูดถึงไหม
+     ต้องรัน node server.mjs อยู่ · ?as=admin | management | tc -->
+<iframe id="f" style="width:1280px;height:720px;border:1px solid #ccc"></iframe>
+<div id="out" style="font:12px/1.6 monospace;white-space:pre-wrap"></div>
+<script type="module">
+const who = new URLSearchParams(location.search).get("as") || "admin";
+const f = document.getElementById("f");
+f.src = `/?demo=${who}&tour=1`;
+const log = [];
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+f.onload = async () => {
+  await sleep(4500);
+  const d = f.contentDocument, w = f.contentWindow;
+  for (let step = 1; step <= 12; step++) {
+    const card = d.querySelector(".tour-card");
+    if (!card) { log.push("ขั้น " + step + ": ไม่พบการ์ด"); break; }
+    const r = card.getBoundingClientRect();
+    const vw = w.innerWidth, vh = w.innerHeight;
+    const out = [];
+    if (r.left < 0) out.push("ล้นซ้าย " + Math.round(-r.left));
+    if (r.top < 0) out.push("ล้นบน " + Math.round(-r.top));
+    if (r.right > vw) out.push("ล้นขวา " + Math.round(r.right - vw));
+    if (r.bottom > vh) out.push("ล้นล่าง " + Math.round(r.bottom - vh));
+
+    // ไฟส่อง: ต้องมีจริง มีขนาด และอยู่ในจอ — ถ้าไม่มี ผู้ใช้จะไม่รู้ว่ากำลังอธิบายอะไรอยู่
+    const sp = d.querySelector(".tour-spot");
+    const sr = sp ? sp.getBoundingClientRect() : null;
+    const lit = !!sr && sr.width > 4 && sr.height > 4 &&
+                sr.right > 0 && sr.bottom > 0 && sr.left < vw && sr.top < vh;
+    const isCenter = !!d.querySelector(".arw-center");   // ขั้นกลางจอ ตั้งใจไม่มีไฟส่อง
+    if (!lit && !isCenter) out.push("ไม่มีไฟส่องจุดที่พูดถึง");
+
+    const count = ((d.querySelector(".tour-count") || {}).textContent || "?").trim();
+    const title = (d.querySelector(".tour-title") || {}).textContent || "(ไม่มีหัวข้อ)";
+    log.push(count + " " + title + " → " + (out.length ? "NG " + out.join(", ") : "OK"));
+
+    const next = [...d.querySelectorAll(".tour-btn")].find(b => /ถัดไป|Next/.test(b.textContent));
+    if (!next) break;
+    next.click();
+    await sleep(1600);
+  }
+  const bad = log.filter(l => l.includes("NG")).length;
+  document.getElementById("out").textContent =
+    "RESULT " + (bad ? bad + " ขั้นมีปัญหา" : "ทุกขั้นผ่าน") + " || " + log.join(" || ") + " END";
+};
+</script>
