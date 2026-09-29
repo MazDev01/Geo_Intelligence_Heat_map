@@ -383,10 +383,10 @@ function App(){
                         "Drag to spin the globe, scroll to zoom · hover a featured province card to fly there, then click to open the analysis map.")}` }
       : { placement:"center", before:()=>tourShowMap(),
           title:t("แผนที่วิเคราะห์ทั้งประเทศ", "The nationwide analysis map"),
-          body:html`${t("เข้าสู่ระบบแล้วลูกโลกจะหมุนเข้าประเทศไทยและเปิดแผนที่เต็มจอให้ทันที ไม่ต้องเลือกพื้นที่ก่อน",
-                        "After you sign in the globe flies to Thailand and opens the full map straight away — no area to pick first.")}
-            <div style=${{marginTop:"8px"}}>${t("ทุกอย่างในคำแนะนำนี้อยู่บนหน้าเดียวกันหมด ไม่ต้องเปลี่ยนหน้า",
-                        "Everything in this walkthrough lives on this one screen.")}</div>` },
+          body:html`${t("หลังเข้าสู่ระบบ ระบบจะแสดงแผนที่ประเทศไทยทันที โดยสามารถเลื่อน ซูม และเลือกพื้นที่บนแผนที่เพื่อดูข้อมูลและวิเคราะห์พื้นที่ที่สนใจได้",
+                        "The map of Thailand opens as soon as you sign in — pan, zoom and pick an area to see its data and analyse it.")}
+            <div style=${{marginTop:"8px"}}>${t("เลือกดูข้อมูลลูกค้า Lead เส้นทาง และพื้นที่ต่าง ๆ ได้จากแผนที่เดียวกัน และใช้ตัวกรองค้นหาสิ่งที่ต้องการได้โดยไม่ต้องออกจากหน้าแผนที่",
+                        "Customers, Leads, routes and areas all live on this one map, and the filters find what you need without leaving it.")}</div>` },
 
     { target:'[data-tour="search"]', placement:"bottom", before:()=>tourShowMap(),
       title:t("ค้นหา", "Search"),
@@ -399,7 +399,7 @@ function App(){
       title:t("เลเยอร์แผนที่", "Map layers"),
       body:html`${t("ไอคอนชั้นซ้อนนี้เปิด/ปิดแผงเลเยอร์ ซึ่งคุมสิ่งที่แสดงบนแผนที่", "This layers icon opens the panel that controls what the map shows:")}
         <div style=${{margin:"8px 0 0",lineHeight:1.9}}>
-          ${t("• ลูกค้าปัจจุบัน (สีทึบ) และ Lead (สีจาง)", "• Existing customers (solid) and Leads (faded)")}<br/>
+          ${t("• ลูกค้าปัจจุบัน และ Lead", "• Existing customers and Leads")}<br/>
           ${t("• แผนที่ความร้อน — สลับเป็นกลุ่มตัวเลขและหมุดเดี่ยวเองตามระดับซูม", "• Heatmap — switches to clusters and single pins as you zoom in")}<br/>
           ${t("• ความทึบของแต่ละชั้น ปรับได้จากแถบเลื่อน", "• Each layer's opacity has its own slider")}
         </div>` },

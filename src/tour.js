@@ -42,17 +42,7 @@ export function ProductTour({open, steps, onFinish, onSkip, onChange}){
     //    (target เป็นสตริงเดียวหรืออาเรย์ก็ได้ — ไล่หาจากตัวแรกไปจนเจอ)
     const measure = ()=>{
       const s = stepsRef.current[i];
-      const list = !s || !s.target ? [] : (Array.isArray(s.target) ? s.target : [s.target]);
-      let found = null;
-      for(const sel of list){
-        const el = document.querySelector(sel);
-        if(!el) continue;
-        const r = el.getBoundingClientRect();
-        // กล่องครอบที่ลูกเป็น absolute ทั้งหมดจะมีขนาด 0×0 — ส่องแล้วเห็นเป็นจุดจิ๋ว ข้ามไปหาตัวถัดไป
-        if(r.width < 4 || r.height < 4) continue;
-        found = r; break;
-      }
-      setRect(found);
+      setRect(pickTarget(s && s.target, document, window));
     };
     measure();
     const iv = setInterval(measure, 250);
@@ -189,6 +179,30 @@ function cardPos(rect, placement, size){
   return {left:bx, top:by, transform:"none", place, arrowStyle};
 }
 const clamp = (v,a,b)=> Math.max(a, Math.min(v,b));
+
+/**
+ * เลือกกล่องของเป้าหมายที่จะส่องไฟ
+ *  - target เป็นสตริงเดียวหรืออาเรย์ (ตัวสำรอง) — ไล่จากตัวแรกจนกว่าจะเจอของที่ใช้ได้
+ *  - ⚠ ของบางอย่างมีหลายตัวบนจอ (หมุด/กลุ่มบนแผนที่) querySelector คืน "ตัวแรกตามลำดับ DOM"
+ *    ซึ่งมักอยู่มุมจอหรือนอกจอ จึงเลือกตัวที่อยู่ใกล้กลางจอที่สุดแทน
+ *  - ข้ามของที่เล็กกว่า 4px (กล่องครอบที่ลูกเป็น absolute ทั้งหมดจะมีขนาด 0×0) และของที่อยู่นอกจอ
+ */
+export function pickTarget(target, doc, win){
+  const list = !target ? [] : (Array.isArray(target) ? target : [target]);
+  const vw = win.innerWidth, vh = win.innerHeight, cx = vw/2, cy = vh/2;
+  for(const sel of list){
+    let best = null, bestD = Infinity;
+    for(const el of doc.querySelectorAll(sel)){
+      const r = el.getBoundingClientRect();
+      if(r.width < 4 || r.height < 4) continue;
+      if(r.right < 0 || r.bottom < 0 || r.left > vw || r.top > vh) continue;
+      const d = Math.hypot((r.left + r.right)/2 - cx, (r.top + r.bottom)/2 - cy);
+      if(d < bestD){ bestD = d; best = r; }
+    }
+    if(best) return best;
+  }
+  return null;
+}
 
 const CSS = `
 .tour-root{position:fixed;inset:0;z-index:2400;font-family:var(--font);animation:tour-fade .3s ease}
