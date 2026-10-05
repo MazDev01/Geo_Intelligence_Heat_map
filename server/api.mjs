@@ -3,6 +3,7 @@ import {withTransaction} from './db/pool.mjs';
 import {listPlaces, createPlaces, updatePlace, deletePlace} from './places.mjs';
 import {importUpload, mapUpload, confirmUpload, listFiles, withdrawFile} from './imports.mjs';
 import {listQueue, actOnQueue} from './import-queue.mjs';
+import {listPlans, createPlan, updatePlan, deletePlan} from './visit-plans.mjs';
 import {cleanFilename, fileKind, MAX_FILE_BYTES} from './import-parse.mjs';
 
 const require = createRequire(import.meta.url);
@@ -181,17 +182,30 @@ export function makeApi({pool, authStore, zoneStore, demoPassword}) {
   }
 
   async function visitPlans(req, res, query) {
-    if (req.method !== 'GET') return send(res, 405, {error: 'รองรับเฉพาะ GET'});
+    if (!['GET', 'POST', 'PUT', 'DELETE'].includes(req.method)) return send(res, 405, {error: 'รองรับเฉพาะ GET POST PUT DELETE'});
     const who = await authStore.auth(req.headers);
     if (!who.ok) return send(res, 401, {error: 'unauthenticated', message: 'ต้องเข้าสู่ระบบก่อน'});
     const user = who.user;
     if (user.role !== 'Trade Coordinator') return send(res, 403, {error: 'forbidden', message: 'เฉพาะผู้ประสานงานการค้าเท่านั้น'});
-    const owner = query.get('owner');
-    if (owner && owner.toLowerCase() !== user.email.toLowerCase())
-      return send(res, 403, {error: 'forbidden', message: 'เรียกดูได้เฉพาะแผนของตนเอง'});
-    const prov = query.get('province');
-    if (prov && prov !== user.province) return send(res, 403, {error: 'forbidden', message: 'เรียกดูได้เฉพาะจังหวัดที่รับผิดชอบ'});
-    return send(res, 200, {ok: true, owner: user.email, province: user.province});
+    try {
+      if (req.method === 'GET') {
+        const owner = query.get('owner');
+        if (owner && owner.toLowerCase() !== user.email.toLowerCase())
+          return send(res, 403, {error: 'forbidden', message: 'เรียกดูได้เฉพาะแผนของตนเอง'});
+        const prov = query.get('province');
+        if (prov && prov !== user.province) return send(res, 403, {error: 'forbidden', message: 'เรียกดูได้เฉพาะจังหวัดที่รับผิดชอบ'});
+        return send(res, 200, await listPlans(pool, user));
+      }
+      if (req.method === 'DELETE') return send(res, 200, await deletePlan(pool, user, query.get('id')));
+      let body;
+      try { body = JSON.parse(await readBody(req, 1e6)); }
+      catch (e) { return send(res, e.status === 413 ? 413 : 400, {error: e.status === 413 ? 'ข้อมูลใหญ่เกินไป' : 'อ่านคำขอไม่ได้'}); }
+      if (req.method === 'POST') return send(res, 201, await createPlan(pool, user, body));
+      return send(res, 200, await updatePlan(pool, user, query.get('id'), body));
+    } catch (e) {
+      if (e && [400, 403, 404, 409].includes(e.status)) return send(res, e.status, {error: e.message});
+      throw e;
+    }
   }
 
   const places = kind => async (req, res, query) => {
