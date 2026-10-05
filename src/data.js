@@ -1,6 +1,7 @@
 import {SEGMENTS} from "./lib.js";
 import {segZero, segAllTrue} from "./mock/geoData.js";
 import {t} from "./i18n.js";   // สลับภาษา TH/EN — ดู src/i18n.js
+import {token} from "./auth.js";
 
 /* ---------------- PROGRESSIVE / STAGED LOADING ----------------
    The payload is split into stages so the UI can paint the globe skeleton and a
@@ -33,18 +34,40 @@ export async function loadAreas(){
 // (Bangkok Metropolis, Chiang Mai, Phuket, Pattaya). Small file, loaded alongside areas.json.
 export async function loadDistricts(){ if(!_districts) _districts = await j("./data/districts.json"); return _districts; }
 // Stage 5 — heavy detail, scoped to one country at the query layer (?country=).
-export async function loadDetail(country="Thailand"){
+let _detailToken = "";
+let _noPlacesApi = false;
+
+async function fromApi(name, q, tk){
+  if(_noPlacesApi) return null;
+  const r = await fetch(`/api/${name}?country=${q}`, {headers: tk ? {Authorization:"Bearer "+tk} : {}});
+  if(r.status===401 || r.status===403) throw new Error("unauthorized");
+  if(r.status===404) _noPlacesApi = true;
+  if(!r.ok) return null;
+  const body = await r.json().catch(()=>null);
+  return Array.isArray(body) ? body : null;
+}
+
+export function clearDetail(){
+  for(const k of Object.keys(_detailCache)) delete _detailCache[k];
+  _detailToken = "";
+}
+
+export function loadDetail(country="Thailand"){
+  const tk = token();
+  if(tk !== _detailToken){ clearDetail(); _detailToken = tk; }
   if(_detailCache[country]) return _detailCache[country];
   const q = encodeURIComponent(country);
-  const [customersRaw, prospectsRaw] = await Promise.all([
-    j(`./data/customers.json?country=${q}`),
-    j(`./data/prospects.json?country=${q}`),
-  ]);
-  // เผื่อ static host (เช่น Netlify) ที่ไม่กรอง ?country= ฝั่ง server — กรองซ้ำฝั่ง client ให้ได้เฉพาะประเทศนี้เสมอ
-  const customers = Array.isArray(customersRaw) ? customersRaw.filter(r=>r.country===country) : customersRaw;
-  const prospects = Array.isArray(prospectsRaw) ? prospectsRaw.filter(r=>r.country===country) : prospectsRaw;
-  _detailCache[country] = { customers, prospects };
-  return _detailCache[country];
+  const one = async (api, file)=> (await fromApi(api, q, tk)) || j(`./data/${file}?country=${q}`);
+  const p = (async ()=>{
+    const [customersRaw, prospectsRaw] = await Promise.all([one("customers","customers.json"), one("leads","prospects.json")]);
+    // เผื่อ static host (เช่น Netlify) ที่ไม่กรอง ?country= ฝั่ง server — กรองซ้ำฝั่ง client ให้ได้เฉพาะประเทศนี้เสมอ
+    const customers = Array.isArray(customersRaw) ? customersRaw.filter(r=>r.country===country) : customersRaw;
+    const prospects = Array.isArray(prospectsRaw) ? prospectsRaw.filter(r=>r.country===country) : prospectsRaw;
+    return { customers, prospects };
+  })();
+  _detailCache[country] = p;
+  p.catch(()=>{ if(_detailCache[country]===p) delete _detailCache[country]; });
+  return p;
 }
 
 // Back-compat: the "globe" bundle is now just the tiny country aggregates.

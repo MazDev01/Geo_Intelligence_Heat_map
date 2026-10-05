@@ -1,5 +1,5 @@
 import {createReadStream} from 'node:fs';
-import {readFile, stat} from 'node:fs/promises';
+import {stat} from 'node:fs/promises';
 import {extname, join, resolve, sep} from 'node:path';
 
 const MIME = {
@@ -13,8 +13,7 @@ const MIME = {
 export const DOORS = ['/admin', '/management', '/tc'];
 const INDEX_PATHS = new Set(['/', '/index.html', ...DOORS]);
 const PUBLIC_DATA = new Set(['world.geojson', 'countries.json', 'areas.json', 'districts.json',
-  'thailand-provinces.geojson', 'customers.json', 'prospects.json']);
-const COUNTRY_FILTERED = new Set(['customers.json', 'prospects.json']);
+  'thailand-provinces.geojson']);
 
 const SRC_RE = /^\/src\/(?:[A-Za-z0-9_-]+\/)*[A-Za-z0-9_.-]+\.js$/;
 const CONFIG_RE = /^\/config\/[A-Za-z0-9_.-]+\.js$/;
@@ -32,17 +31,6 @@ export function allowedFile(path) {
 
 export function makeStatic(root) {
   const base = resolve(root);
-  const rowCache = new Map();
-
-  async function countryRows(file, mtimeMs, country) {
-    const hit = rowCache.get(file);
-    let rows = hit && hit.mtimeMs === mtimeMs ? hit.rows : null;
-    if (!rows) {
-      rows = JSON.parse(await readFile(file, 'utf8'));
-      rowCache.set(file, {mtimeMs, rows});
-    }
-    return Array.isArray(rows) ? rows.filter(r => r && r.country === country) : rows;
-  }
 
   const plain = (res, code, text, extra) => {
     res.writeHead(code, {'Content-Type': 'text/plain; charset=utf-8', 'X-Content-Type-Options': 'nosniff', ...extra});
@@ -73,14 +61,6 @@ export function makeStatic(root) {
       'Cache-Control': 'no-cache',
       'Last-Modified': new Date(st.mtimeMs).toUTCString(),
     };
-
-    const country = query.get('country');
-    const name = rel.split('/').pop();
-    if (country && COUNTRY_FILTERED.has(name)) {
-      const body = Buffer.from(JSON.stringify(await countryRows(file, st.mtimeMs, country)));
-      res.writeHead(200, {...common, 'Content-Length': body.length});
-      return res.end(head ? undefined : body);
-    }
 
     const since = Date.parse(req.headers['if-modified-since'] || '');
     if (!req.headers.range && since && Math.floor(st.mtimeMs / 1000) * 1000 <= since) {

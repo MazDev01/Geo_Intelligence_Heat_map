@@ -1,7 +1,7 @@
 import {React, html, useState, useEffect, useMemo, createRoot, AppCtx, Icon, brandMark, num, roleTH, countryTH, provinceTH} from "./lib.js";
 import {t, useLang, getLang, setLang} from "./lib.js";   // สลับภาษา TH/EN — ดู src/i18n.js
 import {getLayerOpacity, subscribeLayerOpacity} from "./layer-opacity.js";   // ความทึบ = ตั้งที่แอดมินที่เดียว
-import {loadCountries, loadWorld, loadAreas, loadProvincesGeo, loadDetail, loadCountry, loadDistricts, defaultFilters} from "./data.js";
+import {loadCountries, loadWorld, loadAreas, loadProvincesGeo, loadDetail, clearDetail, loadCountry, loadDistricts, defaultFilters} from "./data.js";
 import {LoadingScreen, ToastHost, Badge, Btn, toast, LangToggle} from "./ui.js";
 import {Login} from "./pages/login.js";
 import * as auth from "./auth.js";   // โทเคน/บัญชีจริง (ดู api/auth.js · auth-store.cjs)
@@ -292,6 +292,12 @@ function App(){
       // บทบาท "ผู้ใช้ธุรกิจ (user)" เดิมถูกยกเลิก → เปลี่ยนเส้นทางเป็น TC และแก้ URL ให้ตรง (คงพารามิเตอร์ go/prov เดิม)
       if(demo==="user"){ demo="tc"; const u=new URL(location.href); u.searchParams.set("demo","tc"); history.replaceState(null,"",u.pathname+u.search+u.hash); }
       const admin=demo==="admin"; const tc=demo==="tc";
+      const demoSignIn = async email=>{
+        const info = await auth.call("info");
+        if(!info.ok || !info.demo) return;
+        const r = await auth.login(email, info.demoPassword||"");
+        if(r.ok && !r.mustChange) auth.saveAuth({token:r.token, user:r.user}, false);
+      };
       // ── TC: เข้าสู่ระบบแล้วเข้า "หน้าจังหวัดที่รับผิดชอบ" ทันที ไม่ผ่านลูกโลก · จังหวัดมาจาก session (ในเดโมฝังใน user) ──
       if(tc){
         const noprov=q.get("noprov")==="1"; const prov=noprov?null:(q.get("prov")||"Chiang Mai");
@@ -302,6 +308,7 @@ function App(){
         const seedTC = SEED_USERS.find(u=>u.role==="Trade Coordinator" &&
           (wantEmail ? u.email===wantEmail : (prov ? u.province===prov : false)));
         const initialsOf = n => (n||"TC").trim().slice(0,2);
+        await demoSignIn(seedTC ? seedTC.email : "tc@geointel.io");
         setUser(seedTC
           ? {role:"Trade Coordinator", name:seedTC.name, email:seedTC.email, initials:initialsOf(seedTC.name), province:prov}
           : {role:"Trade Coordinator", name:"ธนพล ศรีวัฒน์", email:"tc@geointel.io", initials:"TC", province:prov});
@@ -323,6 +330,7 @@ function App(){
         return;   // จบเส้นทาง TC — ไม่เข้าเส้นทาง admin/user (ที่ลง globe)
       }
       // ไม่ใช่ TC แล้ว → ผู้ดูแลระบบ (admin) หรือ ผู้บริหาร (management/ค่าอื่น) · ไม่มีบทบาท "ผู้ใช้ธุรกิจ" อีกต่อไป
+      await demoSignIn(admin ? "admin@geointel.io" : "management@geointel.io");
       setUser(admin
         ? {role:"Administrator", name:t("ผู้ดูแลระบบ", "System Administrator"), email:"admin@geointel.io", initials:"SA"}
         : {role:"Management", name:t("ผู้บริหาร", "Management"), email:"management@geointel.io", initials:"MG"});
@@ -597,6 +605,7 @@ function App(){
   // resetView() so the camera zooms back out to the default wide view.
   const logout = ()=>{
     auth.clearAuth();                       // ทิ้งโทเคนด้วย ไม่งั้นรีเฟรชแล้วกลับเข้ามาเอง
+    clearDetail(); setDb(prev=>({...prev, customers:[], prospects:[]}));
     setUser(null); setView("dashboard"); setMode("globe"); setActiveCountry(null); setOverlay(null);
     setSelectedProvince(null); setSelectedCustomer(null); setFlyTarget(null); setMenu(null);
     setVisitPlans([{id:"plan-1", name:t("แผนที่ 1", "Plan 1"), customers:[], route:null, saved:false, visitDate:""}]); setActivePlanId("plan-1");

@@ -1,5 +1,6 @@
 import {createRequire} from 'node:module';
 import {withTransaction} from './db/pool.mjs';
+import {listPlaces} from './places.mjs';
 
 const require = createRequire(import.meta.url);
 const {MAX_BYTES} = require('../zone-validate.cjs');
@@ -184,8 +185,17 @@ export function makeApi({pool, authStore, zoneStore, demoPassword}) {
     return send(res, 200, {ok: true, owner: user.email, province: user.province});
   }
 
+  const places = kind => async (req, res, query) => {
+    if (req.method !== 'GET') return send(res, 405, {error: 'รองรับเฉพาะ GET'});
+    const user = await requireUser(req, res);
+    if (!user) return;
+    return send(res, 200, await listPlaces(pool, kind, user, query.get('country')));
+  };
+
   const ROUTES = {
     '/api/auth': (req, res) => auth(req, res),
+    '/api/customers': places('customers'),
+    '/api/leads': places('leads'),
     '/api/zones': zones,
     '/api/territory': (req, res) => territory(req, res),
     '/api/visit-plans': visitPlans,
