@@ -130,8 +130,8 @@ function MiniMap({lat,lng}){
     const m=L.map(ref.current,{zoomControl:false,attributionControl:false,scrollWheelZoom:false}).setView([lat,lng],13);
     basemap(m);
     mkRef.current=L.marker([lat,lng]).addTo(m); mapRef.current=m;
-    setTimeout(()=>m.invalidateSize(),60);
-    return ()=>m.remove();
+    const timer=setTimeout(()=>m.invalidateSize(),60);
+    return ()=>{ clearTimeout(timer); m.remove(); };
   },[lang]);
   useEffect(()=>{ if(mapRef.current&&mkRef.current){ mkRef.current.setLatLng([lat,lng]); mapRef.current.setView([lat,lng]); } },[lat,lng]);
   return html`<div class="ar-map" ref=${ref}></div>`;
