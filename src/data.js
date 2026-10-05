@@ -52,6 +52,23 @@ export function clearDetail(){
   _detailToken = "";
 }
 
+export async function writePlaces(method, id, body){
+  if(_noPlacesApi) return {ok:true, local:true};
+  const tk = token();
+  try{
+    const r = await fetch("/api/places"+(id ? "?id="+encodeURIComponent(id) : ""), {method,
+      headers:{...(body ? {"Content-Type":"application/json"} : {}), ...(tk ? {Authorization:"Bearer "+tk} : {})},
+      body: body ? JSON.stringify(body) : undefined});
+    const data = await r.json().catch(()=>null);
+    if((r.status===404 || r.status===405) && !(data && data.error)){ _noPlacesApi = true; return {ok:true, local:true}; }
+    if(!r.ok) return {ok:false, error:(data && data.error) || t("บันทึกไม่สำเร็จ", "Could not save")+` (${r.status})`};
+    clearDetail();
+    return {ok:true, ...(data||{})};
+  }catch(e){
+    return {ok:false, error:t("ติดต่อเซิร์ฟเวอร์ไม่ได้", "Could not reach the server")};
+  }
+}
+
 export function loadDetail(country="Thailand"){
   const tk = token();
   if(tk !== _detailToken){ clearDetail(); _detailToken = tk; }

@@ -766,8 +766,9 @@ function TriageReview({staging, setStaging, fileId}){
 }
 
 /* ═══════════════════ แท็บ 4: ข้อมูลที่ TC กรอกเข้ามา ═══════════════════ */
+let _adding=false;
 function TCData(){
-  const {db}=useApp();
+  const {db, adminAddRecords}=useApp();
   const [rows,setRows]=useState(genTC);
   const [q,setQ]=useState(""); const [prov,setProv]=useState("All"); const [check,setCheck]=useState("All");
   const [sel,setSel]=useState({}); const [page,setPage]=useState(1);
@@ -781,7 +782,10 @@ function TCData(){
     toast(`${lbl} ${selIds.length} ${t("รายการแล้ว", "records")}`, how==="del"?"warn":"good"); setSel({}); };
   const doDelete=r=>{ setRows(rs=>rs.filter(x=>x.id!==r.id)); setDel(null); setDrawer(null);
     pushAudit({action:t("ลบข้อมูลที่กรอกเอง", "Deleted a manually entered record"), category:"ลบ", detail:`${r.name} (${r.id})`}); toast(t("ลบข้อมูลแล้ว", "Record deleted"),"warn"); };
-  const onAdd=recs=>{ const mapped=recs.map((r,i)=>({ id:"REC"+(9000+rows.length+i), name:r.businessName, type:r.status,
+  const onAdd=async sent=>{ if(_adding) return; _adding=true;
+    let recs; try{ recs = adminAddRecords ? await adminAddRecords(sent) : sent; } finally { _adding=false; }
+    if(!recs) return;
+    const mapped=recs.map((r,i)=>({ id:"REC"+(9000+rows.length+i), name:r.businessName, type:r.status,
       segment:r.segment, province:r.province, district:r.district, lat:r.latitude, lng:r.longitude,
       email:r.email||"",
       tc:"System Administrator", date:new Date().toISOString().slice(0,10), check:"ตรวจสอบแล้ว", source:"manual_admin"   /* check = ค่าข้อมูล ห้ามแปล */, incomplete:false, badCoord:false }));
@@ -1369,7 +1373,7 @@ export function DataManagement(){
     </div>` : ""}
     ${editRec ? html`<${AddRecordsForm} db=${db} editRecord=${{...editRec, status:editRec._kind}}
       onClose=${()=>setEditRec(null)}
-      onSave=${recs=>{ updateRecord && updateRecord(recs); setEditRec(null); }}/>` : ""}
+      onSave=${async recs=>{ if(!updateRecord || (await updateRecord(recs))!==false) setEditRec(null); }}/>` : ""}
 
     ${delRec ? html`<${Modal} title=${t("ยืนยันการลบ", "Confirm deletion")} onClose=${()=>setDelRec(null)}
       footer=${html`<${Btn} variant="ghost" onClick=${()=>setDelRec(null)}>${t("ยกเลิก", "Cancel")}</${Btn}>

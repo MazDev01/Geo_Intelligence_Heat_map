@@ -1,7 +1,7 @@
 import {React, html, useState, useEffect, useMemo, createRoot, AppCtx, Icon, brandMark, num, roleTH, countryTH, provinceTH} from "./lib.js";
 import {t, useLang, getLang, setLang} from "./lib.js";   // สลับภาษา TH/EN — ดู src/i18n.js
 import {getLayerOpacity, subscribeLayerOpacity} from "./layer-opacity.js";   // ความทึบ = ตั้งที่แอดมินที่เดียว
-import {loadCountries, loadWorld, loadAreas, loadProvincesGeo, loadDetail, clearDetail, loadCountry, loadDistricts, defaultFilters} from "./data.js";
+import {loadCountries, loadWorld, loadAreas, loadProvincesGeo, loadDetail, clearDetail, writePlaces, loadCountry, loadDistricts, defaultFilters} from "./data.js";
 import {LoadingScreen, ToastHost, Badge, Btn, toast, LangToggle} from "./ui.js";
 import {Login} from "./pages/login.js";
 import * as auth from "./auth.js";   // โทเคน/บัญชีจริง (ดู api/auth.js · auth-store.cjs)
@@ -55,6 +55,20 @@ const TITLES = () => ({...Object.fromEntries(NAV().flatMap(g=>g.items).flatMap(i
   "visit-plans":t("รายงานแผนการเข้าพบ","Visit Plan Report"), profile:t("โปรไฟล์","Profile")});
 const THAILAND_CENTER = [13.2, 101];   // hardcoded fly-in target for the post-login intro (no search/query)
 const INTRO_KEY = "geointel_intro";    // sessionStorage flag — the globe intro plays once per session
+
+const LOCAL_ONLY = new Set(["id","source","created_at","clientId","country","visit_status","visitRounds"]);
+const PLACE_KEYS = ["latitude","longitude","province","district"];
+function changedFields(cur, next){
+  const near = k => Math.abs(Number(cur[k])-Number(next[k])) < 0.00006;
+  const moved = !(near("latitude") && near("longitude"));
+  const out = {};
+  for(const k of Object.keys(next)){
+    if(LOCAL_ONLY.has(k)) continue;
+    if(PLACE_KEYS.includes(k)){ if(moved) out[k] = next[k]; continue; }
+    if((cur[k]??"") !== (next[k]??"")) out[k] = next[k];
+  }
+  return out;
+}
 
 function App(){
   // Seed an EMPTY-but-shaped db so the app paints the globe skeleton on frame 1
@@ -186,8 +200,11 @@ function App(){
     toast(`${t("เพิ่มข้อมูล", "Added")} ${recs.length} ${t("รายการเรียบร้อย", "records")}`, "good");
     setAddForm(null);
   };
-  const updateRecord = recs => {   // โหมดแก้ไข: recs มี 1 รายการ ใช้ id เดิม (อาจย้ายประเภทลูกค้า↔Lead)
-    const r = recs[0];
+  const updateRecord = async recs => {   // โหมดแก้ไข: recs มี 1 รายการ ใช้ id เดิม (อาจย้ายประเภทลูกค้า↔Lead)
+    const cur = [...(db.customers||[]), ...(db.prospects||[])].find(x=>x.id===recs[0].id);
+    const res = await writePlaces("PUT", recs[0].id, cur ? changedFields(cur, recs[0]) : recs[0]);
+    if(!res.ok){ toast(res.error,"bad"); return false; }
+    const r = res.record || recs[0];
     setDb(prev=>{
       const custs=(prev.customers||[]).filter(x=>x.id!==r.id);
       const pros=(prev.prospects||[]).filter(x=>x.id!==r.id);
@@ -197,9 +214,21 @@ function App(){
     setSelectedCustomer(r);
     toast(t("บันทึกการแก้ไขแล้ว", "Changes saved"),"good");
     setAddForm(null);
+    return true;
+  };
+  const adminAddRecords = async recs => {
+    const res = await writePlaces("POST", null, {records:recs});
+    if(!res.ok){ toast(res.error,"bad"); return null; }
+    const saved = res.records || recs;
+    setDb(prev=>({...prev,
+      customers:[...(prev.customers||[]), ...saved.filter(r=>r.status==="Existing")],
+      prospects:[...(prev.prospects||[]), ...saved.filter(r=>r.status!=="Existing")] }));
+    return saved;
   };
   // ลบระเบียนจากหน้า "จัดการข้อมูล" (ผู้ดูแลระบบ) — ไม่ติดเงื่อนไข "เฉพาะรายการที่เพิ่มเอง" แบบแผงบนแผนที่
-  const adminDeleteRecord = rec => {
+  const adminDeleteRecord = async rec => {
+    const res = await writePlaces("DELETE", rec.id);
+    if(!res.ok){ toast(res.error,"bad"); return; }
     setDb(prev=>({...prev,
       customers:(prev.customers||[]).filter(x=>x.id!==rec.id),
       prospects:(prev.prospects||[]).filter(x=>x.id!==rec.id) }));
@@ -645,7 +674,7 @@ function App(){
   const exitZoneEdit = ()=>{ setZoneEdit(false); if(zoneEditFrom) setOverlay(zoneEditFrom); setZoneEditFrom(null); };
   const ctx = {db,user,logout,nav,filters,setFilters,startZoneEdit,routeParams:{area:selectedProvince},profileTab,visitPlans,office:planOffice,lang,setLang,
 
-    deletePlan,setActivePlanId,approveDeal,rejectDeal,addToPlan,goMap,updateRecord,adminDeleteRecord,
+    deletePlan,setActivePlanId,approveDeal,rejectDeal,addToPlan,goMap,updateRecord,adminAddRecords,adminDeleteRecord,
     selectedProvince,setSelectedProvince,selectedCustomer,setSelectedCustomer,selectedCountry:activeCountry};
 
   if(!user) return html`<${AppCtx.Provider} value=${ctx}><${Login} db=${db} onLogin=${handleLogin}/><${ToastHost}/></${AppCtx.Provider}>`;

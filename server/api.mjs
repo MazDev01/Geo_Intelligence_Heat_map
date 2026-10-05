@@ -1,6 +1,6 @@
 import {createRequire} from 'node:module';
 import {withTransaction} from './db/pool.mjs';
-import {listPlaces} from './places.mjs';
+import {listPlaces, createPlaces, updatePlace, deletePlace} from './places.mjs';
 
 const require = createRequire(import.meta.url);
 const {MAX_BYTES} = require('../zone-validate.cjs');
@@ -192,10 +192,33 @@ export function makeApi({pool, authStore, zoneStore, demoPassword}) {
     return send(res, 200, await listPlaces(pool, kind, user, query.get('country')));
   };
 
+  async function placesWrite(req, res, query) {
+    if (!['POST', 'PUT', 'DELETE'].includes(req.method)) return send(res, 405, {error: 'รองรับเฉพาะ POST PUT DELETE'});
+    const admin = await requireUser(req, res, 'Administrator');
+    if (!admin) return;
+    const id = query.get('id') || '';
+    if (req.method !== 'POST' && (!id || id.length > 20)) return send(res, 400, {error: 'ต้องระบุ id ของรายการ'});
+    try {
+      if (req.method === 'DELETE')
+        return (await deletePlace(pool, id)) ? send(res, 200, {ok: true}) : send(res, 404, {error: 'ไม่พบรายการนี้'});
+      let body;
+      try { body = JSON.parse(await readBody(req, 1e6)); }
+      catch (e) { return send(res, e.status === 413 ? 413 : 400, {error: e.status === 413 ? 'ข้อมูลใหญ่เกินไป' : 'อ่านคำขอไม่ได้'}); }
+      if (req.method === 'POST')
+        return send(res, 201, {ok: true, records: await createPlaces(pool, body && body.records)});
+      const record = await updatePlace(pool, id, body);
+      return record ? send(res, 200, {ok: true, record}) : send(res, 404, {error: 'ไม่พบรายการนี้'});
+    } catch (e) {
+      if (e && e.status === 400) return send(res, 400, {error: e.message});
+      throw e;
+    }
+  }
+
   const ROUTES = {
     '/api/auth': (req, res) => auth(req, res),
     '/api/customers': places('customers'),
     '/api/leads': places('leads'),
+    '/api/places': placesWrite,
     '/api/zones': zones,
     '/api/territory': (req, res) => territory(req, res),
     '/api/visit-plans': visitPlans,

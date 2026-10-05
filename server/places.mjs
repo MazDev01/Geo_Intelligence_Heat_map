@@ -1,3 +1,6 @@
+import {randomBytes} from 'node:crypto';
+import {withTransaction} from './db/pool.mjs';
+
 const FULL_ACCESS = new Set(['Administrator', 'Management']);
 
 const SQL = `
@@ -25,6 +28,7 @@ where p.type = $1
     select u.province from users u where u.id = $3 and u.province is not null
     union
     select split_part(a.key, '/', 1) from territory_assign a where a.user_id = $3))
+  and ($4::text[] is null or p.id = any($4))
 order by p.id`;
 
 const putIf = (obj, key, value) => { if (value !== null && value !== undefined) obj[key] = value; };
@@ -52,7 +56,7 @@ const toCustomer = r => {
 const toLead = r => {
   const out = {
     id: r.id, businessName: r.business_name, category: r.category, segment: r.segment, status: r.type,
-    country: r.country, province: r.province, district: r.district, address: r.address, email: r.email,
+    country: r.country, province: r.province, district: r.district, address: r.address, email: r.email ?? '',
     latitude: r.latitude, longitude: r.longitude, created_at: r.created_at, tc_owner: r.tc_owner,
     visitRounds: (r.rounds || []).map(toRound), visit_status: r.visit_status, phone: r.phone,
   };
@@ -73,6 +77,149 @@ export async function listPlaces(pool, kind, user, country) {
   const full = FULL_ACCESS.has(user.role);
   if (!full && !Number.isInteger(user.id)) return [];
   const scopeUserId = full ? null : user.id;
-  const r = await pool.query(SQL, [k.type, country || null, scopeUserId]);
+  const r = await pool.query(SQL, [k.type, country || null, scopeUserId, null]);
   return r.rows.map(k.map);
+}
+
+const TYPES = new Set(['Existing', 'Prospect']);
+const MAX_BATCH = 10;
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[a-z]{2,}$/i;
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+const UNASSIGNED = new Set(['', 'ยังไม่มอบหมาย', 'auto']);
+
+const bad = message => Object.assign(new Error(message), {status: 400});
+const has = (obj, key) => Object.hasOwn(obj, key);
+
+function text(body, key, label, max, required) {
+  const v = body[key];
+  if (v !== null && v !== undefined && typeof v !== 'string') throw bad(label + 'ต้องเป็นข้อความ');
+  const out = (v || '').trim();
+  if (!out) {
+    if (required) throw bad('ต้องกรอก' + label);
+    return null;
+  }
+  if (out.length > max) throw bad(label + 'ยาวเกิน ' + max + ' ตัวอักษร');
+  return out;
+}
+
+function coord(body, key, label, min, max) {
+  const v = body[key];
+  if (typeof v !== 'number' || !Number.isFinite(v)) throw bad(label + 'ต้องเป็นตัวเลข');
+  if (v < min || v > max) throw bad(label + 'อยู่นอกประเทศไทย');
+  return Math.round(v * 1e6) / 1e6;
+}
+
+function readFields(body, partial) {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) throw bad('รูปแบบข้อมูลไม่ถูกต้อง');
+  const f = {};
+  const want = key => !partial || has(body, key);
+  if (want('status')) {
+    if (!TYPES.has(body.status)) throw bad('ประเภทต้องเป็น Existing หรือ Prospect');
+    f.type = body.status;
+  }
+  if (want('businessName')) f.business_name = text(body, 'businessName', 'ชื่อธุรกิจ', 200, true);
+  if (want('segment')) f.segment = text(body, 'segment', 'หมวดธุรกิจ', 60, true);
+  if (want('province')) f.province = text(body, 'province', 'จังหวัด', 80, true);
+  if (want('latitude')) f.latitude = coord(body, 'latitude', 'ละติจูด', 5.5, 20.6);
+  if (want('longitude')) f.longitude = coord(body, 'longitude', 'ลองจิจูด', 97, 106);
+  if (has(body, 'category')) f.category = text(body, 'category', 'หมวดหมู่', 60, false);
+  if (has(body, 'district')) f.district = text(body, 'district', 'อำเภอ', 80, false);
+  if (has(body, 'address')) f.address = text(body, 'address', 'ที่อยู่', 500, false);
+  if (has(body, 'phone')) f.phone = text(body, 'phone', 'โทรศัพท์', 60, false);
+  if (has(body, 'website')) f.website = text(body, 'website', 'เว็บไซต์', 300, false);
+  if (has(body, 'facebook')) f.facebook = text(body, 'facebook', 'เฟซบุ๊ก', 300, false);
+  if (has(body, 'accountNo')) f.account_no = text(body, 'accountNo', 'รหัสลูกค้า', 40, false);
+  if (has(body, 'email')) {
+    f.email = text(body, 'email', 'อีเมล', 200, false);
+    if (f.email && !EMAIL_RE.test(f.email)) throw bad('รูปแบบอีเมลไม่ถูกต้อง');
+  }
+  if (has(body, 'dateJoin')) {
+    f.date_join = text(body, 'dateJoin', 'วันที่เริ่มเป็นลูกค้า', 10, false);
+    if (f.date_join && (!DATE_RE.test(f.date_join) || Number.isNaN(Date.parse(f.date_join))))
+      throw bad('วันที่เริ่มเป็นลูกค้าไม่ถูกต้อง');
+  }
+  return f;
+}
+
+async function resolveOwner(db, body, f) {
+  if (!has(body, 'tc_owner')) return;
+  const v = body.tc_owner;
+  if (v !== null && v !== undefined && typeof v !== 'string') throw bad('ชื่อ TC ไม่ถูกต้อง');
+  const name = (v || '').trim();
+  if (UNASSIGNED.has(name)) { f.tc_owner_id = null; return; }
+  const r = await db.query("select id from users where name = $1 and role = 'Trade Coordinator' order by id limit 1", [name]);
+  if (!r.rowCount) throw bad('ไม่พบ TC ชื่อนี้ในระบบ: ' + name.slice(0, 80));
+  f.tc_owner_id = r.rows[0].id;
+}
+
+async function checkProvince(db, f) {
+  if (f.province === undefined) return;
+  const r = await db.query('select 1 from provinces where key = $1', [f.province]);
+  if (!r.rowCount) throw bad('ไม่รู้จักจังหวัดนี้: ' + f.province);
+}
+
+async function fetchByIds(db, ids) {
+  const out = [];
+  for (const k of Object.values(KINDS)) {
+    const r = await db.query(SQL, [k.type, null, null, ids]);
+    out.push(...r.rows.map(k.map));
+  }
+  const order = new Map(ids.map((id, i) => [id, i]));
+  return out.sort((a, b) => order.get(a.id) - order.get(b.id));
+}
+
+const newId = type => (type === 'Existing' ? 'CUSU' : 'PROU') + randomBytes(6).toString('hex').toUpperCase();
+
+export async function createPlaces(pool, records) {
+  if (!Array.isArray(records) || !records.length) throw bad('ต้องมีรายการอย่างน้อย 1 รายการ');
+  if (records.length > MAX_BATCH) throw bad('เพิ่มได้ครั้งละไม่เกิน ' + MAX_BATCH + ' รายการ');
+  return withTransaction(pool, async tx => {
+    const ids = [];
+    for (const [i, body] of records.entries()) {
+      let f;
+      try {
+        f = readFields(body, false);
+        if (f.type === 'Existing' && !f.account_no) throw bad('ต้องกรอกรหัสลูกค้า');
+        await resolveOwner(tx, body, f);
+        await checkProvince(tx, f);
+      } catch (e) {
+        if (e.status === 400 && records.length > 1) e.message = 'รายการที่ ' + (i + 1) + ': ' + e.message;
+        throw e;
+      }
+      f.id = newId(f.type);
+      f.source = 'manual_admin';
+      if (f.type === 'Prospect') f.visit_status = 'ยังไม่เข้าพบ';
+      const cols = Object.keys(f);
+      await tx.query('insert into places (' + cols.join(', ') + ') values (' + cols.map((_, n) => '$' + (n + 1)).join(', ') + ')',
+        cols.map(c => f[c]));
+      ids.push(f.id);
+    }
+    return fetchByIds(tx, ids);
+  });
+}
+
+export async function updatePlace(pool, id, body) {
+  return withTransaction(pool, async tx => {
+    const cur = await tx.query('select type, account_no from places where id = $1 and deleted_at is null for update', [id]);
+    if (!cur.rowCount) return null;
+    const f = readFields(body, true);
+    await resolveOwner(tx, body, f);
+    await checkProvince(tx, f);
+    const type = f.type || cur.rows[0].type;
+    const account = has(f, 'account_no') ? f.account_no : cur.rows[0].account_no;
+    if (type === 'Existing' && !account) throw bad('ต้องกรอกรหัสลูกค้า');
+    const cols = Object.keys(f);
+    if (cols.length) {
+      const sets = cols.map((c, n) => c + ' = $' + (n + 2));
+      if (type === 'Existing' && cur.rows[0].type === 'Prospect') sets.push('converted_at = now()');
+      if (type === 'Prospect' && cur.rows[0].type === 'Existing') sets.push("visit_status = coalesce(visit_status, 'ยังไม่เข้าพบ')");
+      await tx.query('update places set ' + sets.join(', ') + ' where id = $1', [id, ...cols.map(c => f[c])]);
+    }
+    return (await fetchByIds(tx, [id]))[0];
+  });
+}
+
+export async function deletePlace(pool, id) {
+  const r = await pool.query('update places set deleted_at = now() where id = $1 and deleted_at is null', [id]);
+  return r.rowCount > 0;
 }
