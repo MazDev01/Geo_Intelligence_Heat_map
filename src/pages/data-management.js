@@ -329,7 +329,7 @@ function EditRowDrawer({row, onClose, onSave, onSkip, onMerge, onNew}){
 
 /* ═══════════════════ แท็บ 1: นำเข้าไฟล์ Excel (Wizard 4 ขั้น) ═══════════════════ */
 // resumeFile: เมื่อกด "จัดการรายการค้าง" จากแท็บจัดการไฟล์ → เปิด wizard ที่ขั้นตอนที่ 3 ของไฟล์นั้น
-function ImportWizard({resumeFile, staging, setStaging, onExitResume}={}){
+function ImportWizard({resumeFile, staging, setStaging, onExitResume, onImported}={}){
   const [step,setStep]=useState(1);
   const [file,setFile]=useState(null);
   const [fileErr,setFileErr]=useState("");
@@ -422,7 +422,7 @@ function ImportWizard({resumeFile, staging, setStaging, onExitResume}={}){
     const res=await importsApi("/confirm",{method:"POST", body:{fileId:up.file.id}});
     setBusy(""); setImporting(false);
     if(!res.ok){ toast(res.error,"bad"); return; }
-    setResult(res); setDone(true);
+    setResult(res); setDone(true); onImported&&onImported();
     const okN=(res.counts&&res.counts.ok)||0;
     pushAudit({action:t("นำเข้าไฟล์ Excel", "Import an Excel file"), category:"นำเข้า", detail:`${file.name} ${t("· สำเร็จ", "· succeeded")} ${okN} ${t("รายการ", "records")}`});
     toast(`${t("นำเข้าข้อมูลสำเร็จ", "Import finished")} ${okN} ${t("รายการ", "records")}`,"good");
@@ -436,7 +436,7 @@ function ImportWizard({resumeFile, staging, setStaging, onExitResume}={}){
 
   // ── โหมด "จัดการรายการค้าง" — ทำงานต่อจากขั้นตอนที่ 3 ของไฟล์ที่เลือก (กรองเฉพาะแถวที่ยังไม่ตัดสินใจ) ──
   if(resumeFile){
-    const s=fileStats(resumeFile, staging);
+    const s=resumeFile.s||fileStats(resumeFile, staging);
     return html`<div>
       <div class="dm-resume-bar">
         <div><b>${t("จัดการรายการค้าง ·", "Handle pending rows ·")} ${resumeFile.file}</b>
@@ -592,23 +592,60 @@ function ImportWizard({resumeFile, staging, setStaging, onExitResume}={}){
 }
 
 /* ═══════════════════ แท็บ 2: จัดการไฟล์นำเข้า ═══════════════════ */
-function ImportFiles({staging, onManagePending}){
+function ImportFiles({staging, onManagePending, onSummary}){
   const [rows,setRows]=useState(IMPORTS);
   const [q,setQ]=useState(""); const [f,setF]=useState("all"); const [page,setPage]=useState(1);
   const [drawer,setDrawer]=useState(null); const [rollback,setRollback]=useState(null);
   const [confirmTxt,setConfirmTxt]=useState("");
+  const [live,setLive]=useState(null);
+  const [data,setData]=useState(null);
+  const [loadErr,setLoadErr]=useState("");
+  const [busy,setBusy]=useState(false);
+  const [tick,setTick]=useState(0);
+  const reqNo=useRef(0);
+  useEffect(()=>{
+    if(live===false) return;
+    const no=++reqNo.current;
+    const timer=setTimeout(async()=>{
+      const res=await importsApi("",{query:{q:q.trim(), filter:f, limit:10, offset:(page-1)*10}});
+      if(no!==reqNo.current) return;
+      if(res.local){ setLive(false); onSummary&&onSummary(false); return; }
+      setLive(true);
+      if(!res.ok){ setLoadErr(res.error); return; }
+      setLoadErr(""); setData(res); onSummary&&onSummary(res.summary);
+      if(!res.files.length && page>1) setPage(1);
+    }, data?250:0);
+    return ()=>clearTimeout(timer);
+  },[q,f,page,tick]);
+  const liveRows = live ? (data ? data.files : []).map(x=>({ id:x.id, file:x.filename, dt:x.uploadedAt, by:x.uploadedBy||"—", template:x.template||"—",
+    done:x.imported, editedAfter:x.impact.editedAfter, visited:x.impact.kept, toWithdraw:x.impact.toWithdraw, canWithdraw:x.canWithdraw, age:x.ageDays,
+    s:{imported:x.imported, pending:x.queue.pending, skipped:x.queue.skipped, hasPending:x.hasPending, days:x.hasPending?x.ageDays:0} })) : null;
   // แนบสถิติผลการนำเข้าต่อไฟล์ (เข้าระบบ/ค้าง/ข้าม/วันค้าง) — ไม่ลบชุดที่ถอนแล้ว แค่ซ่อนด้วย withdrawn
   const withStats=rows.filter(r=>!r.withdrawn).map(r=>({...r, s:fileStats(r,staging)}));
   const matchF=r=> f==="all" ? true : f==="pending" ? r.s.hasPending : !r.s.hasPending;
   const filtered=withStats.filter(r=>matchF(r)&&(!q||r.file.includes(q)))
     // ไฟล์ที่มีของค้างขึ้นก่อน · ค้างนานที่สุดอยู่บนสุด · ที่เหลือเรียงวันที่ใหม่→เก่า
     .sort((a,b)=> (b.s.hasPending?1:0)-(a.s.hasPending?1:0) || (b.s.days-a.s.days) || (a.dt<b.dt?1:-1));
-  const PAGE=10; const totalPages=Math.max(1,Math.ceil(filtered.length/PAGE)); const pageRows=filtered.slice((page-1)*PAGE,page*PAGE);
+  const PAGE=10; const shown=liveRows?(data?data.total:0):live===null?0:filtered.length;
+  const totalPages=Math.max(1,Math.ceil(shown/PAGE)); const pageRows=liveRows||(live===null?[]:filtered.slice((page-1)*PAGE,page*PAGE));
   // สรุปบรรทัดเดียว
   const pendFiles=withStats.filter(r=>r.s.hasPending);
-  const canRollback=b=> b.done>0 && daysSince(b.dt)<=7;   // ยกเลิกได้เฉพาะชุดที่นำเข้าไม่เกิน 7 วัน
+  const canRollback=b=> liveRows ? b.canWithdraw : b.done>0 && daysSince(b.dt)<=7;   // ยกเลิกได้เฉพาะชุดที่นำเข้าไม่เกิน 7 วัน
+  const ageOf=b=> liveRows ? b.age : Math.round(daysSince(b.dt));
+  const goneOf=b=> liveRows ? b.toWithdraw : Math.max(0,b.done-b.visited);
   const openRollback=b=>{ setConfirmTxt(""); setRollback(b); };
-  const doRollback=b=>{ const withdrawn=Math.max(0,b.done-b.visited);   // รายการที่เข้าพบแล้วไม่ถูกถอน
+  const liveRollback=async b=>{
+    if(busy) return;
+    setBusy(true);
+    const res=await importsApi("/withdraw",{method:"POST", body:{fileId:b.id}});
+    setBusy(false);
+    if(!res.ok){ toast(res.error,"bad"); return; }
+    setRollback(null); setDrawer(null); setTick(n=>n+1);
+    pushAudit({action:t("ยกเลิกการนำเข้าทั้งชุด (Rollback)", "Rolled back a whole import batch"), category:"ลบ",
+      detail:`${b.file} ${t("· ถอน", "· withdrew")} ${res.withdrawn} ${t("รายการ · คงไว้", "records · kept")} ${res.kept} ${t("รายการ", "records")}`});
+    toast(`${t("ถอนการนำเข้า", "Withdrew the import")} ${b.file} ${t("แล้ว — คงไว้", "— kept")} ${res.kept} ${t("รายการ", "records")}`,"warn");
+  };
+  const doRollback=b=>{ if(liveRows) return liveRollback(b); const withdrawn=Math.max(0,b.done-b.visited);   // รายการที่เข้าพบแล้วไม่ถูกถอน
     setRows(rs=>rs.map(x=>x.id===b.id?{...x,withdrawn:true,status:"ถอนออกแล้ว"}:x)); setRollback(null); setDrawer(null);
     pushAudit({action:t("ยกเลิกการนำเข้าทั้งชุด (Rollback)", "Rolled back a whole import batch"), category:"ลบ",
       detail:`${b.file} ${t("· ถอน", "· withdrew")} ${withdrawn} ${t("รายการ · คงไว้", "records · kept")} ${b.visited} ${t("รายการที่เข้าพบแล้ว (ทำเครื่องหมายให้ตรวจสอบ)", "records already visited (flagged for review)")}`});
@@ -625,7 +662,7 @@ function ImportFiles({staging, onManagePending}){
           html`<button key=${v} class=${"dm-chip"+(f===v?" on":"")} onClick=${()=>{setF(v);setPage(1);}}>${l}</button>`)}
       </div>
     </div>
-    <${Table} empty=${t("ไม่พบไฟล์นำเข้า", "No import files found")} cols=${[
+    <${Table} empty=${loadErr||(live===null||(live&&!data)?t("กำลังโหลด…", "Loading…"):t("ไม่พบไฟล์นำเข้า", "No import files found"))} cols=${[
       {h:t("ชื่อไฟล์", "File name"), render:r=>html`<button class="dm-link" onClick=${()=>setDrawer(r)}>${r.file}</button>`},
       {h:t("วันที่/เวลา", "Date / time"), render:r=>beDate(r.dt,true)},
       {h:t("ผู้อัปโหลด", "Uploaded by"), render:r=>r.by},
@@ -633,12 +670,12 @@ function ImportFiles({staging, onManagePending}){
       {h:t("สถานะ", "Status"), render:r=>statCell(r.s)},
       {h:t("การจัดการ", "Actions"), render:r=>html`<div class="row" style=${{gap:"6px"}}>
         <${Btn} size="sm" variant="ghost" onClick=${()=>setDrawer(r)}>${t("รายละเอียด", "Details")}</${Btn}>
-        ${r.s.hasPending?html`<${Btn} size="sm" variant="outline" onClick=${()=>onManagePending&&onManagePending(r.id)}>${t("จัดการรายการค้าง", "Handle pending rows")}</${Btn}>`:""}
+        ${r.s.hasPending?html`<${Btn} size="sm" variant="outline" onClick=${()=>onManagePending&&onManagePending(r.id, liveRows?r:null)}>${t("จัดการรายการค้าง", "Handle pending rows")}</${Btn}>`:""}
         ${r.done>0?html`<${Btn} size="sm" variant="ghost" disabled=${!canRollback(r)}
           title=${canRollback(r)?"":t("ยกเลิกได้เฉพาะชุดที่นำเข้าไม่เกิน 7 วัน", "Only batches imported within the last 7 days can be rolled back")}
           onClick=${()=>openRollback(r)}>${t("ยกเลิกการนำเข้าชุดนี้", "Roll back this batch")}</${Btn}>`:""}</div>`},
     ]} rows=${pageRows}/>
-    ${totalPages>1?html`<div class="dm-pager"><span class="dim">${t("แสดง", "Showing")} ${(page-1)*PAGE+1}–${Math.min(page*PAGE,filtered.length)} ${t("จาก", "of")} ${filtered.length} ${t("ไฟล์", "File")}</span>
+    ${totalPages>1?html`<div class="dm-pager"><span class="dim">${t("แสดง", "Showing")} ${(page-1)*PAGE+1}–${Math.min(page*PAGE,shown)} ${t("จาก", "of")} ${shown} ${t("ไฟล์", "File")}</span>
       <div class="row" style=${{gap:"5px"}}>${Array.from({length:totalPages},(_,i)=>i+1).map(p=>html`<button key=${p} class=${"dm-pg"+(p===page?" on":"")} onClick=${()=>setPage(p)}>${p}</button>`)}</div></div>`:""}
 
     ${drawer?html`<${Modal} title=${drawer.file} onClose=${()=>setDrawer(null)}>
@@ -649,21 +686,21 @@ function ImportFiles({staging, onManagePending}){
         <div class="dm-kv"><span>${t("เข้าระบบแล้ว", "Imported")}</span><b style=${{color:"var(--good)"}}>${num(drawer.s.imported)} ${t("รายการ", "records")}</b></div>
         <div class="dm-kv"><span>${t("ค้างรอจัดการ", "Pending")}</span><b style=${{color:drawer.s.pending?"#b45309":"var(--muted)"}}>${num(drawer.s.pending)} ${t("รายการ", "records")}</b></div>
         <div class="dm-kv"><span>${t("ข้าม (เก็บอ้างอิง)", "Skipped (kept for reference)")}</span><b>${num(drawer.s.skipped)} ${t("รายการ", "records")}</b></div>
-        ${drawer.s.hasPending?html`<${Btn} variant="primary" style=${{marginTop:"14px"}} onClick=${()=>{setDrawer(null);onManagePending&&onManagePending(drawer.id);}}>${t("จัดการรายการค้าง", "Handle pending rows")} ${num(drawer.s.pending)} ${t("รายการ", "records")}</${Btn}>`:""}
+        ${drawer.s.hasPending?html`<${Btn} variant="primary" style=${{marginTop:"14px"}} onClick=${()=>{setDrawer(null);onManagePending&&onManagePending(drawer.id, liveRows?drawer:null);}}>${t("จัดการรายการค้าง", "Handle pending rows")} ${num(drawer.s.pending)} ${t("รายการ", "records")}</${Btn}>`:""}
         ${drawer.done>0?html`<${Btn} variant="outline" icon="trash" disabled=${!canRollback(drawer)} style=${{marginTop:"10px"}}
           onClick=${()=>openRollback(drawer)}>${t("ยกเลิกการนำเข้าชุดนี้", "Roll back this batch")}</${Btn}>
-          ${!canRollback(drawer)?html`<div class="dm-caption" style=${{marginTop:"8px"}}>${t("ยกเลิกได้เฉพาะชุดที่นำเข้าไม่เกิน 7 วัน (ชุดนี้ผ่านมา", "Only batches imported within the last 7 days can be rolled back (this one is")} ${Math.round(daysSince(drawer.dt))} ${t("วัน)", "days old)")}</div>`:""}`:""}
+          ${!canRollback(drawer)?html`<div class="dm-caption" style=${{marginTop:"8px"}}>${t("ยกเลิกได้เฉพาะชุดที่นำเข้าไม่เกิน 7 วัน (ชุดนี้ผ่านมา", "Only batches imported within the last 7 days can be rolled back (this one is")} ${ageOf(drawer)} ${t("วัน)", "days old)")}</div>`:""}`:""}
       </${Modal}>`:""}
 
     ${rollback?html`<${Modal} title=${t("ยกเลิกการนำเข้าทั้งชุด", "Roll back the whole batch")} onClose=${()=>setRollback(null)}
       footer=${html`<div class="row" style=${{gap:"10px",justifyContent:"flex-end"}}>
         <${Btn} variant="ghost" onClick=${()=>setRollback(null)}>${t("ยกเลิก", "Cancel")}</${Btn}>
-        <${Btn} variant="danger" disabled=${confirmTxt.trim().toUpperCase()!==t("ยืนยัน", "CONFIRM")} onClick=${()=>doRollback(rollback)}>${t("ถอนการนำเข้า", "Withdrew the import")}</${Btn}></div>`}>
+        <${Btn} variant="danger" disabled=${busy||confirmTxt.trim().toUpperCase()!==t("ยืนยัน", "CONFIRM")} onClick=${()=>doRollback(rollback)}>${t("ถอนการนำเข้า", "Withdrew the import")}</${Btn}></div>`}>
       <p>${t("ยกเลิกการนำเข้าจากไฟล์", "Roll back the import from")} <b>${rollback.file}</b></p>
       <ul class="dm-impact">
-        <li>${t("จะถอนรายการที่นำเข้าจากไฟล์นี้", "This withdraws the records imported from this file")} <b>${num(Math.max(0,rollback.done-rollback.visited))} ${t("รายการ", "records")}</b></li>
-        <li>${t("ในจำนวนนี้มี", "Of these,")} <b>${num(rollback.editedAfter)} ${t("รายการ", "records")}</b>${t("ที่ถูกแก้ไขหลังนำเข้า และ", "were edited after import and")} <b>${num(rollback.visited)} ${t("รายการ", "records")}</b>${t("ที่มีการเข้าพบแล้ว", "have already been visited")}</li>
-        <li>${t("รายการที่มีการเข้าพบแล้ว", "Records already visited")} <b>${t("จะไม่ถูกถอน", "are not withdrawn")}</b> ${t("แต่จะถูกทำเครื่องหมายให้ตรวจสอบ", "but are flagged for review")}</li>
+        <li>${t("จะถอนรายการที่นำเข้าจากไฟล์นี้", "This withdraws the records imported from this file")} <b>${num(goneOf(rollback))} ${t("รายการ", "records")}</b></li>
+        <li>${t("ในจำนวนนี้มี", "Of these,")} <b>${num(rollback.editedAfter)} ${t("รายการ", "records")}</b>${t("ที่ถูกแก้ไขหลังนำเข้า", "were edited after import")}</li>
+        <li>${liveRows?t("รายการที่มีเข้าพบ นัดหมาย หรือแปลงเป็นลูกค้าแล้ว", "Records with a visit, an appointment or already converted"):t("รายการที่มีการเข้าพบแล้ว", "Records already visited")} <b>${num(rollback.visited)} ${t("รายการ", "records")}</b> <b>${t("จะไม่ถูกถอน", "are not withdrawn")}</b> ${t("แต่จะถูกทำเครื่องหมายให้ตรวจสอบ", "but are flagged for review")}</li>
       </ul>
       <div class="dm-alert warn"><${Icon} name="gap" size=${15}/> ${t("ข้อมูลไม่ถูกลบถาวร — ชุดนี้จะเปลี่ยนสถานะเป็น \"ถอนออกแล้ว\" และซ่อนจากทุกหน้าจอ · บันทึกลงบันทึกการตรวจสอบ", "Nothing is permanently deleted — the batch is marked \"withdrawn\" and hidden everywhere · written to the audit log")}</div>
       <label class="dm-frm-f" style=${{marginTop:"12px"}}>
@@ -1535,11 +1572,15 @@ function pageWindow(cur, total){
 /* ───────── เมนูย่อย 1: นำเข้าข้อมูล ───────── */
 export function DataImport(){
   const [staging,setStaging]=useShared("staging", genStaging);
-  const importedTotal=IMPORTS.reduce((a,b)=>a+b.done,0);
-  const latestImport=IMPORTS[0];
+  const [sum,setSum]=useState(null);
+  const [live,setLive]=useState(null);
+  const loadSum=()=>importsApi("",{query:{limit:1}}).then(r=>{ setLive(!r.local); if(!r.local&&r.ok) setSum(r.summary); });
+  useEffect(()=>{ loadSum(); },[]);
+  const importedTotal=sum ? sum.imported : IMPORTS.reduce((a,b)=>a+b.done,0);
+  const latestImport=sum ? (sum.lastUploadedAt?{dt:sum.lastUploadedAt}:null) : IMPORTS[0];
   return html`<div class="page fade-in">
-    <${DmHead} title=${t("นำเข้าข้อมูล", "Data import")} caption=${`${t("นำเข้าจากไฟล์สะสม", "Imported from files, total")} ${num(importedTotal)} ${t("รายการ", "records ")}${latestImport?` ${t("· นำเข้าล่าสุด", "· last import")} ${beDate(latestImport.dt)}`:""}`}/>
-    <${ImportWizard} resumeFile=${null} staging=${staging} setStaging=${setStaging} onExitResume=${()=>{}}/>
+    <${DmHead} title=${t("นำเข้าข้อมูล", "Data import")} caption=${live===null||(live&&!sum) ? "" : `${t("นำเข้าจากไฟล์สะสม", "Imported from files, total")} ${num(importedTotal)} ${t("รายการ", "records ")}${latestImport?` ${t("· นำเข้าล่าสุด", "· last import")} ${beDate(latestImport.dt)}`:""}`}/>
+    <${ImportWizard} resumeFile=${null} staging=${staging} setStaging=${setStaging} onExitResume=${()=>{}} onImported=${loadSum}/>
     <style>${DM_CSS}</style>
   </div>`;
 }
@@ -1548,14 +1589,16 @@ export function DataImport(){
 export function DataFiles(){
   const [staging,setStaging]=useShared("staging", genStaging);
   const [resumeFile,setResumeFile]=useState(null);
-  const stagePending=staging.filter(r=>r.status==="pending").length;
+  const [sum,setSum]=useState(undefined);
+  const stagePending=sum ? sum.pending : staging.filter(r=>r.status==="pending").length;
   return html`<div class="page fade-in">
-    <${DmHead} title=${t("จัดการไฟล์นำเข้า", "Import files")} caption=${stagePending?`${t("ยังมีรายการค้างจัดการ", "rows still pending")} ${num(stagePending)} ${t("รายการ", "records")}`:t("ไม่มีรายการค้างจัดการ", "No rows pending")}/>
+    <${DmHead} title=${t("จัดการไฟล์นำเข้า", "Import files")} caption=${sum===undefined?"":stagePending?`${t("ยังมีรายการค้างจัดการ", "rows still pending")} ${num(stagePending)} ${t("รายการ", "records")}`:t("ไม่มีรายการค้างจัดการ", "No rows pending")}/>
     ${resumeFile
       ? html`<${ImportWizard} resumeFile=${resumeFile} staging=${staging} setStaging=${setStaging}
           onExitResume=${()=>setResumeFile(null)}/>`
       : html`<${ImportFiles} staging=${staging}
-          onManagePending=${fileId=>setResumeFile(IMPORTS.find(f=>f.id===fileId)||null)}/>`}
+          onSummary=${setSum}
+          onManagePending=${(fileId,liveFile)=>setResumeFile(liveFile||IMPORTS.find(f=>f.id===fileId)||null)}/>`}
     <style>${DM_CSS}</style>
   </div>`;
 }
