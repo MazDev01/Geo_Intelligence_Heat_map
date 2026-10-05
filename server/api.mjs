@@ -1,7 +1,7 @@
 import {createRequire} from 'node:module';
 import {withTransaction} from './db/pool.mjs';
 import {listPlaces, createPlaces, updatePlace, deletePlace} from './places.mjs';
-import {importUpload} from './imports.mjs';
+import {importUpload, mapUpload} from './imports.mjs';
 import {cleanFilename, fileKind, MAX_FILE_BYTES} from './import-parse.mjs';
 
 const require = createRequire(import.meta.url);
@@ -19,17 +19,20 @@ const send = (res, code, obj) => {
   res.end(obj === undefined ? '' : JSON.stringify(obj));
 };
 
-async function readBytes(req, limit) {
+async function readBytes(req, limit, discardUpTo = limit) {
   const chunks = [];
   let size = 0;
   for await (const chunk of req) {
     size += chunk.length;
     if (size > limit) {
-      const e = new Error('payload too large');
-      e.status = 413;
-      throw e;
-    }
-    chunks.push(chunk);
+      chunks.length = 0;
+      if (size > discardUpTo) break;
+    } else chunks.push(chunk);
+  }
+  if (size > limit) {
+    const e = new Error('payload too large');
+    e.status = 413;
+    throw e;
   }
   return Buffer.concat(chunks);
 }
@@ -226,9 +229,9 @@ export function makeApi({pool, authStore, zoneStore, demoPassword}) {
     const tooBig = {error: 'ไฟล์ใหญ่เกิน 25 MB กรุณาแบ่งไฟล์'};
     const filename = cleanFilename(query.get('filename'));
     if (!fileKind(filename)) return send(res, 400, {error: 'รองรับเฉพาะไฟล์ .xlsx .xls .csv'});
-    if (Number(req.headers['content-length']) > MAX_FILE_BYTES) return send(res, 413, tooBig);
+    const declared = Number(req.headers['content-length']);
     let bytes;
-    try { bytes = await readBytes(req, MAX_FILE_BYTES); }
+    try { bytes = await readBytes(req, declared > MAX_FILE_BYTES ? 0 : MAX_FILE_BYTES, MAX_FILE_BYTES * 4); }
     catch (e) { if (e.status === 413) return send(res, 413, tooBig); throw e; }
     if (!bytes.length) return send(res, 400, {error: 'ไฟล์ว่างเปล่า'});
     try {
@@ -239,12 +242,28 @@ export function makeApi({pool, authStore, zoneStore, demoPassword}) {
     }
   }
 
+  async function importsMapping(req, res) {
+    if (req.method !== 'POST') return send(res, 405, {error: 'รองรับเฉพาะ POST'});
+    const admin = await requireUser(req, res, 'Administrator');
+    if (!admin) return;
+    let body;
+    try { body = JSON.parse(await readBody(req, 1e6)); }
+    catch (e) { return send(res, e.status === 413 ? 413 : 400, {error: e.status === 413 ? 'ข้อมูลใหญ่เกินไป' : 'อ่านคำขอไม่ได้'}); }
+    try {
+      return send(res, 200, await mapUpload(pool, body, admin.id));
+    } catch (e) {
+      if (e && [400, 404].includes(e.status)) return send(res, e.status, {error: e.message});
+      throw e;
+    }
+  }
+
   const ROUTES = {
     '/api/auth': (req, res) => auth(req, res),
     '/api/customers': places('customers'),
     '/api/leads': places('leads'),
     '/api/places': placesWrite,
     '/api/imports': imports,
+    '/api/imports/mapping': importsMapping,
     '/api/zones': zones,
     '/api/territory': (req, res) => territory(req, res),
     '/api/visit-plans': visitPlans,

@@ -1,6 +1,7 @@
 import {Worker} from 'node:worker_threads';
 import {withTransaction} from './db/pool.mjs';
 import {headerSignature} from './import-parse.mjs';
+import {readMapping, classifyFile, previewFile} from './import-validate.mjs';
 
 const WORKER_URL = new URL('./import-worker.mjs', import.meta.url);
 const PARSE_TIMEOUT_MS = 60000;
@@ -69,5 +70,36 @@ export async function importUpload(pool, {bytes, filename, userId}) {
       sample: rows.slice(0, SAMPLE_ROWS).map(r => ({rowNo: r.no, cells: r.cells})),
       templates: templates.map(t => ({id: Number(t.id), name: t.name, mapping: t.mapping})),
     };
+  });
+}
+
+export async function mapUpload(pool, body, userId) {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) throw fail(400, 'อ่านคำขอไม่ได้');
+  const fileId = Number(body.fileId);
+  if (!Number.isSafeInteger(fileId) || fileId < 1) throw fail(400, 'ต้องระบุไฟล์');
+  let templateName = null;
+  if (body.saveTemplate !== undefined && body.saveTemplate !== null && body.saveTemplate !== '') {
+    if (typeof body.saveTemplate !== 'string') throw fail(400, 'ชื่อผังการจับคู่ไม่ถูกต้อง');
+    templateName = body.saveTemplate.trim();
+    if (!templateName || templateName.length > 80) throw fail(400, 'ชื่อผังการจับคู่ต้องยาว 1 ถึง 80 ตัวอักษร');
+  }
+  return withTransaction(pool, async tx => {
+    const file = (await tx.query("select file_id, headers from import_files where file_id = $1 and status = 'pending' for update", [fileId])).rows[0];
+    if (!file) throw fail(404, 'ไม่พบไฟล์นี้ หรือไฟล์นี้ถูกยืนยันไปแล้ว');
+    const plan = readMapping(file.headers, body);
+    const known = await classifyFile(tx, fileId, plan);
+    const preview = await previewFile(tx, known);
+    let templateId = null;
+    if (templateName) {
+      templateId = Number((await tx.query(
+        `insert into mapping_templates (name, header_signature, mapping, created_by) values ($1, $2, $3, $4)
+         on conflict (name) do update set header_signature = excluded.header_signature, mapping = excluded.mapping,
+           created_by = excluded.created_by, created_at = now()
+         returning id`,
+        [templateName, headerSignature(file.headers), JSON.stringify(plan.stored), userId])).rows[0].id);
+    }
+    await tx.query('update import_files set mapping = $2, template_id = coalesce($3, template_id) where file_id = $1',
+      [fileId, JSON.stringify(plan.stored), templateId]);
+    return {ok: true, fileId, mapping: plan.stored, templateId, ...preview};
   });
 }
