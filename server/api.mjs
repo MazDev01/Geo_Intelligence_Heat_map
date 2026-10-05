@@ -1,6 +1,8 @@
 import {createRequire} from 'node:module';
 import {withTransaction} from './db/pool.mjs';
 import {listPlaces, createPlaces, updatePlace, deletePlace} from './places.mjs';
+import {importUpload} from './imports.mjs';
+import {cleanFilename, fileKind, MAX_FILE_BYTES} from './import-parse.mjs';
 
 const require = createRequire(import.meta.url);
 const {MAX_BYTES} = require('../zone-validate.cjs');
@@ -17,7 +19,7 @@ const send = (res, code, obj) => {
   res.end(obj === undefined ? '' : JSON.stringify(obj));
 };
 
-async function readBody(req, limit) {
+async function readBytes(req, limit) {
   const chunks = [];
   let size = 0;
   for await (const chunk of req) {
@@ -29,8 +31,10 @@ async function readBody(req, limit) {
     }
     chunks.push(chunk);
   }
-  return Buffer.concat(chunks).toString('utf8');
+  return Buffer.concat(chunks);
 }
+
+const readBody = async (req, limit) => (await readBytes(req, limit)).toString('utf8');
 
 export function makeApi({pool, authStore, zoneStore, demoPassword}) {
   async function auth(req, res) {
@@ -215,11 +219,32 @@ export function makeApi({pool, authStore, zoneStore, demoPassword}) {
     }
   }
 
+  async function imports(req, res, query) {
+    if (req.method !== 'POST') return send(res, 405, {error: 'รองรับเฉพาะ POST'});
+    const admin = await requireUser(req, res, 'Administrator');
+    if (!admin) return;
+    const tooBig = {error: 'ไฟล์ใหญ่เกิน 25 MB กรุณาแบ่งไฟล์'};
+    const filename = cleanFilename(query.get('filename'));
+    if (!fileKind(filename)) return send(res, 400, {error: 'รองรับเฉพาะไฟล์ .xlsx .xls .csv'});
+    if (Number(req.headers['content-length']) > MAX_FILE_BYTES) return send(res, 413, tooBig);
+    let bytes;
+    try { bytes = await readBytes(req, MAX_FILE_BYTES); }
+    catch (e) { if (e.status === 413) return send(res, 413, tooBig); throw e; }
+    if (!bytes.length) return send(res, 400, {error: 'ไฟล์ว่างเปล่า'});
+    try {
+      return send(res, 201, await importUpload(pool, {bytes, filename, userId: admin.id}));
+    } catch (e) {
+      if (e && [400, 413, 429].includes(e.status)) return send(res, e.status, {error: e.message});
+      throw e;
+    }
+  }
+
   const ROUTES = {
     '/api/auth': (req, res) => auth(req, res),
     '/api/customers': places('customers'),
     '/api/leads': places('leads'),
     '/api/places': placesWrite,
+    '/api/imports': imports,
     '/api/zones': zones,
     '/api/territory': (req, res) => territory(req, res),
     '/api/visit-plans': visitPlans,
