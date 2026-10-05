@@ -14,7 +14,7 @@ import {loadZoneRegistry, zoneRegistry, zonesOf, zoneLabel, zoneColor, saveZoneR
   from "../zone-registry.js";   // ทะเบียนโซน — แหล่งความจริงเดียวของ id/ชื่อ/สี/จังหวัด
 import {pushAudit} from "../audit.js";
 import {ExportDialog, defaultReportName, downloadXLS} from "./reports.js";   // ป็อปอัพส่งออกตัวเดียวกับหน้ารายงาน
-import {downloadCSV} from "../data.js";
+import {downloadCSV, importsApi} from "../data.js";
 import {canExport} from "../export-perms.js";
 import {loadTerritory, saveTerritory} from "../territory-store.js";
 import {AddRecordsForm} from "../add-records.js";
@@ -174,6 +174,58 @@ const SYS_FIELDS = [
   {k:"email",   get label(){ return t("อีเมล","Email"); }},
   {k:"note",    get label(){ return t("หมายเหตุ","Note"); }},
   {k:"__skip",  get label(){ return t("— ไม่นำเข้าคอลัมน์นี้ —","— don't import this column —"); }} ];
+const LIVE_FIELDS = [
+  {k:"businessName", get label(){ return t("ชื่อธุรกิจ","Business name"); }, req:true},
+  {k:"latitude",label:"Latitude",req:true},{k:"longitude",label:"Longitude",req:true},
+  {k:"segment", get label(){ return t("หมวดหมู่ธุรกิจ (Segment)","Business category (segment)"); }, req:true},
+  {k:"type",    get label(){ return t("ประเภท (ลูกค้า/Lead)","Type (customer / Lead)"); }, req:true},
+  {k:"accountNo", get label(){ return t("รหัสลูกค้า","Account no."); }},
+  {k:"province",get label(){ return t("จังหวัด","Province"); }},
+  {k:"district",get label(){ return t("อำเภอ/เขต","District"); }},
+  {k:"address", get label(){ return t("ที่อยู่","Address"); }},
+  {k:"category",get label(){ return t("หมวดย่อย","Sub-category"); }},
+  {k:"phone",   get label(){ return t("เบอร์โทร","Phone"); }},
+  {k:"email",   get label(){ return t("อีเมล","Email"); }},
+  {k:"website", get label(){ return t("เว็บไซต์","Website"); }},
+  {k:"facebook",label:"Facebook"},
+  {k:"dateJoin",get label(){ return t("วันที่เริ่มเป็นลูกค้า","Customer since"); }},
+  {k:"__skip",  get label(){ return t("— ไม่นำเข้าคอลัมน์นี้ —","— don't import this column —"); }} ];
+const LIVE_LABEL = k => (LIVE_FIELDS.find(f=>f.k===k)||{}).label || k;
+const HEADER_GUESS = [
+  ["latitude", /^lat|ละติจูด/i], ["longitude", /^(lng|lon)|ลองจิจูด/i],
+  ["email", /อีเมล|e-?mail/i], ["website", /เว็บ|web|url/i], ["facebook", /facebook|เฟซ|^fb$/i],
+  ["phone", /เบอร์|โทร|phone|^tel/i], ["accountNo", /รหัส|account|acc\.?\s*no/i],
+  ["province", /จังหวัด|province/i], ["district", /อำเภอ|เขต|district/i], ["address", /ที่อยู่|ที่ตั้ง|address/i],
+  ["category", /หมวดย่อย|category/i], ["segment", /segment|หมวด|ประเภทกิจการ|ประเภทธุรกิจ/i],
+  ["type", /^type$|สถานะ|ประเภท|status/i], ["dateJoin", /วันที่|date/i],
+  ["businessName", /ชื่อ|name|ร้าน|บริษัท|business/i] ];
+function guessMapping(headers){
+  const taken = new Set(); const out = {};
+  for(const h of headers){
+    const hit = HEADER_GUESS.find(([k,re])=>!taken.has(k) && re.test(String(h).trim()));
+    out[h] = hit ? hit[0] : "__skip";
+    if(hit) taken.add(hit[0]);
+  }
+  return out;
+}
+const ISSUE_TEXT = {
+  get missing_required(){ return t("ไม่มี","Missing: "); },
+  get unknown_value(){ return t("ไม่รู้จักค่าใน","Unknown value: "); },
+  get invalid_value(){ return t("ค่าไม่ถูกต้องใน","Invalid: "); },
+  get invalid_coordinate(){ return t("พิกัดใช้ไม่ได้ใน","Bad coordinate: "); },
+  get too_long(){ return t("ยาวเกินใน","Too long: "); } };
+const liveIssueText = r => {
+  if(r.kind==="dup"){
+    const who = r.match ? r.match.businessName : `${t("แถวที่", "Row")} ${r.matchRow}`;
+    return `${t("คล้ายกับ", "Similar to")} ${who}${r.similarity!=null?` (${Math.round(r.similarity*100)}%)`:""}`;
+  }
+  return (r.issues||[]).map(i=>(ISSUE_TEXT[i.type]||"")+LIVE_LABEL(i.field)).join(" · ");
+};
+const MAX_UPLOAD_BYTES = 25*1024*1024;
+const TEMPLATE_ROWS = [
+  ["ชื่อธุรกิจ","ละติจูด","ลองจิจูด","หมวดธุรกิจ","ประเภท","รหัสลูกค้า","จังหวัด","อำเภอ","ที่อยู่","หมวดย่อย","เบอร์โทร","อีเมล","เว็บไซต์","Facebook","วันที่เริ่มเป็นลูกค้า"],
+  ["ร้านตัวอย่าง","13.7460","100.5340","Retail","Lead","","กรุงเทพมหานคร","","123 ถนนตัวอย่าง","","021234567","shop@example.com","","",""] ];
+
 // คอลัมน์ในไฟล์ mock + การจับคู่อัตโนมัติที่ระบบเดา · sample = ค่าจริง 3 แถวแรกในไฟล์ (ใช้แสดงตัวอย่าง + ตรวจความสมเหตุสมผล)
 const FILE_COLS = [
   {col:"ชื่อร้าน", sample:["ครัวคุณย่า","เดอะโค้ชโฮเทล","บิวตี้เฮาส์"], auto:"name"},
@@ -189,11 +241,11 @@ const FILE_COLS = [
 // ตรวจความสมเหตุสมผลของค่าตัวอย่างเทียบกับฟิลด์ที่จับคู่ (ไม่บล็อกการกดต่อ — เป็นคำเตือนให้เห็นก่อนตัดสินใจ)
 function mapWarn(field, samples){
   const nums = samples.map(v=>parseFloat(String(v).replace(/[^\d.\-]/g,""))).filter(v=>!isNaN(v));
-  if(field==="lat"){
+  if(field==="lat"||field==="latitude"){
     if(nums.length<samples.length) return t("บางค่าไม่ใช่ตัวเลข — คอลัมน์นี้อาจไม่ใช่ละติจูด", "Some values are not numbers — this column may not be latitude");
     if(nums.some(v=>v<5||v>21)) return t("ค่าที่พบอยู่นอกช่วงละติจูดของไทย (5–21) — ตรวจว่าสลับคอลัมน์กับลองจิจูดหรือไม่", "Values fall outside Thailand's latitude range (5–21) — check whether this column is swapped with longitude");
   }
-  if(field==="lng"){
+  if(field==="lng"||field==="longitude"){
     if(nums.length<samples.length) return t("บางค่าไม่ใช่ตัวเลข — คอลัมน์นี้อาจไม่ใช่ลองจิจูด", "Some values are not numbers — this column may not be longitude");
     if(nums.some(v=>v<97||v>106)) return t("ค่าที่พบอยู่นอกช่วงลองจิจูดของไทย (97–106) — ตรวจว่าสลับคอลัมน์หรือไม่", "Values fall outside Thailand's longitude range (97–106) — check whether the columns are swapped");
   }
@@ -292,22 +344,91 @@ function ImportWizard({resumeFile, staging, setStaging, onExitResume}={}){
   const [pct,setPct]=useState(0);
   const [done,setDone]=useState(false);
   const patchVal=(row,p)=>setValRows(rs=>rs.map(x=>x.row===row?{...x,...p}:x));
+  const [live,setLive]=useState(null);
+  const [up,setUp]=useState(null);
+  const [busy,setBusy]=useState("");
+  const [defs,setDefs]=useState({type:"",segment:""});
+  const [check,setCheck]=useState(null);
+  const [result,setResult]=useState(null);
+  const [dragOver,setDragOver]=useState(false);
+  const fileRef=useRef(null);
+  useEffect(()=>{ let on=true;
+    importsApi("",{query:{limit:1}}).then(r=>{ if(on) setLive(!r.local); });
+    return ()=>{ on=false; }; },[]);
 
   const OK_EXT=[".xlsx",".xls",".csv"];
   const pickFile=()=>{ // จำลองการเลือกไฟล์ (ไม่มี backend) — สุ่มไฟล์ตัวอย่างที่ถูกชนิด
     setFileErr(""); setFile({ name:"ลูกค้าใหม่_กรกฎาคม.xlsx", size:1863000, rows:300, cols:FILE_COLS.length }); };
   const pickBad=()=>{ setFile(null); setFileErr(t("ไฟล์ .pdf ไม่รองรับ — ใช้ได้เฉพาะ .xlsx, .xls, .csv", ".pdf is not supported — only .xlsx, .xls and .csv")); };
+  const clearFile=()=>{ setFile(null); setUp(null); setCheck(null); setResult(null); setFileErr(""); setDefs({type:"",segment:""}); };
+  const chooseFile=async f=>{
+    if(!f || busy) return;
+    clearFile();
+    const ext=(/\.[^.]+$/.exec(f.name)||[""])[0].toLowerCase();
+    if(!OK_EXT.includes(ext)){ setFileErr(`${t("ไฟล์", "File type")} ${ext||f.name} ${t("ไม่รองรับ — ใช้ได้เฉพาะ .xlsx, .xls, .csv", "is not supported — only .xlsx, .xls and .csv")}`); return; }
+    if(f.size>MAX_UPLOAD_BYTES){ setFileErr(t("ไฟล์ใหญ่เกิน 25 MB กรุณาแบ่งไฟล์", "The file is larger than 25 MB — please split it")); return; }
+    if(!f.size){ setFileErr(t("ไฟล์ว่างเปล่า", "The file is empty")); return; }
+    setBusy("upload");
+    const res=await importsApi("",{method:"POST", query:{filename:f.name}, file:f});
+    setBusy("");
+    if(res.local){ setLive(false); pickFile(); return; }
+    setLive(true);
+    if(!res.ok){ setFileErr(res.error); return; }
+    setUp(res);
+    setFile({name:res.file.filename, size:res.file.sizeBytes, rows:res.file.rowsTotal, cols:res.headers.length});
+    setMapping(guessMapping(res.headers));
+    setTplBanner(true);
+  };
+  const openPicker=()=>{ if(busy) return; if(live===false){ pickFile(); return; } if(fileRef.current){ fileRef.current.value=""; fileRef.current.click(); } };
 
-  const reqUnmapped = SYS_FIELDS.filter(f=>f.req).filter(f=> !Object.values(mapping).includes(f.k));
-  const dupMap = Object.values(mapping).filter(v=>v!=="__skip").filter((v,i,a)=>a.indexOf(v)!==i);
+  const isLive = live!==false && !!up;
+  const fields = isLive ? LIVE_FIELDS : SYS_FIELDS;
+  const autoMap = useMemo(()=> up ? guessMapping(up.headers) : {}, [up]);
+  const cols = isLive ? up.headers.map((h,i)=>({col:h, sample:up.sample.map(s=>s.cells[i]||""), auto:autoMap[h]})) : FILE_COLS;
+  const tpl = isLive ? (up.templates||[])[0] : null;
+  const applyTemplate=()=>{
+    const byHeader=Object.fromEntries(Object.entries((tpl.mapping&&tpl.mapping.fields)||{}).map(([k,h])=>[h,k]));
+    setMapping(Object.fromEntries(up.headers.map(h=>[h, byHeader[h]||"__skip"])));
+    const d=(tpl.mapping&&tpl.mapping.defaults)||{};
+    setDefs({type:d.type||"", segment:d.segment||""});
+  };
+  const mapped = Object.values(mapping);
+  const canDefault = k => isLive && (k==="type"||k==="segment");
 
-  const counts = valRows.reduce((a,r)=>{ a[r.issue]=(a[r.issue]||0)+1; return a; },{});
-  const valList = valRows.filter(r=> valFilter==="all"||r.issue===valFilter);
+  const reqUnmapped = fields.filter(f=>f.req).filter(f=> !mapped.includes(f.k) && !(canDefault(f.k) && defs[f.k]));
+  const dupMap = mapped.filter(v=>v!=="__skip").filter((v,i,a)=>a.indexOf(v)!==i);
+
+  const runCheck=async()=>{
+    if(busy) return;
+    const fieldMap={}; for(const [col,k] of Object.entries(mapping)) if(k && k!=="__skip") fieldMap[k]=col;
+    const defaults={}; for(const k of ["type","segment"]) if(!fieldMap[k] && defs[k]) defaults[k]=defs[k];
+    setBusy("check");
+    const res=await importsApi("/mapping",{method:"POST", body:{fileId:up.file.id, mapping:fieldMap, defaults,
+      ...(saveTpl ? {saveTemplate:up.file.filename.replace(/\.[^.]+$/,"").slice(0,80)||up.file.filename.slice(0,80)} : {})}});
+    setBusy("");
+    if(!res.ok){ toast(res.error,"bad"); return; }
+    setCheck(res); setValFilter("all"); setValPage(1); setStep(3);
+  };
+  const liveRows = isLive && check ? check.rows.map(r=>({row:r.rowNo, name:r.values.businessName, province:r.values.province, issue:r.kind, why:liveIssueText(r)})) : [];
+
+  const counts = isLive ? ((result&&result.counts) || (check ? check.counts : {})) : valRows.reduce((a,r)=>{ a[r.issue]=(a[r.issue]||0)+1; return a; },{});
+  const valList = (isLive ? liveRows : valRows).filter(r=> valFilter==="all"||r.issue===valFilter);
   const PAGE=10; const totalPages=Math.max(1,Math.ceil(valList.length/PAGE));
   const pageRows=valList.slice((valPage-1)*PAGE, valPage*PAGE);
 
-  const runImport=()=>{ setImporting(true); setPct(0);
-    const t=setInterval(()=>{ setPct(p=>{ if(p>=100){ clearInterval(t); setImporting(false); setDone(true);
+  const runConfirm=async()=>{
+    if(busy) return;
+    setBusy("confirm"); setImporting(true);
+    const res=await importsApi("/confirm",{method:"POST", body:{fileId:up.file.id}});
+    setBusy(""); setImporting(false);
+    if(!res.ok){ toast(res.error,"bad"); return; }
+    setResult(res); setDone(true);
+    const okN=(res.counts&&res.counts.ok)||0;
+    pushAudit({action:t("นำเข้าไฟล์ Excel", "Import an Excel file"), category:"นำเข้า", detail:`${file.name} ${t("· สำเร็จ", "· succeeded")} ${okN} ${t("รายการ", "records")}`});
+    toast(`${t("นำเข้าข้อมูลสำเร็จ", "Import finished")} ${okN} ${t("รายการ", "records")}`,"good");
+  };
+  const runImport=()=>{ if(isLive) return runConfirm(); setImporting(true); setPct(0);
+    const timer=setInterval(()=>{ setPct(p=>{ if(p>=100){ clearInterval(timer); setImporting(false); setDone(true);
       const okN=counts.ok||0; pushAudit({action:t("นำเข้าไฟล์ Excel", "Import an Excel file"), category:"นำเข้า", detail:`${file?file.name:t("ไฟล์", "File")} ${t("· สำเร็จ", "· succeeded")} ${okN} ${t("รายการ", "records")}`});
       toast(`${t("นำเข้าข้อมูลสำเร็จ", "Import finished")} ${okN} ${t("รายการ", "records")}`,"good"); return 100; } return p+8; }); },90); };
 
@@ -338,52 +459,63 @@ function ImportWizard({resumeFile, staging, setStaging, onExitResume}={}){
     </div>
 
     ${step===1 ? html`<div>
-      <div class=${"dm-drop"+(fileErr?" err":"")} onClick=${pickFile}>
+      <input ref=${fileRef} type="file" accept=".xlsx,.xls,.csv" style=${{display:"none"}} onChange=${e=>chooseFile(e.target.files&&e.target.files[0])}/>
+      <div class=${"dm-drop"+(fileErr?" err":"")} style=${dragOver?{borderColor:"var(--accent)"}:null} onClick=${openPicker}
+        onDragOver=${e=>{ e.preventDefault(); if(live!==false) setDragOver(true); }} onDragLeave=${()=>setDragOver(false)}
+        onDrop=${e=>{ e.preventDefault(); setDragOver(false); if(live!==false) chooseFile(e.dataTransfer.files&&e.dataTransfer.files[0]); }}>
         <${Icon} name="upload" size=${30} color="var(--muted)"/>
-        <div style=${{fontWeight:700,marginTop:"8px"}}>${t("ลากไฟล์มาวาง หรือคลิกเพื่อเลือกไฟล์", "Drop a file here, or click to choose one")}</div>
+        <div style=${{fontWeight:700,marginTop:"8px"}}>${busy==="upload"?t("กำลังอ่านไฟล์…", "Reading the file…"):t("ลากไฟล์มาวาง หรือคลิกเพื่อเลือกไฟล์", "Drop a file here, or click to choose one")}</div>
         <div class="dim" style=${{fontSize:"12.5px",marginTop:"4px"}}>${t("รองรับ .xlsx, .xls, .csv · ไม่เกิน 25 MB ต่อไฟล์", "Supports .xlsx, .xls, .csv · up to 25 MB per file")}</div>
         ${fileErr?html`<div class="dm-fileerr">${fileErr}</div>`:""}
       </div>
       <div class="row" style=${{gap:"10px",marginTop:"10px",flexWrap:"wrap"}}>
-        <${Btn} variant="outline" size="sm" icon="download" onClick=${()=>toast(t("กำลังดาวน์โหลดไฟล์ตัวอย่าง (Template)", "Downloading the template file"),"info")}>${t("ดาวน์โหลดไฟล์ตัวอย่าง (Template)", "Download the template file")}</${Btn}>
-        <${Btn} variant="ghost" size="sm" onClick=${pickBad}>${t("ทดสอบไฟล์ผิดชนิด", "Test a wrong file type")}</${Btn}>
+        <${Btn} variant="outline" size="sm" icon="download" onClick=${()=>downloadCSV("import-template.csv", TEMPLATE_ROWS)}>${t("ดาวน์โหลดไฟล์ตัวอย่าง (Template)", "Download the template file")}</${Btn}>
+        ${live===false?html`<${Btn} variant="ghost" size="sm" onClick=${pickBad}>${t("ทดสอบไฟล์ผิดชนิด", "Test a wrong file type")}</${Btn}>`:""}
       </div>
       ${file?html`<div class="dm-filecard">
         <${Icon} name="reports" size=${22} color="var(--accent)"/>
         <div style=${{flex:1,minWidth:0}}><b>${file.name}</b>
           <div class="dim" style=${{fontSize:"12px"}}>${fmtBytes(file.size)} · ${num(file.rows)} ${t("แถว ·", "rows ·")} ${file.cols} ${t("คอลัมน์", "columns")}</div></div>
-        <button class="icon-btn" onClick=${()=>setFile(null)} aria-label=${t("ลบไฟล์", "Remove the file")}><${Icon} name="trash" size=${15}/></button>
+        <button class="icon-btn" onClick=${clearFile} aria-label=${t("ลบไฟล์", "Remove the file")}><${Icon} name="trash" size=${15}/></button>
       </div>`:""}
     </div>` : ""}
 
     ${step===2 ? html`<div>
-      ${tplBanner?html`<div class="dm-alert" style=${{marginBottom:"12px",justifyContent:"space-between",flexWrap:"wrap",gap:"10px"}}>
-        <span class="row" style=${{gap:"8px"}}><${Icon} name="check" size=${15} color="var(--good)"/> ${t("พบผังการจับคู่เดิมที่ตรงกับรูปแบบไฟล์นี้:", "Found a saved mapping that matches this file's shape:")} <b>${t("ผังมาตรฐาน Barter", "Barter standard mapping")}</b></span>
+      ${tplBanner&&(!isLive||tpl)?html`<div class="dm-alert" style=${{marginBottom:"12px",justifyContent:"space-between",flexWrap:"wrap",gap:"10px"}}>
+        <span class="row" style=${{gap:"8px"}}><${Icon} name="check" size=${15} color="var(--good)"/> ${t("พบผังการจับคู่เดิมที่ตรงกับรูปแบบไฟล์นี้:", "Found a saved mapping that matches this file's shape:")} <b>${isLive?tpl.name:t("ผังมาตรฐาน Barter", "Barter standard mapping")}</b></span>
         <span class="row" style=${{gap:"8px"}}>
-          <${Btn} size="sm" variant="outline" onClick=${()=>{setMapping(Object.fromEntries(FILE_COLS.map(c=>[c.col,c.auto])));setTplBanner(false);toast(t("ใช้ผังการจับคู่เดิมแล้ว", "Applied the saved mapping"),"good");}}>${t("ใช้เลย", "Use it")}</${Btn}>
-          <${Btn} size="sm" variant="ghost" onClick=${()=>{setMapping(Object.fromEntries(FILE_COLS.map(c=>[c.col,"__skip"])));setTplBanner(false);}}>${t("จับคู่ใหม่", "Map again")}</${Btn}></span></div>`:""}
+          <${Btn} size="sm" variant="outline" onClick=${()=>{ if(isLive) applyTemplate(); else setMapping(Object.fromEntries(FILE_COLS.map(c=>[c.col,c.auto])));setTplBanner(false);toast(t("ใช้ผังการจับคู่เดิมแล้ว", "Applied the saved mapping"),"good");}}>${t("ใช้เลย", "Use it")}</${Btn}>
+          <${Btn} size="sm" variant="ghost" onClick=${()=>{setMapping(Object.fromEntries(cols.map(c=>[c.col,"__skip"])));setTplBanner(false);}}>${t("จับคู่ใหม่", "Map again")}</${Btn}></span></div>`:""}
       <div class="dim" style=${{fontSize:"12.5px",marginBottom:"12px"}}>${t("ระบบจับคู่คอลัมน์อัตโนมัติแล้ว — ตรวจและแก้ไขได้ · ช่องที่มี", "Columns were mapped automatically — review and adjust · fields marked")} <span class="dm-auto">${t("จับคู่อัตโนมัติ", "auto-mapped")}</span> ${t("คือระบบเดาให้ · ดูตัวอย่างค่าจริงก่อนยืนยันได้", "were guessed · check the real sample values before confirming")}</div>
-      <${Table} cols=${[
+      <div class="dm-mapwrap"><${Table} cols=${[
         {h:t("คอลัมน์ในไฟล์", "Column in the file"), render:r=>html`<div><b>${r.col}</b>
           <div class="dim" style=${{fontSize:"11px",marginTop:"2px"}}>${t("ตัวอย่าง:", "Sample:")} ${r.sample.slice(0,3).join(" · ")}</div></div>`},
-        {h:t("จับคู่กับฟิลด์ในระบบ", "Maps to system field"), render:r=>{ const w=mapWarn(mapping[r.col], r.sample);
+        {h:t("จับคู่กับฟิลด์ในระบบ", "Maps to system field"), render:r=>{ const w=mapWarn(mapping[r.col], r.sample.filter(v=>String(v).trim()!==""));
           return html`<div style=${{display:"flex",flexDirection:"column",gap:"6px"}}>
             <div class="row" style=${{gap:"8px"}}>
-              <select class="dm-sel" value=${mapping[r.col]} onChange=${e=>setMapping(m=>({...m,[r.col]:e.target.value}))}>
-                ${SYS_FIELDS.map(f=>html`<option key=${f.k} value=${f.k}>${f.label}${f.req?" *":""}</option>`)}</select>
+              <div style=${{width:"260px",maxWidth:"100%"}}><${Dropdown} value=${mapping[r.col]} onChange=${v=>setMapping(m=>({...m,[r.col]:v}))}
+                options=${fields.map(f=>[f.k, f.label+(f.req?" *":"")])}/></div>
               ${mapping[r.col]===r.auto&&r.auto!=="__skip"?html`<span class="dm-auto">${t("จับคู่อัตโนมัติ", "auto-mapped")}</span>`:""}</div>
             ${w?html`<div class="dm-alert warn" style=${{marginTop:0,padding:"7px 10px"}}><${Icon} name="gap" size=${14}/> ${w}</div>`:""}</div>`; }},
-      ]} rows=${FILE_COLS}/>
+      ]} rows=${cols}/></div>
+      ${isLive&&(!mapped.includes("type")||!mapped.includes("segment"))?html`<div class="row" style=${{gap:"14px",marginTop:"12px",flexWrap:"wrap",alignItems:"flex-end"}}>
+        ${!mapped.includes("type")?html`<div style=${{width:"260px",maxWidth:"100%"}}><div class="dim" style=${{fontSize:"12px",marginBottom:"4px"}}>${t("ประเภททั้งไฟล์", "Type for the whole file")}</div>
+          <${Dropdown} value=${defs.type} onChange=${v=>setDefs(d=>({...d,type:v}))}
+            options=${[["",t("— ไม่กำหนด —", "— not set —")],["Existing",t("ลูกค้า", "Customers")],["Prospect","Lead"]]}/></div>`:""}
+        ${!mapped.includes("segment")?html`<div style=${{width:"260px",maxWidth:"100%"}}><div class="dim" style=${{fontSize:"12px",marginBottom:"4px"}}>${t("หมวดธุรกิจทั้งไฟล์", "Segment for the whole file")}</div>
+          <${Dropdown} value=${defs.segment} onChange=${v=>setDefs(d=>({...d,segment:v}))}
+            options=${[["",t("— ไม่กำหนด —", "— not set —")],...SEGMENTS.map(s=>[s,SEG_TH_OF(s)])]}/></div>`:""}
+      </div>`:""}
       ${reqUnmapped.length?html`<div class="dm-alert bad"><${Icon} name="gap" size=${15}/> ${t("ยังไม่ได้จับคู่ฟิลด์ที่จำเป็น:", "Required fields not mapped yet:")} <b>${reqUnmapped.map(f=>f.label).join(", ")}</b></div>`:""}
       ${dupMap.length?html`<div class="dm-alert warn"><${Icon} name="gap" size=${15}/> ${t("มีฟิลด์ถูกจับคู่ซ้ำ — แต่ละฟิลด์ควรจับคู่คอลัมน์เดียว", "A field is mapped twice — each field should map to a single column")}</div>`:""}
 
       <!-- ตัวอย่างข้อมูลรวม: เห็นภาพว่าข้อมูลจะหน้าตาเป็นอย่างไรหลังนำเข้า -->
-      ${(()=>{ const mc=FILE_COLS.filter(c=>mapping[c.col]&&mapping[c.col]!=="__skip");
+      ${(()=>{ const mc=cols.filter(c=>mapping[c.col]&&mapping[c.col]!=="__skip");
         if(!mc.length) return "";
         return html`<div class="dm-preview">
           <div class="dm-preview-h">${t("ตัวอย่างข้อมูลที่จะเข้าระบบ (3 แถวแรก)", "Preview of what will be imported (first 3 rows)")}</div>
           <div class="dm-preview-scroll"><table class="dm-preview-tbl">
-            <thead><tr>${mc.map(c=>html`<th key=${c.col}>${(SYS_FIELDS.find(f=>f.k===mapping[c.col])||{}).label||mapping[c.col]}</th>`)}</tr></thead>
+            <thead><tr>${mc.map(c=>html`<th key=${c.col}>${(fields.find(f=>f.k===mapping[c.col])||{}).label||mapping[c.col]}</th>`)}</tr></thead>
             <tbody>${[0,1,2].map(i=>html`<tr key=${i}>${mc.map(c=>html`<td key=${c.col}>${c.sample[i]||"—"}</td>`)}</tr>`)}</tbody>
           </table></div></div>`; })()}
 
@@ -406,6 +538,7 @@ function ImportWizard({resumeFile, staging, setStaging, onExitResume}={}){
         {h:t("ชื่อธุรกิจ", "Business name"), render:r=>r.name||html`<span class="dim">${t("(ไม่มีชื่อ)", "(no name)")}</span>`},
         {h:t("จังหวัดที่พบ", "Province found"), render:r=>r.province?provinceTH(r.province):html`<span class="dim">—</span>`},
         {h:t("สถานะ", "Status"), render:r=>{ const m=r.edited?ISSUE_META.edited:ISSUE_META[r.issue]; return html`<${Badge} tone=${m.tone}>${m.label}</${Badge}>`; }},
+        isLive ? {h:t("ปัญหาที่พบ", "Issue"), render:r=>r.why||html`<span class="dim">—</span>`} :
         {h:t("การจัดการ", "Actions"), render:r=> (r.issue==="ok"||r.issue==="skipped") ? html`<span class="dim">—</span>` :
           html`<div class="row" style=${{gap:"6px"}}>
             <${Btn} size="sm" variant="outline" onClick=${()=>setEditRow(r)}>${t("แก้ไข", "Edit")}</${Btn}>
@@ -413,8 +546,10 @@ function ImportWizard({resumeFile, staging, setStaging, onExitResume}={}){
       ]} rows=${pageRows}/>
       ${totalPages>1?html`<div class="dm-pager"><span class="dim">${t("แสดง", "Showing")} ${(valPage-1)*PAGE+1}–${Math.min(valPage*PAGE,valList.length)} ${t("จาก", "of")} ${valList.length} ${t("แถว", "Row")}</span>
         <div class="row" style=${{gap:"5px"}}>${Array.from({length:totalPages},(_,i)=>i+1).map(p=>html`<button key=${p} class=${"dm-pg"+(p===valPage?" on":"")} onClick=${()=>setValPage(p)}>${p}</button>`)}</div></div>`:""}
+      ${isLive&&check&&check.counts.total>check.rows.length?html`<div class="dim" style=${{fontSize:"12px",marginTop:"8px"}}>${t("แสดง", "Showing the first")} ${check.previewLimit} ${t("แถวแรกของแต่ละกลุ่ม · ตัวเลขด้านบนนับทั้งไฟล์", "rows of each group · the totals above cover the whole file")}</div>`:""}
+      ${isLive&&check&&check.newSegments&&check.newSegments.length?html`<div class="dm-alert warn"><${Icon} name="gap" size=${15}/> ${t("หมวดธุรกิจใหม่ที่ยังไม่มีในระบบ:", "New segments not yet in the system:")} <b>${check.newSegments.map(s=>`${s.segment} (${num(s.rows)})`).join(", ")}</b></div>`:""}
 
-      ${editRow?html`<${EditRowDrawer} row=${editRow} onClose=${()=>setEditRow(null)}
+      ${editRow&&!isLive?html`<${EditRowDrawer} row=${editRow} onClose=${()=>setEditRow(null)}
         onSave=${vals=>{ patchVal(editRow.row,{...vals,issue:"ok",edited:true}); setEditRow(null);
           pushAudit({action:t("แก้ไขและนำเข้าแถว (ตรวจสอบข้อมูล)", "Edited and imported a row (data review)"), category:"แก้ไข", detail:`${vals.name||editRow.name} ${t("(แถว", "(row")} ${editRow.row})`});
           toast(t("บันทึกและนำเข้าแถวนี้แล้ว", "Row saved and imported"),"good"); }}
@@ -434,7 +569,8 @@ function ImportWizard({resumeFile, staging, setStaging, onExitResume}={}){
           <div><span class="dim">${t("รอตรวจ (ซ้ำ)", "Awaiting review (duplicate)")}</span><b style=${{color:"var(--warn)"}}>${counts.dup||0} ${t("รายการ", "records")}</b></div>
         </div>
         ${((counts.dup||0)+(counts.incomplete||0)+(counts.badcoord||0))>0?html`<div class="dm-alert warn"><${Icon} name="gap" size=${15}/> ${t("มี", "There are")} ${(counts.dup||0)+(counts.incomplete||0)+(counts.badcoord||0)} ${t("รายการที่มีปัญหา — จะถูกพักไว้เป็น \"รายการค้าง\" ในแท็บ \"จัดการไฟล์นำเข้า\" โดยยังไม่เข้าระบบและไม่ถูกลบทิ้ง (จัดการต่อได้จากปุ่ม \"จัดการรายการค้าง\")", "Problem rows are parked as \"pending rows\" under the \"Import files\" tab — they don't enter the system and are not deleted (handle them from the \"Handle pending rows\" button)")}</div>`:""}
-        ${importing?html`<div style=${{marginTop:"16px"}}><div class="row between" style=${{fontSize:"12.5px",marginBottom:"6px"}}><span>${t("กำลังนำเข้า…", "Importing…")}</span><b>${pct}%</b></div><${Meter} value=${pct} height=${10}/></div>`
+        ${importing&&isLive?html`<div style=${{marginTop:"16px",fontSize:"12.5px"}}>${t("กำลังนำเข้า… อย่าปิดหน้านี้", "Importing… keep this page open")}</div>`
+          :importing?html`<div style=${{marginTop:"16px"}}><div class="row between" style=${{fontSize:"12.5px",marginBottom:"6px"}}><span>${t("กำลังนำเข้า…", "Importing…")}</span><b>${pct}%</b></div><${Meter} value=${pct} height=${10}/></div>`
           :html`<div style=${{marginTop:"16px"}}><${Btn} variant="outline" icon="check" onClick=${runImport}>${t("ยืนยันนำเข้า", "Confirm import")} ${counts.ok||0} ${t("รายการ", "records")}</${Btn}></div>`}
       </div>`:html`<div class="dm-result">
         <div class="dm-result-ic"><${Icon} name="check" size=${34} color="var(--good)"/></div>
@@ -442,15 +578,15 @@ function ImportWizard({resumeFile, staging, setStaging, onExitResume}={}){
         <div class="dim">${t("สำเร็จ", "Succeeded")} ${counts.ok||0} ${t("· รอตรวจสอบ (ซ้ำ)", "· awaiting review (duplicates)")} ${counts.dup||0} ${t("· ข้าม", "· skipped")} ${(counts.incomplete||0)+(counts.badcoord||0)}</div>
         <div class="row" style=${{gap:"10px",marginTop:"16px",justifyContent:"center"}}>
           <${Btn} variant="outline" onClick=${()=>toast(t("ไปที่รายการข้อมูลที่นำเข้า", "Go to the imported records"),"info")}>${t("ดูข้อมูลที่นำเข้า", "View the imported data")}</${Btn}>
-          <${Btn} variant="ghost" onClick=${()=>{setStep(1);setFile(null);setDone(false);setPct(0);}}>${t("นำเข้าไฟล์ใหม่", "Import another file")}</${Btn}></div>
+          <${Btn} variant="ghost" onClick=${()=>{setStep(1);clearFile();setDone(false);setPct(0);}}>${t("นำเข้าไฟล์ใหม่", "Import another file")}</${Btn}></div>
       </div>`}
     </div>` : ""}
 
     <!-- ปุ่มนำทาง wizard -->
     ${!done?html`<div class="dm-wiznav">
-      <${Btn} variant="ghost" disabled=${step===1} onClick=${()=>setStep(s=>Math.max(1,s-1))}>${t("ย้อนกลับ", "Back")}</${Btn}>
-      ${step<4?html`<${Btn} variant="outline" disabled=${(step===1&&!file)||(step===2&&(reqUnmapped.length>0||dupMap.length>0))}
-        onClick=${()=>setStep(s=>s+1)}>${t("ถัดไป", "Next")}</${Btn}>`:""}
+      <${Btn} variant="ghost" disabled=${step===1||!!busy} onClick=${()=>setStep(s=>Math.max(1,s-1))}>${t("ย้อนกลับ", "Back")}</${Btn}>
+      ${step<4?html`<${Btn} variant="outline" disabled=${!!busy||(step===1&&!file)||(step===2&&(reqUnmapped.length>0||dupMap.length>0))}
+        onClick=${()=>{ if(isLive&&step===2) runCheck(); else setStep(s=>s+1); }}>${busy==="check"?t("กำลังตรวจ…", "Checking…"):t("ถัดไป", "Next")}</${Btn}>`:""}
     </div>`:""}
   </div>`;
 }
@@ -1483,6 +1619,7 @@ const DM_CSS=`
 .dm-cmp2-c{display:flex;align-items:center;gap:6px;padding:5px 7px;border-radius:7px;border:1px solid var(--stroke2);cursor:pointer;color:var(--txt);word-break:break-word}
 .dm-cmp2-c.on{border-color:var(--accent);background:var(--accent-soft)}
 @media(max-width:520px){.dm-erd{width:100%;max-height:92vh}}
+.dm-mapwrap .table-wrap,.dm-mapwrap .table-wrap.scrolly{overflow:visible}
 .dm-auto{font-size:10.5px;font-weight:700;color:var(--accent2);background:var(--accent-soft);padding:2px 7px;border-radius:6px;white-space:nowrap}
 .dm-alert{display:flex;align-items:center;gap:8px;margin-top:12px;padding:10px 13px;border-radius:10px;font-size:12.5px;background:rgba(120,160,220,.08);border:1px solid var(--stroke2);color:var(--txt)}
 .dm-alert.bad{background:rgba(255,90,90,.1);border-color:rgba(255,90,90,.35);color:#c81e1e}
