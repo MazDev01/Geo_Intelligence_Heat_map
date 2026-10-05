@@ -30,7 +30,7 @@ const PROVINCE_ALIASES = {
 };
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[a-z]{2,}$/i;
 const NUMBER_RE = /^[+-]?(\d+\.?\d*|\.\d+)$/;
-const PROVINCE_SNAP_DEGREES = 0.045;
+export const PROVINCE_SNAP_DEGREES = 0.045;
 const PREVIEW_ROWS = 50;
 const CHUNK = 5000;
 
@@ -91,7 +91,7 @@ function parseDate(text) {
   return `${y}-${String(mo).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
 }
 
-function makeRowChecker({cols, defaults}, provinces, segments) {
+export function makeRowChecker({cols, defaults}, provinces, segments) {
   const provinceByName = new Map();
   for (const p of provinces)
     for (const name of [p.key, p.name_th, p.name_en]) if (name) provinceByName.set(squash(name), p.key);
@@ -188,7 +188,7 @@ function makeRowChecker({cols, defaults}, provinces, segments) {
   };
 }
 
-async function dupSettings(tx) {
+export async function dupSettings(tx) {
   const r = await tx.query("select key, value from settings where key in ('import.dup_similarity', 'import.dup_distance_m')");
   const got = Object.fromEntries(r.rows.map(x => [x.key, Number(x.value)]));
   const similarity = got['import.dup_similarity'], distance = got['import.dup_distance_m'];
