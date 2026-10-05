@@ -4,6 +4,7 @@ import {listPlaces, createPlaces, updatePlace, deletePlace} from './places.mjs';
 import {importUpload, mapUpload, confirmUpload, listFiles, withdrawFile} from './imports.mjs';
 import {listQueue, actOnQueue} from './import-queue.mjs';
 import {listPlans, createPlan, updatePlan, deletePlan} from './visit-plans.mjs';
+import {addPlaceVisit} from './place-visits.mjs';
 import {cleanFilename, fileKind, MAX_FILE_BYTES} from './import-parse.mjs';
 
 const require = createRequire(import.meta.url);
@@ -208,6 +209,22 @@ export function makeApi({pool, authStore, zoneStore, demoPassword}) {
     }
   }
 
+  async function placeVisits(req, res, query) {
+    if (req.method !== 'POST') return send(res, 405, {error: 'รองรับเฉพาะ POST'});
+    const who = await authStore.auth(req.headers);
+    if (!who.ok) return send(res, 401, {error: 'ต้องเข้าสู่ระบบก่อน'});
+    if (who.user.role !== 'Trade Coordinator') return send(res, 403, {error: 'เฉพาะผู้ประสานงานการค้าเท่านั้น'});
+    let body;
+    try { body = JSON.parse(await readBody(req, 1e4)); }
+    catch (e) { return send(res, e.status === 413 ? 413 : 400, {error: e.status === 413 ? 'ข้อมูลใหญ่เกินไป' : 'อ่านคำขอไม่ได้'}); }
+    try {
+      return send(res, 201, await addPlaceVisit(pool, who.user, query.get('id'), body));
+    } catch (e) {
+      if (e && [400, 403, 404].includes(e.status)) return send(res, e.status, {error: e.message});
+      throw e;
+    }
+  }
+
   const places = kind => async (req, res, query) => {
     if (req.method !== 'GET') return send(res, 405, {error: 'รองรับเฉพาะ GET'});
     const user = await requireUser(req, res);
@@ -297,6 +314,7 @@ export function makeApi({pool, authStore, zoneStore, demoPassword}) {
     '/api/customers': places('customers'),
     '/api/leads': places('leads'),
     '/api/places': placesWrite,
+    '/api/places/visits': placeVisits,
     '/api/imports': imports,
     '/api/imports/mapping': importStep((body, admin) => mapUpload(pool, body, admin.id)),
     '/api/imports/rows': importRows,

@@ -90,6 +90,25 @@ export async function visitPlansApi(method="GET", id, body){
   }
 }
 
+let _noVisitsApi = false;
+
+export async function placeVisitsApi(placeId, body){
+  if(_noVisitsApi || _noPlacesApi) return {ok:true, local:true};
+  const tk = token();
+  try{
+    const r = await fetch("/api/places/visits?id="+encodeURIComponent(placeId), {method:"POST",
+      headers:{"Content-Type":"application/json", ...(tk ? {Authorization:"Bearer "+tk} : {})}, body:JSON.stringify(body)});
+    const data = await r.json().catch(()=>null);
+    if((r.status===404 || r.status===405) && !(data && data.error)){ _noVisitsApi = true; return {ok:true, local:true}; }
+    if(r.status===401) return {ok:false, status:401, error:t("เซสชันหมดอายุ กรุณาเข้าสู่ระบบใหม่", "Your session has expired. Please sign in again")};
+    if(!r.ok) return {ok:false, status:r.status, error:(data && data.error) || t("บันทึกไม่สำเร็จ", "Could not save")+` (${r.status})`};
+    clearDetail();
+    return {...(data||{}), ok:true};
+  }catch(e){
+    return {ok:false, error:t("ติดต่อเซิร์ฟเวอร์ไม่ได้", "Could not reach the server")};
+  }
+}
+
 let _noImportsApi = false;
 
 export async function importsApi(path="", {method="GET", query, body, file}={}){

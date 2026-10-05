@@ -5,7 +5,8 @@ import {Btn, Badge, Meter, toast} from "./ui.js";
 import {Donut, BarChart, Gauge, rampRed} from "./charts.js";
 import {analyzeArea, downloadCSV} from "./data.js";
 import {demandGap, gapBySegment, GAP_REF} from "./mock/geoData.js";
-import {statusMeta, responsibleOf, nextAppointment, urgencyOf, beDate, INTEREST, OUTCOME, CANCEL_REASONS, roundLabel} from "./visit-rounds.js";
+import {Dropdown} from "./select.js";
+import {statusMeta, responsibleOf, nextAppointment, urgencyOf, beDate, INTEREST, OUTCOME, CANCEL_REASONS, roundLabel, planTodayKey}from "./visit-rounds.js";
 import {t} from "./i18n.js";   // สลับภาษา TH/EN — ดู src/i18n.js
 
 // คำอธิบายแบบภาษาชาวบ้านว่า "ตัวเลขนี้มาจากไหน" (ไม่โชว์น้ำหนักสูตร — เก็บไว้ในหน้าผู้ดูแล)
@@ -245,8 +246,9 @@ function downloadXLS(filename, rows){   // Excel-openable spreadsheet (ms-excel 
   const a = document.createElement("a"); a.href=url; a.download=filename; a.click(); URL.revokeObjectURL(url);
 }
 
-export function CustomerPanel({db, customer, onClose, onOpenArea, setCustomer, onAddToPlan, inPlan, topOffset, canEditOwn, onSetVisit, onEditRecord, onDeleteRecord, onAddRound, user, onSubmitDeal, dealPlan, onCancelVisit}){
+export function CustomerPanel({db, customer, onClose, onOpenArea, setCustomer, onAddToPlan, inPlan, topOffset, canEditOwn, onSetVisit, onEditRecord, onDeleteRecord, onAddRound, user, onSubmitDeal, dealPlan, onCancelVisit, onRecordVisit}){
   const [added,setAdded]=useState(false);
+  const [busy,setBusy]=useState(false);
   const [roundForm,setRoundForm]=useState(null);   // {kind:'visit'|'appt'|'cancel', interest, outcome, apptDate, reason, note}
   const [openR,setOpenR]=useState(0);               // index รอบที่กาง (0 = ล่าสุด)
   const [dealDoc,setDealDoc]=useState("");          // ชื่อไฟล์เอกสารปิดดีลที่แนบ (โหมดปิดดีล)
@@ -296,6 +298,8 @@ export function CustomerPanel({db, customer, onClose, onOpenArea, setCustomer, o
               </label>
               <button class="deal-submit" onClick=${()=>setConfirmSend(true)}>
                 <${Icon} name="check" size=${15} color="#fff"/>${t("ส่งสถานะว่าดีลสำเร็จแล้ว", "Report the deal as won")}</button>
+              <button class="deal-visit" onClick=${()=>setRoundForm({kind:"visit", doneDate:planTodayKey(), interest:INTEREST[1], outcome:OUTCOME[0], note:""})}>
+                <${Icon} name="edit" size=${14}/>${t("บันทึกผลเข้าพบ", "Record visit result")}</button>
               <button class="deal-cancel" onClick=${()=>setRoundForm({kind:"cancel", reason:CANCEL_REASONS[0], note:""})}>
                 <${Icon} name="close" size=${14}/>${t("ยกเลิกการเข้าพบ", "Cancel the visit")}</button>
             </div>`
@@ -305,15 +309,41 @@ export function CustomerPanel({db, customer, onClose, onOpenArea, setCustomer, o
             <div class="deal-modal-t">${t("ยกเลิกการเข้าพบ", "Cancel the visit")}</div>
             <div class="deal-modal-b">${t("ปล่อย \"", "Release \"")}${c.businessName}${t("\" ออกจากแผนของคุณ · เหตุผลจะถูกบันทึกไว้ในประวัติ ให้ TC คนอื่นเห็นและรับไปนัดต่อได้", "\" from your plan · the reason is kept in the history so another TC can pick it up")}</div>
             <div class="vr-f" style=${{marginTop:"12px"}}>${t("เหตุผล", "Reason")}
-              <select value=${roundForm.reason} onChange=${e=>setRoundForm(f=>({...f, reason:e.target.value}))}>
-                ${CANCEL_REASONS.map(r=>html`<option key=${r} value=${r}>${roundLabel(r)}</option>`)}</select></div>
+              <${Dropdown} value=${roundForm.reason} onChange=${v=>setRoundForm(f=>({...f, reason:v}))}
+                options=${CANCEL_REASONS.map(r=>[r, roundLabel(r)])}/></div>
             <div class="vr-f" style=${{marginTop:"9px"}}>${t("หมายเหตุเพิ่มเติม (ไม่บังคับ)", "Additional notes (optional)")}
-              <input value=${roundForm.note} placeholder=${t("เช่น ขอให้ติดต่อใหม่เดือนหน้า", "e.g. asked to be contacted again next month")}
+              <input value=${roundForm.note} maxLength=${500} placeholder=${t("เช่น ขอให้ติดต่อใหม่เดือนหน้า", "e.g. asked to be contacted again next month")}
                 onInput=${e=>setRoundForm(f=>({...f, note:e.target.value}))}/></div>
             <div class="row" style=${{gap:"8px",justifyContent:"flex-end",marginTop:"14px"}}>
               <${Btn} variant="ghost" size="sm" onClick=${()=>setRoundForm(null)}>${t("ปิด", "Close")}</${Btn}>
-              <${Btn} variant="danger" size="sm" onClick=${()=>{ onCancelVisit&&onCancelVisit(c, roundForm.reason, roundForm.note);
+              <${Btn} variant="danger" size="sm" disabled=${busy} onClick=${async ()=>{ if(busy || !onCancelVisit) return;
+                setBusy(true); const done=await onCancelVisit(c, roundForm.reason, roundForm.note); setBusy(false);
+                if(!done) return;
                 setRoundForm(null); setAdded(false); toast(t("ยกเลิกการเข้าพบแล้ว — บันทึกเหตุผลไว้ในประวัติ", "Visit cancelled — the reason is recorded in the history"),"warn"); onClose&&onClose(); }}>${t("ยืนยันยกเลิก", "Confirm cancellation")}</${Btn}>
+            </div>
+          </div>
+        </div>`:""}
+        ${roundForm&&roundForm.kind==="visit" ? html`<div class="deal-modal-back" onClick=${()=>setRoundForm(null)}>
+          <div class="deal-modal" onClick=${e=>e.stopPropagation()}>
+            <div class="deal-modal-t">${t("บันทึกผลเข้าพบ", "Record visit result")}</div>
+            <div class="deal-modal-b">${c.businessName}</div>
+            <div class="vr-f" style=${{marginTop:"12px"}}>${t("วันที่เข้าพบ", "Visit date")}
+              <input type="date" class="vr-date" value=${roundForm.doneDate} max=${planTodayKey()}
+                onInput=${e=>setRoundForm(f=>({...f, doneDate:e.target.value}))}/></div>
+            <div class="vr-f" style=${{marginTop:"9px"}}>${t("ความสนใจ", "Interest")}
+              <${Dropdown} value=${roundForm.interest} onChange=${v=>setRoundForm(f=>({...f, interest:v}))}
+                options=${INTEREST.map(r=>[r, roundLabel(r)])}/></div>
+            ${roundForm.interest!=="ไม่สนใจ" ? html`<div class="vr-f" style=${{marginTop:"9px"}}>${t("ผลการเข้าพบ", "Result")}
+              <${Dropdown} value=${roundForm.outcome} onChange=${v=>setRoundForm(f=>({...f, outcome:v}))}
+                options=${OUTCOME.map(r=>[r, roundLabel(r)])}/></div>` : ""}
+            <div class="vr-f" style=${{marginTop:"9px"}}>${t("หมายเหตุ (ไม่บังคับ)", "Note (optional)")}
+              <input value=${roundForm.note} maxLength=${500} placeholder=${t("เช่น ขอใบเสนอราคา", "e.g. asked for a quote")}
+                onInput=${e=>setRoundForm(f=>({...f, note:e.target.value}))}/></div>
+            <div class="row" style=${{gap:"8px",justifyContent:"flex-end",marginTop:"14px"}}>
+              <${Btn} variant="ghost" size="sm" onClick=${()=>setRoundForm(null)}>${t("ปิด", "Close")}</${Btn}>
+              <${Btn} variant="primary" size="sm" disabled=${busy || !roundForm.doneDate} onClick=${async ()=>{ if(busy || !onRecordVisit) return;
+                setBusy(true); const done=await onRecordVisit(c, roundForm); setBusy(false);
+                if(done) setRoundForm(null); }}>${t("บันทึก", "Save")}</${Btn}>
             </div>
           </div>
         </div>`:""}
@@ -395,10 +425,12 @@ export function CustomerPanel({db, customer, onClose, onOpenArea, setCustomer, o
           <div class="vr-item-h" style=${{cursor:"default"}}>
             <span class="vr-dot" style=${{background:r.status==="ยกเลิก"?"#d03b3b":r.status==="เสร็จสิ้น"?"#0f7a3d":"#f59e0b"}}></span>
             <b>${t("รอบที่", "Round")} ${r.round}</b><span class="muted">${roundLabel(r.status)}</span>
-            <span class="dim" style=${{marginLeft:"auto"}}>${r.date?beDate(r.date):""}</span></div>
+            <span class="dim" style=${{marginLeft:"auto"}}>${(r.doneDate||r.apptDate||r.date)?beDate(r.doneDate||r.apptDate||r.date):""}</span></div>
           <div class="vr-item-b">
-            ${r.by ? html`<div><span class="muted">${t("โดย", "By")} </span>${r.by}</div>` : ""}
-            ${r.reason ? html`<div><span class="muted">${t("เหตุผล", "Reason")} </span><b>${roundLabel(r.reason)}</b></div>` : ""}
+            ${(r.tc||r.by) ? html`<div><span class="muted">${t("โดย", "By")} </span>${r.tc||r.by}</div>` : ""}
+            ${r.interest ? html`<div><span class="muted">${t("ความสนใจ", "Interest")} </span><b>${roundLabel(r.interest)}</b></div>` : ""}
+            ${r.outcome ? html`<div><span class="muted">${t("ผล", "Result")} </span><b>${roundLabel(r.outcome)}</b></div>` : ""}
+            ${(r.cancelReason||r.reason) ? html`<div><span class="muted">${t("เหตุผล", "Reason")} </span><b>${roundLabel(r.cancelReason||r.reason)}</b></div>` : ""}
             ${r.note ? html`<div><span class="muted">${t("หมายเหตุ", "Note")} </span>${r.note}</div>` : ""}
           </div></div>`)}
       </div>` : ""}
@@ -432,6 +464,10 @@ const VR_CSS = `
 .deal-cancel{display:inline-flex;align-items:center;justify-content:center;gap:7px;width:100%;font-family:var(--font);font-size:12.5px;font-weight:700;
   cursor:pointer;border:1px solid rgba(208,59,59,.35);border-radius:11px;padding:11px 14px;color:#b30019;background:rgba(208,59,59,.07)}
 .deal-cancel:hover{background:rgba(208,59,59,.13)}
+.deal-visit{display:inline-flex;align-items:center;justify-content:center;gap:7px;width:100%;font-family:var(--font);font-size:12.5px;font-weight:700;
+  cursor:pointer;border:1px solid rgba(15,122,61,.35);border-radius:11px;padding:11px 14px;color:#0f7a3d;background:rgba(51,214,159,.08)}
+.deal-visit:hover{background:rgba(51,214,159,.16)}
+.vr-f .vr-date{color-scheme:light}
 .deal-modal-back{position:fixed;inset:0;z-index:1200;display:grid;place-items:center;background:rgba(4,10,20,.55);backdrop-filter:blur(3px)}
 .deal-modal{width:min(340px,calc(100vw - 40px));background:var(--panel);border:1px solid var(--stroke2);border-radius:16px;
   box-shadow:0 24px 64px rgba(0,0,0,.5);padding:18px 18px 16px;font-family:var(--font);animation:dealPop .22s cubic-bezier(.2,.9,.25,1)}

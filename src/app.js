@@ -1,7 +1,7 @@
 import {React, html, useState, useEffect, useMemo, createRoot, AppCtx, Icon, brandMark, num, roleTH, countryTH, provinceTH} from "./lib.js";
 import {t, useLang, getLang, setLang} from "./lib.js";   // สลับภาษา TH/EN — ดู src/i18n.js
 import {getLayerOpacity, subscribeLayerOpacity} from "./layer-opacity.js";   // ความทึบ = ตั้งที่แอดมินที่เดียว
-import {loadCountries, loadWorld, loadAreas, loadProvincesGeo, loadDetail, clearDetail, writePlaces, loadCountry, loadDistricts, defaultFilters} from "./data.js";
+import {loadCountries, loadWorld, loadAreas, loadProvincesGeo, loadDetail, clearDetail, writePlaces, placeVisitsApi, loadCountry, loadDistricts, defaultFilters} from "./data.js";
 import {LoadingScreen, ToastHost, Badge, Btn, toast, LangToggle} from "./ui.js";
 import {Login} from "./pages/login.js";
 import * as auth from "./auth.js";   // โทเคน/บัญชีจริง (ดู api/auth.js · auth-store.cjs)
@@ -255,8 +255,9 @@ function App(){
     toast(status==="ครอบคลุมแล้ว" ? t("บันทึกว่าเข้าพบแล้ว", "Marked as visited") : t("ปรับกลับเป็นยังไม่เข้าพบ", "Reset to not visited"), "good");
   };
   // เพิ่มรอบการเข้าพบ 1 รอบ → สถานะLead derive ใหม่อัตโนมัติ + visit_status สรุปกลับ (back-compat) + Audit Log
-  const addVisitRound = (rec, round)=>{
-    const merge = x => { const rs=[...(x.visitRounds||[]), round]; return {...x, visitRounds:rs, visit_status:deriveVisitStatus(rs)}; };
+  const addVisitRound = (rec, round, server)=>{
+    const merge = x => { if(server) return {...x, visitRounds:server.visitRounds||[], visit_status:server.visit_status};
+      const rs=[...(x.visitRounds||[]), round]; return {...x, visitRounds:rs, visit_status:deriveVisitStatus(rs)}; };
     setDb(prev=>({...prev, prospects:(prev.prospects||[]).map(x=> x.id===rec.id ? merge(x) : x) }));
     setSelectedCustomer(x=> x && x.id===rec.id ? merge(x) : x);
     pushAudit({ user:(user&&user.email)||"system", action:t("บันทึกรอบการเข้าพบ", "Visit round saved"), category:"แก้ไข",
@@ -267,15 +268,29 @@ function App(){
   // ── TC ยกเลิกการเข้าพบ Lead ──
   // ถอด Lead ออกจากทุกแผน (รวมแผนที่บันทึกยืนยันแล้ว) เพื่อคืนให้ TC คนอื่นรับต่อได้
   // แต่ "ประวัติ" ไม่ถูกลบ — บันทึกเป็นรอบสถานะ "ยกเลิก" พร้อมเหตุผล ให้ TC คนถัดไปเห็นว่าทำไมถึงถูกปล่อย
-  const cancelVisit = (rec, reason, note)=>{
-    const round = { round:((rec.visitRounds||[]).length)+1, status:"ยกเลิก", reason, note:note||"",
-      date:planTodayKey(), by:(user&&user.name)||"TC" };
-    addVisitRound(rec, round);
+  const saveVisitRound = async (rec, body)=>{
+    const res = await placeVisitsApi(rec.id, body);
+    if(!res.ok){ toast(res.error,"bad"); return false; }
+    if(res.local){
+      const n = Math.max(0, ...(rec.visitRounds||[]).map(r=>Number(r.round)||0)) + 1;
+      addVisitRound(rec, {...body, round:n, doneDate:body.doneDate||planTodayKey(), tc:(user&&user.name)||"TC"});
+    } else {
+      const round = ((res.record&&res.record.visitRounds)||[]).find(r=>r.round===res.round) || {round:res.round, status:body.status};
+      addVisitRound(rec, round, res.record);
+    }
+    return true;
+  };
+  const noteOf = note => { const s=String(note||"").trim(); return s ? {note:s} : {}; };
+  const recordVisit = (rec, form)=> saveVisitRound(rec, {status:"เสร็จสิ้น", doneDate:form.doneDate, interest:form.interest,
+    ...(form.interest==="ไม่สนใจ" ? {} : {outcome:form.outcome}), ...noteOf(form.note)});
+  const cancelVisit = async (rec, reason, note)=>{
+    if(!(await saveVisitRound(rec, {status:"ยกเลิก", cancelReason:reason, ...noteOf(note)}))) return false;
     planSync.touch(visitPlans.filter(p=>(p.customers||[]).some(x=>x.id===rec.id)).map(p=>p.id));
     setVisitPlans(prev=>prev.map(p=>{
       const left=(p.customers||[]).filter(x=>x.id!==rec.id);
       return left.length===(p.customers||[]).length ? p : {...p, customers:left, route:null};
     }));
+    return true;
   };
 
   // ── โฟลว์ปิดดีลLead → แอดมินอนุมัติเปลี่ยนเป็นลูกค้า ──
@@ -884,7 +899,7 @@ function App(){
           onOpenArea=${p=>openArea(p)}
           setCustomer=${setSelectedCustomer}
           canEditOwn=${isBiz && selectedCustomer.source===USER_SOURCE}
-          onSetVisit=${setVisitStatus} onAddRound=${addVisitRound}
+          onSetVisit=${setVisitStatus} onAddRound=${addVisitRound} onRecordVisit=${recordVisit}
           onEditRecord=${r=>setAddForm({edit:r})} onDeleteRecord=${deleteRecord}
           onAddToPlan=${addToPlan} inPlan=${visitPlan.some(x=>x.id===selectedCustomer.id)}
           user=${user} onSubmitDeal=${submitDeal} onCancelVisit=${cancelVisit}

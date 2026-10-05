@@ -9,7 +9,7 @@ const MAX_ROUTE_BYTES = 200000;
 const ID_RE = /^VP[0-9A-F]{16}$/;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
-const SCOPE_SQL = `select province from users where id = $1 and province is not null
+export const SCOPE_SQL = `select province from users where id = $1 and province is not null
   union select split_part(key, '/', 1) from territory_assign where user_id = $1`;
 
 const gapLevelOf = s => s >= 67 ? 'High' : s >= 34 ? 'Medium' : 'Low';

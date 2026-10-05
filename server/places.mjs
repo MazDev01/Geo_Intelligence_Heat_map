@@ -168,6 +168,8 @@ async function fetchByIds(db, ids) {
   return out.sort((a, b) => order.get(a.id) - order.get(b.id));
 }
 
+export const readPlace = async (db, id) => (await fetchByIds(db, [id]))[0] || null;
+
 const newId = type => (type === 'Existing' ? 'CUSU' : 'PROU') + randomBytes(6).toString('hex').toUpperCase();
 
 export async function createPlaces(pool, records) {
