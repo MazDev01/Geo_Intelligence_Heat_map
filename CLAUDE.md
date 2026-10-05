@@ -4,7 +4,9 @@
 
 ## Stack
 
-- **buildless** — ไม่มี `package.json` · ไม่มี `node_modules` · ไม่มีขั้นตอน build
+- **หน้าจอ buildless** — ที่ราก repo ไม่มี `package.json` · ไม่มี `node_modules` · ไม่มีขั้นตอน build
+- **backend อยู่ใน `server/`** — มี `server/package.json` ของตัวเอง (ไลบรารีเดียวคือ `pg`) · ต้อง `npm install` ใน `server/` ก่อนรันสคริปต์ใต้ `server/`
+- PostgreSQL 17 + PostGIS รันใน Docker (`docker-compose.yml`) · พอร์ต 5433 · รหัสผ่านอยู่นอก repo ที่ `C:\Users\Admin\.geointel\dev.env`
 - ES modules โหลดตรงจากเบราว์เซอร์ผ่าน `importmap` ใน `index.html`
 - Leaflet 1.9.4 + markercluster จาก unpkg (CDN) · htm/React แบบไม่มี JSX
 - Node (ESM) สำหรับ `server.mjs` และสคริปต์ท้ายไฟล์นี้
@@ -13,11 +15,14 @@
 
 | งาน | คำสั่ง | เวลาจริง |
 |---|---|---|
-| dev server | `node server.mjs` → `http://localhost:5173` | ตอบ 200 ใน ~0.7 วิ |
+| dev server (ตัวเดิม อ่านไฟล์) | `node server.mjs` → `http://localhost:5173` | ตอบ 200 ใน ~0.7 วิ |
+| **เซิร์ฟเวอร์ใหม่ (ต่อฐานข้อมูล)** | `node --env-file=C:\Users\Admin\.geointel\dev.env server/index.mjs` → `http://localhost:3000` | ยังไม่ได้จับเวลา |
 | ตรวจ syntax | `node --experimental-vm-modules checkall.mjs` | **393 ms** · 39 ไฟล์ |
 | **ตรวจว่าเรนเดอร์จริง** | ดูบล็อกใต้ตาราง | **~74 วินาที ต่อหน้า** (ต้องมี `timeout`) |
 | build เวอร์ชันแจก | `node build-dist.mjs` | **454 ms** |
 | test · lint · type-check | **ไม่มี** | — |
+| เปิดฐานข้อมูล | `docker compose --env-file C:\Users\Admin\.geointel\dev.env up -d` | ยังไม่ได้จับเวลา |
+| สร้าง/อัปเดตตาราง | `node --env-file=C:\Users\Admin\.geointel\dev.env server/db/migrate.mjs` (`status` ดูสถานะ) | ยังไม่ได้จับเวลา |
 
 เข้าหน้า admin: `http://localhost:5173/?demo=admin&go=<page>`
 
@@ -97,13 +102,15 @@ users 472 · monitoring 384 · TC 316 · config 276 · data-management 216 · ma
 |---|---|---|
 | **`checkall.mjs` ผ่าน ≠ หน้าไม่ขาว** | ตรวจแค่ว่า *compile ได้ในโหมด module* ไม่ได้ execute — backtick หลงใน `` html`...` `` หรือ `${}` ซ้อนใน `style=${{...}}` **ผ่านฉลุยแต่จอขาว** | ต้องผ่านด่านที่สองเสมอ (บล็อกใต้ตาราง Commands) |
 | **`node --check` ใช้ไม่ได้** | มัน parse เป็น "script goal" → ตายที่ `import` บรรทัดแรก แล้ว **รายงานว่าผ่าน** | ต้อง `--experimental-vm-modules` เสมอ |
-| **ไม่มี `package.json`** | สั่ง `npm install` / `npm run <script>` / หา script — ไม่มีให้หา | รันไฟล์ `.mjs` ตรง ๆ |
+| **ไม่มี `package.json` ที่ราก** | สั่ง `npm install` / `npm run <script>` ที่ราก — ไม่มีให้หา (มีเฉพาะใน `server/`) | หน้าจอ: รันไฟล์ `.mjs` ตรง ๆ · backend: `cd server` ก่อน |
+| **แก้ไฟล์ migration ที่รันไปแล้ว** | ตัวรันเทียบ checksum แล้วปฏิเสธทั้งชุด | เพิ่มไฟล์เลขถัดไปใน `server/db/migrations/` เสมอ · ห้ามใส่ `begin;`/`commit;` ในไฟล์ |
+| **`docker compose down -v`** | ลบ volume = ข้อมูลในฐานข้อมูลหายทั้งหมด | ปิดเฉย ๆ ใช้ `down` (ไม่มี `-v`) |
 | **ไฟล์ข้อมูลใหญ่มาก** | `thailand-provinces.geojson` 1.2 MB (**~297k โทเคน**) · `prospects.json` 910 KB (~232k) · `customers.json` 821 KB (~205k) — อ่านทั้งก้อนครั้งเดียวทะลุเกณฑ์เตือน 150k ทันที | **อย่า `Read` ไฟล์ใน `data/`** ใช้ `node -e` คำนวณแล้วพิมพ์เฉพาะคำตอบ |
 | **พึ่ง CDN unpkg** | ไม่มีเน็ต = แผนที่ไม่ขึ้น แต่ syntax check ยังผ่าน | ถ้าหน้าเพี้ยนให้เช็คเน็ต/CDN ก่อนแก้โค้ด |
 
 ## Slow / Hanging Commands
 
-**ไม่มี** — ทุกคำสั่งจบใต้ 1 วินาที (ไม่มี node_modules ให้สแกน)
+**ไม่มี** — ทุกคำสั่งจบใต้ 1 วินาที (`node_modules` มีเฉพาะใต้ `server/` 14 แพ็กเกจ — ค้นทั้งโปรเจกต์ให้ข้ามโฟลเดอร์นี้)
 
 `grep -r` ทั้งโปรเจกต์ = 1.9 วินาที · `rg` = 282 ms — ต่างกันน้อยพอที่จะใช้อันไหนก็ได้
 
@@ -126,6 +133,16 @@ for(const k of Object.keys(d[0])) console.log(k, 'ว่าง', d.filter(r=>!r[
 
 ## Security
 
+### เซิร์ฟเวอร์ใหม่ `server/index.mjs` (พอร์ต 3000 · ตัวที่จะส่งมอบ)
+
+- **ส่งไฟล์นิ่งเฉพาะรายการอนุญาต** ใน `server/static.mjs`: `index.html` · `src/**/*.js` · `config/*.js` · ไฟล์ข้อมูล 7 ไฟล์ที่ระบุชื่อ · `basemap/*.pmtiles` · ที่เหลือตอบ 404 ทั้งหมด · **เพิ่มไฟล์ข้อมูลใหม่ให้หน้าจอ = ต้องเพิ่มชื่อใน `PUBLIC_DATA`** ไม่งั้นได้ 404
+- ประตูตามบทบาท `/admin` `/management` `/tc` ตอนนี้ส่ง `index.html` ตัวเดียวกัน ยังไม่บังคับว่าบัญชีต้องตรงประตู
+- บัญชี · โซน · การมอบหมายเขต อ่านเขียน PostgreSQL · `/data/zones.geojson` ตอบจากฐานข้อมูล ไม่ใช่ไฟล์
+- `NODE_ENV=production` จะไม่ยอมเปิดถ้าไม่มี `AUTH_SECRET` (≥ 32 ตัว) หรือถ้าตั้ง `DEMO_PASSWORD` · แก้โซนไม่ได้ถ้าไม่ตั้ง `ZONES_TOKEN`
+- **ช่องว่างที่ยังเปิดอยู่ (งานช่วงที่ 3):** `POST /api/territory` ไม่ตรวจสิทธิ์ · `/api/visit-plans` ใช้โทเคนที่ไม่ได้เซ็น · `customers.json` และ `prospects.json` ยังส่งทั้งก้อนโดยไม่ต้องล็อกอิน
+
+### dev server ตัวเดิม `server.mjs`
+
 ⚠️ **`server.mjs` ไม่ได้เสิร์ฟ static ล้วน — มี API ที่บังคับสิทธิ์อยู่ 1 ตัว**
 
 `GET /api/visit-plans` (`server.mjs:29`) คือ **จุดเดียวในระบบที่ตรวจสิทธิ์ฝั่งเซิร์ฟเวอร์**
@@ -145,7 +162,7 @@ for(const k of Object.keys(d[0])) console.log(k, 'ว่าง', d.filter(r=>!r[
 
 ---
 
-- ไม่มี DB ไม่มี secret ในโปรเจกต์
+- ห้ามมี secret ในโปรเจกต์ — รหัสผ่านฐานข้อมูลอ่านจากตัวแปรภายนอก (`DATABASE_URL` หรือ `POSTGRES_PASSWORD`) · repo นี้ส่งมอบให้ลูกค้าทั้งก้อน
 - `?demo=admin` เป็นสวิตช์ฝั่งหน้าเว็บ **ไม่ใช่การยืนยันตัวตน** อย่าเอาไปใช้กันคนเข้าถึงข้อมูลจริง
 
 ## Optional Tools
