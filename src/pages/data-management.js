@@ -219,7 +219,9 @@ const liveIssueText = r => {
     const who = r.match ? r.match.businessName : `${t("แถวที่", "Row")} ${r.matchRow}`;
     return `${t("คล้ายกับ", "Similar to")} ${who}${r.similarity!=null?` (${Math.round(r.similarity*100)}%)`:""}`;
   }
-  return (r.issues||[]).map(i=>(ISSUE_TEXT[i.type]||"")+LIVE_LABEL(i.field)).join(" · ");
+  return (r.issues||[]).map(i=> i.type==="swapped_coordinate" ? t("ละติจูดและลองจิจูดอาจสลับกัน","Latitude and longitude may be swapped")
+    : i.field==="location" ? t("พิกัดอยู่นอกประเทศไทย","The coordinates are outside Thailand")
+    : (ISSUE_TEXT[i.type]||"")+LIVE_LABEL(i.field)).join(" · ");
 };
 const MAX_UPLOAD_BYTES = 25*1024*1024;
 const TEMPLATE_ROWS = [
@@ -352,6 +354,7 @@ function ImportWizard({resumeFile, staging, setStaging, onExitResume, onImported
   const [result,setResult]=useState(null);
   const [dragOver,setDragOver]=useState(false);
   const fileRef=useRef(null);
+  const [liveLeft,setLiveLeft]=useState(null);
   useEffect(()=>{ let on=true;
     importsApi("",{query:{limit:1}}).then(r=>{ if(on) setLive(!r.local); });
     return ()=>{ on=false; }; },[]);
@@ -440,14 +443,14 @@ function ImportWizard({resumeFile, staging, setStaging, onExitResume, onImported
     return html`<div>
       <div class="dm-resume-bar">
         <div><b>${t("จัดการรายการค้าง ·", "Handle pending rows ·")} ${resumeFile.file}</b>
-          <div class="dim" style=${{fontSize:"12px",marginTop:"2px"}}>${t("ทำงานต่อจากขั้นตอนที่ 3 ของการนำเข้า · แสดงเฉพาะแถวที่ยังไม่ได้ตัดสินใจ (เหลือ", "Continues from step 3 of the import · only rows still undecided are shown (")} ${num(s.pending)} ${t("รายการ)", "records)")}</div></div>
+          <div class="dim" style=${{fontSize:"12px",marginTop:"2px"}}>${t("ทำงานต่อจากขั้นตอนที่ 3 ของการนำเข้า · แสดงเฉพาะแถวที่ยังไม่ได้ตัดสินใจ (เหลือ", "Continues from step 3 of the import · only rows still undecided are shown (")} ${num(liveLeft==null?s.pending:liveLeft)} ${t("รายการ)", "records)")}</div></div>
         <${Btn} size="sm" variant="ghost" onClick=${onExitResume}>${t("← กลับไปจัดการไฟล์นำเข้า", "← Back to import files")}</${Btn}>
       </div>
       <div class="dm-stepper">
         ${STEPS.map(([n,l])=>html`<div key=${n} class=${"dm-step"+(n===3?" on":n<3?" done":"")}>
           <span class="dm-step-no">${n<3?"✓":n}</span><span>${l}</span></div>`)}
       </div>
-      <${TriageReview} fileId=${resumeFile.id} staging=${staging} setStaging=${setStaging}/>
+      <${TriageReview} fileId=${resumeFile.id} staging=${staging} setStaging=${setStaging} liveFile=${resumeFile.s?resumeFile:null} onLeft=${setLiveLeft}/>
     </div>`;
   }
 
@@ -724,14 +727,23 @@ const KIND_META={
   incomplete:{tone:"warn",    get label(){ return t("ข้อมูลไม่ครบ","Incomplete"); }},
   dup:       {tone:"neutral", get label(){ return t("อาจซ้ำ","Possible duplicate"); }},
   badcoord:  {tone:"bad",     get label(){ return t("พิกัดผิด","Bad coordinates"); }} };
+const FLD_MORE={
+  get accountNo(){ return t("รหัสลูกค้า","account no."); }, get district(){ return t("อำเภอ/เขต","district"); },
+  get category(){ return t("หมวดย่อย","sub-category"); },   get website(){ return t("เว็บไซต์","website"); },
+  get facebook(){ return "Facebook"; },                      get dateJoin(){ return t("วันที่เริ่มเป็นลูกค้า","customer since"); } };
 const issueSummary = r => r.issues.map(i=>{
-  const f = FLD_TH[i.field]||i.field;
+  const f = FLD_TH[i.field]||FLD_MORE[i.field]||i.field;
   if(i.type==="missing_required") return t("ขาด"+f, "missing "+f);
   if(i.type==="missing_optional") return t("ไม่มี"+f, "no "+f);
-  if(i.type==="invalid_coordinate") return i.detail||t("พิกัดไม่ถูกต้อง","invalid coordinates");
+  if(i.type==="swapped_coordinate") return t("ละติจูดและลองจิจูดอาจสลับกัน","latitude and longitude may be swapped");
+  if(i.type==="invalid_coordinate"&&i.live&&i.field==="location") return t("พิกัดอยู่นอกประเทศไทย","the coordinates are outside Thailand");
+  if(i.type==="invalid_coordinate") return i.live ? t(f+"ไม่ใช่ตัวเลข", f+" is not a number") : (i.detail||t("พิกัดไม่ถูกต้อง","invalid coordinates"));
+  if(i.type==="duplicate"&&i.similarity==null) return t("รหัสลูกค้าตรงกับรายการเดิม","account no. matches an existing record");
   if(i.type==="duplicate") return t("อาจซ้ำกับรายการเดิม ("+Math.round(i.similarity*100)+"%)",
     "possible duplicate of an existing record ("+Math.round(i.similarity*100)+"%)");
   if(i.type==="unknown_value") return t(f+"ไม่รู้จัก", "unrecognised "+f);
+  if(i.type==="invalid_value") return t(f+"ไม่ถูกต้อง", "invalid "+f);
+  if(i.type==="too_long") return t(f+"ยาวเกินไป", f+" is too long");
   return i.type; }).join(" · ");
 // ป้ายความรุนแรงเป็นภาษาไทย (ไม่ใช้คำอังกฤษ error/warning ใน UI)
 const SEV_TH={ get error(){ return t("ต้องแก้ก่อน","Must be fixed"); }, get warning(){ return t("ควรตรวจสอบ","Should be checked"); } };
@@ -741,11 +753,23 @@ const SEV_TH={ get error(){ return t("ต้องแก้ก่อน","Must b
 const PROV_CENTER={ "Bangkok Metropolis":[13.7563,100.5018], "Chiang Mai":[18.7883,98.9853],
   "Phuket":[7.8804,98.3923], "Chon Buri":[13.3611,100.9847] };
 
+const Q_KEY={businessName:"name", latitude:"lat", longitude:"lng"};
+const Q_BACK={name:"businessName", lat:"latitude", lng:"longitude"};
+const qShape = o => o ? Object.fromEntries(Object.entries(o).map(([k,v])=>[Q_KEY[k]||k, v==null?"":v])) : null;
+const queueRow = x => ({ id:x.id, row:x.rowNo, kind:x.kind, status:x.status, similarity:x.similarity, live:true,
+  raw:qShape(x.raw)||{}, match:qShape(x.match)||{id:"—", deleted:true},
+  issues: x.kind==="dup" ? [{type:"duplicate", severity:"warning", similarity:x.similarity, live:true}]
+    : (x.issues||[]).map(i=>({...i, field:Q_KEY[i.field]||i.field, live:true})) });
+const queueValues = (next, prev, keys) => { const out={};
+  for(const k of keys){ const a=next[k]==null?"":String(next[k]).trim(), b=prev[k]==null?"":String(prev[k]).trim(); if(a!==b) out[Q_BACK[k]||k]=a; }
+  return out; };
+const PROV_OPTS = () => Object.keys(PROVINCE_TH).map(k=>[k,provinceTH(k)]).sort((a,b)=>String(a[1]).localeCompare(String(b[1]),"th"));
+
 /* ---- ป็อปอัพรวมรายการซ้ำ: เลือกค่าทีละช่องระหว่าง "นำเข้าใหม่" กับ "รายการเดิม" ---- */
 function DupMergeModal({row, onClose, onSave}){
   const F=[["name",t("ชื่อธุรกิจ", "Business name")],["address",t("ที่อยู่", "Address")],["phone",t("เบอร์โทร", "Phone")],["segment",t("หมวดหมู่", "Category")],["province",t("จังหวัด", "Province")],["lat",t("ละติจูด", "Latitude")],["lng",t("ลองจิจูด", "Longitude")]];
   const [pick,setPick]=useState(()=>Object.fromEntries(F.map(([k])=> [k, String(row.raw[k])!==String(row.match[k]) ? "match" : "raw"])));
-  const save=()=>{ const merged={...row.match}; F.forEach(([k])=>{ merged[k]= pick[k]==="raw" ? row.raw[k] : row.match[k]; }); onSave(merged); };
+  const save=()=>{ const merged={...row.match}; F.forEach(([k])=>{ merged[k]= pick[k]==="raw" ? row.raw[k] : row.match[k]; }); onSave(merged, pick); };
   return html`<${Modal} wide=${true} title=${t("รวมเป็นรายการเดียว — เลือกค่าทีละช่อง", "Merge into one record — pick each value")} onClose=${onClose}
     footer=${html`<div class="row" style=${{gap:"10px",justifyContent:"flex-end"}}>
       <${Btn} variant="ghost" onClick=${onClose}>${t("ยกเลิก", "Cancel")}</${Btn}>
@@ -762,13 +786,14 @@ function DupMergeModal({row, onClose, onSave}){
 }
 
 /* ---- Drawer ตรวจสอบรายแถว — แยก 3 กรณีตามชนิดปัญหา ---- */
-function ReviewDrawer({row, onImport, onSkip, onMerge, onClose}){
+function ReviewDrawer({row, onImport, onSkip, onMerge, onClose, busy}){
   const r=row;
   const [form,setForm]=useState(()=>({...r.raw}));
   const [mergeOpen,setMergeOpen]=useState(false);
   const set=(k,v)=>setForm(f=>({...f,[k]:v}));
-  const segKnown = SEGMENTS.includes(form.segment);
-  const REQ=["name","province","segment","type","lat","lng"];
+  const segKnown = SEGMENTS.includes(form.segment) || (!!r.live && !!form.segment);
+  const REQ=r.live ? ["name","segment","type","lat","lng",...(form.type==="Existing"?["accountNo"]:[])] : ["name","province","segment","type","lat","lng"];
+  const segOpts=[...SEGMENTS.map(s=>[s,segTH(s)]), ...(r.live&&form.segment&&!SEGMENTS.includes(form.segment)?[[form.segment,form.segment]]:[])];
   const isMiss = k => k==="segment" ? !segKnown : (form[k]===""||form[k]==null);
   const missReq = REQ.filter(isMiss);
   const coordOK = validCoord(Number(form.lat),Number(form.lng));
@@ -789,7 +814,7 @@ function ReviewDrawer({row, onImport, onSkip, onMerge, onClose}){
       <div class="dm-issue-box">${r.issues.map((i,idx)=>html`<div key=${idx}>• ${issueSummary({issues:[i]})}</div>`)}</div>
 
       ${r.kind==="dup" ? html`<div>
-        <div class="dim" style=${{fontSize:"12px",margin:"12px 0 8px"}}>${t("เทียบข้อมูลนำเข้าใหม่กับรายการที่มีอยู่แล้ว · ความคล้าย", "Comparing the new import against an existing record · similarity")} <b>${Math.round(r.similarity*100)}%</b></div>
+        <div class="dim" style=${{fontSize:"12px",margin:"12px 0 8px"}}>${t("เทียบข้อมูลนำเข้าใหม่กับรายการที่มีอยู่แล้ว · ความคล้าย", "Comparing the new import against an existing record · similarity")} <b>${r.similarity==null?"—":Math.round(r.similarity*100)+"%"}</b></div>
         <div class="dm-cf-cols" style=${{marginBottom:"4px"}}><div class="dm-cf-lb"></div>
           <span class="dm-src file">${t("นำเข้าใหม่", "New import")}</span><span class="dm-src tc">${t("เดิม (", "Existing (")}${r.match.id})</span></div>
         ${[["name",t("ชื่อธุรกิจ", "Business name")],["address",t("ที่อยู่", "Address")],["phone",t("เบอร์โทร", "Phone")],["segment",t("หมวดหมู่", "Category")],["lat",t("ละติจูด", "Latitude")],["lng",t("ลองจิจูด", "Longitude")]].map(([k,l])=>{
@@ -797,30 +822,31 @@ function ReviewDrawer({row, onImport, onSkip, onMerge, onClose}){
           return html`<div key=${k} class=${"dm-cf-row"+(diff?" diff":"")}><div class="dm-cf-lb">${l}</div>
             <div>${r.raw[k]||"—"}</div><div>${r.match[k]||"—"}</div></div>`;})}
         <div class="dm-drawer-act">
-          <${Btn} size="sm" variant="outline" onClick=${()=>setMergeOpen(true)}>${t("รวมเป็นรายการเดียว", "Merge into one")}</${Btn}>
-          <${Btn} size="sm" variant="ghost" onClick=${()=>onImport(r,r.raw)}>${t("เก็บทั้งสองรายการ (ไม่ซ้ำ)", "Keep both (not a duplicate)")}</${Btn}>
-          <${Btn} size="sm" variant="ghost" onClick=${()=>onSkip(r)}>${t("ข้ามรายการใหม่", "Skip the new record")}</${Btn}></div>
-        ${mergeOpen?html`<${DupMergeModal} row=${r} onClose=${()=>setMergeOpen(false)} onSave=${m=>{setMergeOpen(false);onMerge(r,m);}}/>`:""}
+          <${Btn} size="sm" variant="outline" disabled=${!!busy||!!r.match.deleted} onClick=${()=>setMergeOpen(true)}>${t("รวมเป็นรายการเดียว", "Merge into one")}</${Btn}>
+          <${Btn} size="sm" variant="ghost" disabled=${!!busy} onClick=${()=>onImport(r,r.raw)}>${t("เก็บทั้งสองรายการ (ไม่ซ้ำ)", "Keep both (not a duplicate)")}</${Btn}>
+          <${Btn} size="sm" variant="ghost" disabled=${!!busy} onClick=${()=>onSkip(r)}>${t("ข้ามรายการใหม่", "Skip the new record")}</${Btn}></div>
+        ${mergeOpen?html`<${DupMergeModal} row=${r} onClose=${()=>setMergeOpen(false)} onSave=${(m,pick)=>{setMergeOpen(false);onMerge(r,m,pick);}}/>`:""}
       </div>`
       : html`<div>
         ${r.kind==="badcoord"?html`<div class="dm-coordbox">
           <div class="row between"><span class="dim">${t("พิกัดที่อ่านได้จากไฟล์", "Coordinates read from the file")}</span>
             <b style=${{color:coordOK?"var(--good)":"var(--bad)"}}>${r.raw.lat}, ${r.raw.lng}</b></div>
-          <div class="dm-coord-note"><${Icon} name="pin" size=${14} color="var(--bad)"/> ${t("ตำแหน่งนี้อยู่นอกขอบเขตประเทศไทย — แก้พิกัดให้ถูกต้องก่อนนำเข้า", "This location is outside Thailand — fix the coordinates before importing")}</div>
-          <${Btn} size="sm" variant="ghost" icon="pin" onClick=${fillFromProvince}>${t("เติมพิกัดโดยประมาณจากจังหวัด", "Fill in approximate coordinates from the province")}</${Btn}>
+          <div class="dm-coord-note"><${Icon} name="pin" size=${14} color="var(--bad)"/> ${r.live?t("พิกัดจากไฟล์ใช้ไม่ได้ — แก้ให้ถูกต้องก่อนนำเข้า", "The coordinates from the file cannot be used — fix them before importing"):t("ตำแหน่งนี้อยู่นอกขอบเขตประเทศไทย — แก้พิกัดให้ถูกต้องก่อนนำเข้า", "This location is outside Thailand — fix the coordinates before importing")}</div>
+          ${r.live?"":html`<${Btn} size="sm" variant="ghost" icon="pin" onClick=${fillFromProvince}>${t("เติมพิกัดโดยประมาณจากจังหวัด", "Fill in approximate coordinates from the province")}</${Btn}>`}
         </div>`:""}
         <div class="dm-frm">
           ${inp("name",t("ชื่อธุรกิจ", "Business name"))}
-          <label class="dm-frm-f"><span class="dm-frm-lb">${t("ประเภท", "Type")} <b style=${{color:"var(--bad)"}}>*</b></span>
-            <select class=${"dm-sel"+(isMiss("type")?" miss":"")} value=${form.type} onChange=${e=>set("type",e.target.value)}>
-              <option value="">${t("— เลือก —", "— select —")}</option><option value="Existing">${t("ลูกค้า", "Customers")}</option><option value="Prospect">Lead</option></select></label>
-          <label class="dm-frm-f"><span class="dm-frm-lb">${t("จังหวัด", "Province")} <b style=${{color:"var(--bad)"}}>*</b></span>
-            <select class=${"dm-sel"+(isMiss("province")?" miss":"")} value=${form.province} onChange=${e=>set("province",e.target.value)}>
-              <option value="">${t("— เลือก —", "— select —")}</option>${PROV_TH.map(p=>html`<option key=${p} value=${p}>${provinceTH(p)}</option>`)}</select></label>
-          <label class="dm-frm-f"><span class="dm-frm-lb">${t("หมวดหมู่ธุรกิจ", "Business category")} <b style=${{color:"var(--bad)"}}>*</b></span>
-            <select class=${"dm-sel"+(!segKnown?" miss":"")} value=${segKnown?form.segment:""} onChange=${e=>set("segment",e.target.value)}>
-              <option value="">${t("— เลือกหมวดหมู่ —", "— choose a category —")}</option>${SEGMENTS.map(s=>html`<option key=${s} value=${s}>${segTH(s)}</option>`)}</select>
-            ${!segKnown&&r.raw.segment?html`<span class="dm-frm-hint">${t("ค่าเดิมในไฟล์: \"", "Original value in the file: \"")}${r.raw.segment}${t("\" ไม่พบในระบบ — เลือกหมวดที่ถูกต้อง (เพิ่มหมวดใหม่ได้ที่ ตั้งค่าระบบ › ข้อมูลหลัก)", "\" is not in the system — pick the right category (add new ones under System settings › Master data)")}</span>`:""}</label>
+          <div class="dm-frm-f" data-f="type"><span class="dm-frm-lb">${t("ประเภท", "Type")} <b style=${{color:"var(--bad)"}}>*</b></span>
+            <${Dropdown} value=${form.type||""} onChange=${v=>set("type",v)}
+              options=${[["",t("— เลือก —", "— select —")],["Existing",t("ลูกค้า", "Customers")],["Prospect","Lead"]]}/></div>
+          ${r.live?inp("accountNo",t("รหัสลูกค้า", "Account no.")):""}
+          <div class="dm-frm-f" data-f="province"><span class="dm-frm-lb">${t("จังหวัด", "Province")}${r.live?"":html` <b style=${{color:"var(--bad)"}}>*</b>`}</span>
+            <${Dropdown} value=${form.province||""} onChange=${v=>set("province",v)}
+              options=${[["",r.live?t("— หาจากพิกัด —", "— from the coordinates —"):t("— เลือก —", "— select —")],...(r.live?PROV_OPTS():PROV_TH.map(p=>[p,provinceTH(p)]))]}/></div>
+          <div class="dm-frm-f" data-f="segment"><span class="dm-frm-lb">${t("หมวดหมู่ธุรกิจ", "Business category")} <b style=${{color:"var(--bad)"}}>*</b></span>
+            <${Dropdown} value=${segKnown?form.segment:""} onChange=${v=>set("segment",v)}
+              options=${[["",t("— เลือกหมวดหมู่ —", "— choose a category —")],...segOpts]}/>
+            ${!segKnown&&r.raw.segment?html`<span class="dm-frm-hint">${t("ค่าเดิมในไฟล์: \"", "Original value in the file: \"")}${r.raw.segment}${t("\" ไม่พบในระบบ — เลือกหมวดที่ถูกต้อง (เพิ่มหมวดใหม่ได้ที่ ตั้งค่าระบบ › ข้อมูลหลัก)", "\" is not in the system — pick the right category (add new ones under System settings › Master data)")}</span>`:""}</div>
           ${inp("lat",t("ละติจูด", "Latitude"),"number")}
           ${inp("lng",t("ลองจิจูด", "Longitude"),"number")}
           ${inp("phone",t("เบอร์โทร", "Phone"))}
@@ -828,9 +854,9 @@ function ReviewDrawer({row, onImport, onSkip, onMerge, onClose}){
         </div>
         ${!coordOK?html`<div class="dm-frm-hint" style=${{color:"var(--bad)"}}>${t("พิกัดยังอยู่นอกขอบเขตประเทศไทย", "The coordinates are still outside Thailand")}</div>`:""}
         <div class="dm-drawer-act">
-          <${Btn} size="sm" variant="outline" disabled=${!canImport} onClick=${()=>onImport(r,{...form})}>${t("บันทึกและนำเข้า", "Save and import")}</${Btn}>
-          <${Btn} size="sm" variant="ghost" onClick=${()=>onSkip(r)}>${t("ข้ามรายการนี้", "Skip this record")}</${Btn}></div>
-        ${!canImport?html`<div class="dm-frm-hint">${t("ยังกรอกไม่ครบ:", "Still incomplete:")} ${missReq.map(k=>FLD_TH[k]).join(", ")||t("พิกัด","coordinates")} ${t("— ระบบไม่เดาค่าให้เอง", "— the system will not guess values for you")}</div>`:""}
+          <${Btn} size="sm" variant="outline" disabled=${!canImport||!!busy} onClick=${()=>onImport(r,{...form})}>${t("บันทึกและนำเข้า", "Save and import")}</${Btn}>
+          <${Btn} size="sm" variant="ghost" disabled=${!!busy} onClick=${()=>onSkip(r)}>${t("ข้ามรายการนี้", "Skip this record")}</${Btn}></div>
+        ${!canImport?html`<div class="dm-frm-hint">${t("ยังกรอกไม่ครบ:", "Still incomplete:")} ${missReq.map(k=>FLD_TH[k]||FLD_MORE[k]).join(", ")||t("พิกัด","coordinates")} ${t("— ระบบไม่เดาค่าให้เอง", "— the system will not guess values for you")}</div>`:""}
       </div>`}
     </div>
   </${Modal}>`;
@@ -838,38 +864,103 @@ function ReviewDrawer({row, onImport, onSkip, onMerge, onClose}){
 
 // นับ "รายการรอแก้ไข" จากแหล่งเดียว — ทั้ง badge บนแท็บ, chip และทุกที่อ้างถึงจำนวนนี้เสมอ
 const pendingRows = staging => staging.filter(r=>r.status==="pending");
-function TriageReview({staging, setStaging, fileId}){
+function TriageReview({staging, setStaging, fileId, liveFile, onLeft}){
   const [filter,setFilter]=useState("pending");   // pending | incomplete | dup | badcoord | skipped
   const [sel,setSel]=useState({});
   const [review,setReview]=useState(null);
   const [confirm,setConfirm]=useState(null);       // {how:'import'|'skip', ids:[...]}
+  const [data,setData]=useState(null);
+  const [page,setPage]=useState(1);
+  const [busy,setBusy]=useState(false);
+  const [tick,setTick]=useState(0);
+  const [dupAsk,setDupAsk]=useState(null);
+  const [loadErr,setLoadErr]=useState("");
+  const isLive=!!liveFile; const QPAGE=50;
+  useEffect(()=>{ if(!isLive) return; let on=true;
+    importsApi("/rows",{query:{fileId, status:filter==="skipped"?"skipped":"pending", kind:filter==="pending"||filter==="skipped"?"":filter, limit:QPAGE, offset:(page-1)*QPAGE}}).then(res=>{
+      if(!on) return;
+      if(!res.ok||res.local){ setLoadErr(res.error||t("โหลดรายการไม่สำเร็จ", "Could not load the rows")); return; }
+      setLoadErr(""); setData(res); onLeft&&onLeft(res.counts.pending);
+      if(!res.rows.length && page>1) setPage(n=>n-1);
+    });
+    return ()=>{ on=false; }; },[filter,page,tick]);
 
   // เมื่อระบุ fileId → จำกัดเฉพาะแถวค้างของไฟล์นั้น (บริบทเดิมของไฟล์)
   const scoped = fileId ? staging.filter(r=>r.fileId===fileId) : staging;
   const pend=pendingRows(scoped);
-  const counts={ all:pend.length, incomplete:pend.filter(r=>r.kind==="incomplete").length,
+  const mockCounts={ all:pend.length, incomplete:pend.filter(r=>r.kind==="incomplete").length,
     dup:pend.filter(r=>r.kind==="dup").length, badcoord:pend.filter(r=>r.kind==="badcoord").length };
 
-  const view=scoped.filter(r=>{
+  const mockView=scoped.filter(r=>{
       if(filter==="skipped") return r.status==="skipped";
       if(r.status!=="pending") return false;
       return filter==="pending" ? true : r.kind===filter;
     }).sort((a,b)=> (rowSeverity(a)==="error"?0:1)-(rowSeverity(b)==="error"?0:1) || a.row-b.row);
 
+  const view = isLive ? (data ? data.rows.map(queueRow) : []) : mockView;
+  const counts = !isLive ? mockCounts : data ? {all:data.counts.pending, incomplete:data.counts.incomplete, dup:data.counts.dup, badcoord:data.counts.badcoord} : {all:0, incomplete:0, dup:0, badcoord:0};
+  const skippedN = isLive ? (data ? data.counts.skipped : 0) : scoped.filter(r=>r.status==="skipped").length;
+  const shownTotal = isLive&&data ? data.total : view.length;
+  const pages = Math.max(1, Math.ceil(shownTotal/QPAGE));
+
+  const act=async(body, okMsg, tone)=>{
+    if(busy) return null;
+    setBusy(true);
+    const res=await importsApi("/rows",{method:"POST", body});
+    setBusy(false);
+    if(!res.ok){ if(res.status===409&&res.duplicate) return res; toast(res.error,"bad"); return null; }
+    setTick(n=>n+1); setSel({});
+    if(okMsg) toast(okMsg, tone||"good");
+    return res;
+  };
+  const liveImport=async(r,corrected,keepBoth)=>{
+    const full = {...r.raw, ...(corrected||{})};
+    const values = corrected&&r.kind!=="dup" ? Object.fromEntries(Object.entries(full).map(([k,v])=>[Q_BACK[k]||k, v==null?"":String(v).trim()])) : {};
+    const res=await act({action:"import", id:r.id, ...(Object.keys(values).length?{values}:{}), ...(keepBoth||r.kind==="dup"?{keepBoth:true}:{})},
+      t("นำเข้ารายการเข้าสู่ระบบแล้ว", "Record imported into the system"));
+    if(!res) return;
+    if(!res.ok){ setDupAsk({r, corrected, duplicate:res.duplicate}); return; }
+    pushAudit({action:t("นำเข้ารายการจากคิวรอแก้ไข", "Imported a record from the pending queue"), category:"นำเข้า", detail:`${(corrected&&corrected.name)||r.raw.name||r.id} ${t("(แถว", "(row")} ${r.row})`});
+    setReview(null); setDupAsk(null);
+  };
+  const liveMerge=async(r,pick)=>{
+    const chosen={}; for(const [k,v] of Object.entries(pick||{})) if(v==="raw") chosen[k]=r.raw[k];
+    const values=queueValues(chosen, r.match, Object.keys(chosen));
+    const res=await act({action:"merge", id:r.id, values}, t("รวมกับรายการเดิมแล้ว", "Merged with the existing record"));
+    if(!res||!res.ok) return;
+    pushAudit({action:t("รวมกับรายการเดิม", "Merged with an existing record"), category:"แก้ไข", detail:`${r.raw.name} → ${r.match.id}`});
+    setReview(null);
+  };
+  const liveSkip=async(r,back)=>{
+    const res=await act({action:back?"unskip":"skip", id:r.id}, back?t("นำกลับเข้าคิวรอแก้ไขแล้ว", "Returned to the pending queue"):t("ทำเครื่องหมายข้ามแล้ว — ข้อมูลดิบยังถูกเก็บไว้", "Marked as skipped — the raw data is still kept"), back?"info":"warn");
+    if(!res||!res.ok) return;
+    pushAudit({action:back?t("นำรายการกลับเข้าคิวรอแก้ไข", "Returned a record to the pending queue"):t("ข้ามรายการ (ไม่นำเข้า)", "Skipped a record (not imported)"), category:"แก้ไข", detail:`${r.raw.name||r.id} ${t("(แถว", "(row")} ${r.row})`});
+    setReview(null);
+  };
+  const liveBulk=async(ids,how)=>{
+    const res=await act(how==="import" ? {action:"import", ids, keepBoth:true} : {action:"skip", ids});
+    if(!res||!res.ok) return;
+    const done=(res.imported||res.skipped||[]).length, bad=(res.failed||[]).length;
+    pushAudit({action: how==="import"?t("นำเข้าหลายรายการจากคิวรอแก้ไข", "Imported several records from the pending queue"):t("ข้ามหลายรายการ", "Skipped several records"),
+      category: how==="import"?t("นำเข้า", "Imported"):t("แก้ไข", "Edit"), detail:`${done} ${t("รายการ", "records")}`});
+    toast((how==="import"?t("นำเข้า", "Imported"):t("ข้าม", "Skip"))+` ${done} ${t("รายการแล้ว", "records")}`+(bad?` · ${t("ไม่สำเร็จ", "failed")} ${bad}`:""), bad||how!=="import"?"warn":"good");
+    setConfirm(null);
+  };
+
   const patch=(id,p)=>setStaging(list=>list.map(x=>x.id===id?{...x,...p}:x));
-  const importRow=(r,corrected)=>{ patch(r.id,{status:"imported",corrected:corrected||null});
+  const importRow=(r,corrected)=>{ if(isLive) return liveImport(r,corrected); patch(r.id,{status:"imported",corrected:corrected||null});
     pushAudit({action:t("นำเข้ารายการจากคิวรอแก้ไข", "Imported a record from the pending queue"), category:"นำเข้า", detail:`${(corrected&&corrected.name)||r.raw.name||r.id} ${t("(แถว", "(row")} ${r.row})`});
     toast(t("นำเข้ารายการเข้าสู่ระบบแล้ว", "Record imported into the system"),"good"); setReview(null); };
-  const mergeRow=(r,merged)=>{ patch(r.id,{status:"merged",corrected:merged});
+  const mergeRow=(r,merged,pick)=>{ if(isLive) return liveMerge(r,pick); patch(r.id,{status:"merged",corrected:merged});
     pushAudit({action:t("รวมกับรายการเดิม", "Merged with an existing record"), category:"แก้ไข", detail:`${r.raw.name} → ${r.match?r.match.id:"-"}`});
     toast(t("รวมกับรายการเดิมแล้ว", "Merged with the existing record"),"good"); setReview(null); };
-  const skipRow=r=>{ patch(r.id,{status:"skipped"});
+  const skipRow=r=>{ if(isLive) return liveSkip(r,false); patch(r.id,{status:"skipped"});
     pushAudit({action:t("ข้ามรายการ (ไม่นำเข้า)", "Skipped a record (not imported)"), category:"แก้ไข", detail:`${r.raw.name||r.id} ${t("(แถว", "(row")} ${r.row}${t(") · เก็บข้อมูลดิบไว้อ้างอิง", ") · the raw data is kept for reference")}`});
     toast(t("ทำเครื่องหมายข้ามแล้ว — ข้อมูลดิบยังถูกเก็บไว้", "Marked as skipped — the raw data is still kept"),"warn"); setReview(null); };
-  const unskip=r=>{ patch(r.id,{status:"pending"});
+  const unskip=r=>{ if(isLive) return liveSkip(r,true); patch(r.id,{status:"pending"});
     pushAudit({action:t("นำรายการกลับเข้าคิวรอแก้ไข", "Returned a record to the pending queue"), category:"แก้ไข", detail:`${r.raw.name||r.id}`});
     toast(t("นำกลับเข้าคิวรอแก้ไขแล้ว", "Returned to the pending queue"),"info"); };
-  const doBulk=(ids,how)=>{ ids.forEach(id=>patch(id,{status: how==="import"?"imported":"skipped"}));
+  const doBulk=(ids,how)=>{ if(isLive) return liveBulk(ids,how); ids.forEach(id=>patch(id,{status: how==="import"?"imported":"skipped"}));
     pushAudit({action: how==="import"?t("นำเข้าหลายรายการจากคิวรอแก้ไข", "Imported several records from the pending queue"):t("ข้ามหลายรายการ", "Skipped several records"),
       category: how==="import"?t("นำเข้า", "Imported"):t("แก้ไข", "Edit"), detail:`${ids.length} ${t("รายการ", "records")}`});
     toast((how==="import"?t("นำเข้า", "Imported"):t("ข้าม", "Skip"))+` ${ids.length} ${t("รายการแล้ว", "records")}`, how==="import"?"good":"warn");
@@ -884,7 +975,7 @@ function TriageReview({staging, setStaging, fileId}){
   // 5 chip ตัวกรอง (คงจำนวนเดิม) — คำนวณจากแหล่งเดียวกับ badge บนแท็บ
   const CHIPS=[["pending",t("ทั้งหมดที่รอแก้ไข", "All pending fixes"),counts.all,"gap"],["incomplete",t("ข้อมูลไม่ครบ", "Incomplete"),counts.incomplete,"edit"],
     ["dup",t("สงสัยว่าซ้ำ", "Possible duplicates"),counts.dup,"users"],["badcoord",t("พิกัดไม่ถูกต้อง", "Invalid coordinates"),counts.badcoord,"pin"],
-    ["skipped",t("ข้ามไว้ (ประวัติ)", "Skipped (history)"),scoped.filter(r=>r.status==="skipped").length,"reports"]];
+    ["skipped",t("ข้ามไว้ (ประวัติ)", "Skipped (history)"),skippedN,"reports"]];
 
   return html`<div>
     <div class="dim" style=${{fontSize:"12.5px",marginBottom:"12px"}}>${t("แถวที่นำเข้าแล้วมีปัญหาถูกพักไว้ที่นี่โดยยังไม่เข้าระบบและไม่ถูกลบทิ้ง — จัดการทั้งกลุ่มได้ หรือตรวจทีละรายการ · การ \"ข้าม\" จะเก็บข้อมูลดิบไว้อ้างอิง ไม่ลบถาวร", "Imported rows with problems are parked here — they don't enter the system and are not deleted. Handle a whole group, or review one at a time · \"Skip\" keeps the raw data for reference rather than deleting it")}</div>
@@ -892,7 +983,7 @@ function TriageReview({staging, setStaging, fileId}){
     <!-- ตัวกรองแบบ chip (คลิกเพื่อกรอง) -->
     <div class="dm-tri-chips">
       ${CHIPS.map(([key,label,val,ic])=>html`<button key=${key} class=${"dm-fchip"+(filter===key?" on":"")+(key==="skipped"?" ghost":"")}
-        onClick=${()=>{setFilter(key);setGroupFocus(null);setSel({});}}>
+        onClick=${()=>{setFilter(key);setPage(1);setSel({});}}>
         <${Icon} name=${ic} size=${14} color=${key==="badcoord"?"var(--bad)":key==="pending"?"var(--accent)":key==="skipped"?"var(--muted)":"var(--warn)"}/>
         <span>${label}</span><b>${num(val)}</b></button>`)}
     </div>
@@ -904,7 +995,8 @@ function TriageReview({staging, setStaging, fileId}){
       ${selErr>0?html`<span class="dim" style=${{fontSize:"12px"}}>${t("มี", "There are")} ${selErr} ${t("รายการที่ต้องแก้ก่อน ในกลุ่มที่เลือก — ต้องแก้ไขทีละรายการก่อน จึงนำเข้าเป็นกลุ่มไม่ได้", "records in the selection must be fixed first — they have to be handled one at a time, so the group cannot be imported")}</span>`:""}
     </div>`:""}
 
-    ${view.length===0 ? html`<div class="dm-empty">
+    ${isLive&&(loadErr||!data) ? html`<div class="dm-empty"><div class="dim">${loadErr||t("กำลังโหลด…", "Loading…")}</div></div>`
+      : view.length===0 ? html`<div class="dm-empty">
         <div class="dm-empty-ic"><${Icon} name="check" size=${34} color="var(--good)"/></div>
         <h3>${filter==="skipped"?t("ยังไม่มีรายการที่ข้ามไว้", "Nothing has been skipped yet"):t("ไม่มีรายการรอแก้ไข", "Nothing is pending")}</h3>
         <div class="dim">${filter==="skipped"?t("รายการที่คุณเลือกข้ามจะมาแสดงที่นี่ (ไม่ถูกลบ)", "Records you skip appear here (they are not deleted)"):t("ข้อมูลนำเข้าทุกแถวผ่านการตรวจสอบเรียบร้อยแล้ว", "Every imported row passed review")}</div></div>`
@@ -921,15 +1013,27 @@ function TriageReview({staging, setStaging, fileId}){
               <${Btn} size="sm" variant="ghost" onClick=${()=>unskip(r)}>${t("นำกลับเข้าคิว", "Return to the queue")}</${Btn}></div>`
           : html`<${Btn} size="sm" variant="outline" onClick=${()=>setReview(r)}>${t("ตรวจสอบ", "Review")}</${Btn}>`},
       ]} rows=${view}/>`}
+    ${isLive&&data&&pages>1?html`<div class="dm-pager"><span class="dim">${t("แสดง", "Showing")} ${(page-1)*QPAGE+1}–${Math.min(page*QPAGE,shownTotal)} ${t("จาก", "of")} ${num(shownTotal)} ${t("แถว", "Row")}</span>
+      <div class="row" style=${{gap:"5px"}}>${pageWindow(page,pages).map((n,i)=> n==="…" ? html`<span key=${"g"+i} class="dim">…</span>`
+        : html`<button key=${n} class=${"dm-pg"+(n===page?" on":"")} onClick=${()=>{setPage(n);setSel({});}}>${n}</button>`)}</div></div>`:""}
 
-    ${review?html`<${ReviewDrawer} row=${review} onClose=${()=>setReview(null)}
+    ${review?html`<${ReviewDrawer} row=${review} busy=${busy} onClose=${()=>setReview(null)}
       onImport=${importRow} onSkip=${skipRow} onMerge=${mergeRow}/>`:""}
+
+    ${dupAsk?html`<${Modal} small=${true} title=${t("อาจซ้ำกับรายการที่มีอยู่", "This may duplicate an existing record")} onClose=${()=>setDupAsk(null)}
+      footer=${html`<div class="row" style=${{gap:"10px",justifyContent:"flex-end"}}>
+        <${Btn} variant="ghost" onClick=${()=>setDupAsk(null)}>${t("ยกเลิก", "Cancel")}</${Btn}>
+        <${Btn} variant="outline" disabled=${busy} onClick=${()=>liveImport(dupAsk.r, dupAsk.corrected, true)}>${t("เก็บทั้งสองรายการ", "Keep both")}</${Btn}></div>`}>
+      <p>${t("หลังแก้ไขแล้ว แถวนี้คล้ายกับรายการ", "After your edit this row looks like record")} <b>${dupAsk.duplicate.id}</b>${dupAsk.duplicate.similarity!=null?` (${Math.round(dupAsk.duplicate.similarity*100)}%)`:""}</p>
+    </${Modal}>`:""}
 
     ${confirm?html`<${Modal} title=${confirm.how==="import"?t("ยืนยันนำเข้าหลายรายการ", "Confirm importing several records"):t("ยืนยันข้ามหลายรายการ", "Confirm skipping several records")} onClose=${()=>setConfirm(null)}
       footer=${html`<div class="row" style=${{gap:"10px",justifyContent:"flex-end"}}>
         <${Btn} variant="ghost" onClick=${()=>setConfirm(null)}>${t("ยกเลิก", "Cancel")}</${Btn}>
-        <${Btn} variant="outline" onClick=${()=>doBulk(confirm.ids,confirm.how)}>${t("ยืนยัน", "Confirm")}</${Btn}></div>`}>
-      <p>${confirm.how==="import"
+        <${Btn} variant="outline" disabled=${busy} onClick=${()=>doBulk(confirm.ids,confirm.how)}>${t("ยืนยัน", "Confirm")}</${Btn}></div>`}>
+      <p>${confirm.how==="import"&&isLive
+        ? html`${t("เก็บเป็นรายการใหม่", "Keep as new records:")} <b>${confirm.ids.length} ${t("รายการ", "records")}</b> ${t("แม้อาจซ้ำกับรายการที่มีอยู่", "even though they may duplicate existing ones")}`
+        : confirm.how==="import"
         ? html`${t("นำเข้า", "Imported")} <b>${confirm.ids.length} ${t("รายการ", "records")}</b> ${t("ที่เลือกเข้าสู่ระบบ", "selected records into the system")}`
         : html`${t("ทำเครื่องหมายข้าม", "Mark as skipped")} <b>${confirm.ids.length} ${t("รายการ", "records")}</b> ${t("— ข้อมูลดิบยังถูกเก็บไว้เป็นประวัติ ไม่ถูกลบ", "— the raw data is kept as history, not deleted")}`}</p>
       <div class="dm-alert warn"><${Icon} name="gap" size=${15}/> ${t("การกระทำนี้บันทึกลงบันทึกการตรวจสอบเป็นรายแถว", "This action is written to the audit log row by row")}</div>
