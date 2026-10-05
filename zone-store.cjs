@@ -48,13 +48,9 @@ const stamp = () => new Date().toISOString().replace(/[:.]/g, '-');
  * @param adapter {{ readJSON(name):Promise<any|null>, writeText(name,text):Promise<void>,
  *                   list(prefix):Promise<string[]>, remove(name):Promise<void> }}
  */
-function makeZoneStore(adapter) {
-
-  const readPublished = () => adapter.readJSON(PUBLISHED);
-  const readDraft     = () => adapter.readJSON(DRAFT);
-
+function fileAdapter(files) {
   async function listHistory() {
-    const names = await adapter.list(HIST_DIR + '/');
+    const names = await files.list(HIST_DIR + '/');
     return names
       .map(n => n.split('/').pop())
       .filter(n => n.endsWith('.geojson'))
@@ -62,20 +58,49 @@ function makeZoneStore(adapter) {
       .map(n => ({ version: n.replace(/\.geojson$/, ''), name: HIST_DIR + '/' + n }));
   }
 
-  async function getVersion(version) {
-    if (!/^[0-9A-Za-z\-]+$/.test(version || '')) return null;   // กัน path traversal
-    return adapter.readJSON(`${HIST_DIR}/${version}.geojson`);
-  }
-
   /** ย้ายฉบับที่ published อยู่ตอนนี้เข้าประวัติ แล้วตัดของเก่าที่เกินเพดาน */
   async function archiveCurrent() {
-    const cur = await readPublished();
+    const cur = await files.readJSON(PUBLISHED);
     if (!cur) return null;
     const version = stamp();
-    await adapter.writeText(`${HIST_DIR}/${version}.geojson`, JSON.stringify(cur));
+    await files.writeText(`${HIST_DIR}/${version}.geojson`, JSON.stringify(cur));
     const hist = await listHistory();
-    for (const h of hist.slice(MAX_HISTORY)) { try { await adapter.remove(h.name); } catch (e) {} }
+    for (const h of hist.slice(MAX_HISTORY)) { try { await files.remove(h.name); } catch (e) {} }
     return version;
+  }
+
+  return {
+    getLive:  () => files.readJSON(PUBLISHED),
+    getDraft: () => files.readJSON(DRAFT),
+    listHistory,
+    getVersion: version => files.readJSON(`${HIST_DIR}/${version}.geojson`),
+    saveDraft: (gj, raw) => files.writeText(DRAFT, raw),
+    async clearDraft() { try { await files.remove(DRAFT); } catch (e) {} },
+    async publish(gj, raw, opts) {
+      const archived = await archiveCurrent();
+      await files.writeText(PUBLISHED, raw);
+      if (opts && opts.clearDraft) { try { await files.remove(DRAFT); } catch (e) {} }
+      return archived;
+    },
+  };
+}
+
+function makeZoneStore(adapter) {
+  const db = typeof adapter.getLive === 'function' ? adapter : fileAdapter(adapter);
+
+  const readPublished = () => db.getLive();
+  const readDraft     = () => db.getDraft();
+  const listHistory   = () => db.listHistory();
+
+  async function getVersion(version) {
+    if (!/^[0-9A-Za-z\-]+$/.test(version || '')) return null;   // กัน path traversal
+    return db.getVersion(version);
+  }
+
+  const rejected = e => (e && e.zoneError) ? { code: 400, error: 'รูปโซนใช้ไม่ได้', message: e.zoneError } : null;
+  async function guard(fn) {
+    try { return await fn(); }
+    catch (e) { const r = rejected(e); if (r) return r; throw e; }
   }
 
   function check(raw) {
@@ -90,57 +115,53 @@ function makeZoneStore(adapter) {
   }
 
   /** บันทึกเป็น "ฉบับร่าง" — ยังไม่มีผลกับใคร */
-  async function saveDraft(raw) {
+  const saveDraft = (raw, actor) => guard(async () => {
     const c = check(raw); if (c.error) return c;
-    await adapter.writeText(DRAFT, raw);
+    await db.saveDraft(c.gj, raw, { actor });
     return { ok: true, status: 'draft', zones: c.gj.features.map(f => f.properties.zone_id),
              kb: Math.round(c.bytes / 1024), updatedAt: new Date().toISOString() };
-  }
+  });
 
   /** บันทึกแล้วมีผลทันที (ข้ามขั้นตรวจ) — เก็บฉบับเดิมเข้าประวัติก่อนเสมอ */
-  async function publish(raw) {
+  const publish = (raw, actor) => guard(async () => {
     const c = check(raw); if (c.error) return c;
-    const archived = await archiveCurrent();
-    await adapter.writeText(PUBLISHED, raw);
+    const archived = await db.publish(c.gj, raw, { action: 'publish', actor });
     return { ok: true, status: 'published', archived,
              zones: c.gj.features.map(f => f.properties.zone_id),
              kb: Math.round(c.bytes / 1024), updatedAt: new Date().toISOString() };
-  }
+  });
 
   /** อนุมัติฉบับร่าง → ใช้จริง (ฉบับเดิมเข้าประวัติ · ร่างถูกล้าง) */
-  async function approve() {
+  const approve = actor => guard(async () => {
     const draft = await readDraft();
     if (!draft) return { code: 404, error: 'ไม่มีฉบับร่างรออนุมัติ' };
     const raw = JSON.stringify(draft);
     const c = check(raw); if (c.error) return c;             // ร่างอาจถูกเซฟไว้ตั้งแต่กฎเก่า ตรวจซ้ำก่อนใช้จริง
-    const archived = await archiveCurrent();
-    await adapter.writeText(PUBLISHED, raw);
-    try { await adapter.remove(DRAFT); } catch (e) {}
+    const archived = await db.publish(c.gj, raw, { action: 'approve', actor, clearDraft: true });
     return { ok: true, status: 'published', archived, approved: true,
              zones: c.gj.features.map(f => f.properties.zone_id), kb: Math.round(c.bytes / 1024) };
-  }
+  });
 
   async function discardDraft() {
     const draft = await readDraft();
     if (!draft) return { code: 404, error: 'ไม่มีฉบับร่าง' };
-    try { await adapter.remove(DRAFT); } catch (e) {}
+    await db.clearDraft();
     return { ok: true, discarded: true };
   }
 
   /** ย้อนกลับไปใช้ฉบับในประวัติ — ฉบับปัจจุบันถูกเก็บเข้าประวัติก่อน ไม่หายไปเฉย ๆ */
-  async function restore(version) {
+  const restore = (version, actor) => guard(async () => {
     const old = await getVersion(version);
     if (!old) return { code: 404, error: 'ไม่พบฉบับ ' + version };
     const raw = JSON.stringify(old);
     const c = check(raw); if (c.error) return c;
-    const archived = await archiveCurrent();
-    await adapter.writeText(PUBLISHED, raw);
+    const archived = await db.publish(c.gj, raw, { action: 'restore', actor });
     return { ok: true, status: 'published', restored: version, archived,
              zones: c.gj.features.map(f => f.properties.zone_id) };
-  }
+  });
 
   return { readPublished, readDraft, listHistory, getVersion,
            saveDraft, publish, approve, discardDraft, restore };
 }
 
-module.exports = { makeZoneStore, checkWriteAuth, PUBLISHED, DRAFT, HIST_DIR, MAX_HISTORY };
+module.exports = { makeZoneStore, fileAdapter, checkWriteAuth, stamp, PUBLISHED, DRAFT, HIST_DIR, MAX_HISTORY };
