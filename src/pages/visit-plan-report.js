@@ -18,6 +18,7 @@ import {Dropdown} from "../select.js";
 import {gapBySegment, gapLevelOf} from "../mock/geoData.js";
 import {officeFor, haversine, fmtKm} from "../visit.js";
 import {pushAudit} from "../audit.js";
+import {readSaved} from "../auth.js";
 import {ExportDialog, downloadXLS, defaultReportName} from "./reports.js";
 
 /* ---------- วันที่ พ.ศ. ---------- */
@@ -134,9 +135,12 @@ export function VisitPlanReport(){
 
   // ── บังคับสิทธิ์ที่เซิร์ฟเวอร์จาก token: ขอแผนของตัวเอง = 200 · ของคนอื่น = 403 ──
   useEffect(()=>{ if(!isTC) return; let alive=true;
-    const tok = btoa(unescape(encodeURIComponent(JSON.stringify({email:user.email, role:user.role, province}))));
+    const saved = readSaved();
+    const tok = saved && saved.token;
+    const mine = saved && saved.user && String(saved.user.email||"").toLowerCase()===String(user.email||"").toLowerCase();
+    if(!tok || !mine) return;
     fetch(`/api/visit-plans?owner=${encodeURIComponent(user.email)}`, {headers:{Authorization:"Bearer "+tok}})
-      .then(r=>{ if(!alive) return; if(r.status===403||r.status===401){ setDenied(true); toast(t("เซิร์ฟเวอร์ปฏิเสธการเข้าถึงแผนนี้ (403)", "The server refused access to this plan (403)"),"bad"); } })
+      .then(r=>{ if(!alive) return; if(r.status===403){ setDenied(true); toast(t("เซิร์ฟเวอร์ปฏิเสธการเข้าถึงแผนนี้ (403)", "The server refused access to this plan (403)"),"bad"); } })
       .catch(()=>{});   // เซิร์ฟเวอร์รุ่นเก่า/ออฟไลน์: ไม่บล็อกการแสดงผล (data มาจากข้อมูลจริงในเครื่องอยู่แล้ว)
     return ()=>{ alive=false; };
   }, [isTC, province]);

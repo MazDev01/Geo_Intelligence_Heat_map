@@ -45,7 +45,7 @@ const authStore = makeAuthStore(makeAuthAdapter(pool), {
   seed: [{id: 1, name: 'System Administrator', email: (env.ADMIN_EMAIL || 'admin@geointel.io').toLowerCase(), role: 'Administrator'}],
 });
 const zoneStore = makeZoneStore(makeZoneAdapter(pool));
-const api = makeApi({pool, authStore, zoneStore, env, production, demoPassword});
+const api = makeApi({pool, authStore, zoneStore, demoPassword});
 const serveStatic = makeStatic(root);
 
 const server = createServer(async (req, res) => {
@@ -68,6 +68,13 @@ const server = createServer(async (req, res) => {
     res.writeHead(500, {'Content-Type': 'text/plain; charset=utf-8'});
     res.end('server error');
   }
+});
+
+server.on('error', async e => {
+  await pool.end().catch(() => {});
+  fail(e.code === 'EADDRINUSE'
+    ? `port ${port} is already in use. Stop the other server or set PORT to a free port`
+    : 'cannot start: ' + e.message);
 });
 
 server.listen(port, host, () => {

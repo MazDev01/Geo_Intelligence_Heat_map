@@ -20,6 +20,7 @@
 // ---------------------------------------------------------------------------
 import { t, getLang } from "./i18n.js";
 import { BKK, BKK_ZONES } from "./mock/geoData.js";
+import { token as loginToken } from "./auth.js";
 
 const API    = "/api/zones";
 const STATIC = "/data/zones.geojson";
@@ -98,7 +99,8 @@ export const setAdminToken = v => { try{ v ? sessionStorage.setItem(TOK_KEY, v) 
 // ส่งเป็น base64 ของ UTF-8 เพราะ HTTP header เป็น latin-1 — รหัสภาษาไทยส่งดิบ ๆ จะเพี้ยน
 // (เจอมาแล้ว: รหัสถูกแต่เซิร์ฟเวอร์ปฏิเสธ) ฝั่งเซิร์ฟเวอร์รับทั้ง base64 และข้อความดิบ
 const b64 = s => { try{ return btoa(String.fromCharCode(...new TextEncoder().encode(s))); }catch(e){ return s; } };
-const authHeaders = () => { const t = adminToken(); return t ? {Authorization:"Bearer "+b64(t)} : {}; };
+const authHeaders = () => { const t = adminToken(); if(t) return {Authorization:"Bearer "+b64(t)};
+  const lt = loginToken(); return lt ? {Authorization:"Bearer "+lt} : {}; };
 
 async function post(query, body){
   try{
@@ -134,14 +136,14 @@ export const discardZoneDraft = () => post("?discard=1");
 
 /** ฉบับร่างที่ค้างอยู่ (null = ไม่มี) */
 export async function loadZoneDraft(){
-  try{ const r = await fetch(API+"?draft=1", {cache:"no-store"});
+  try{ const r = await fetch(API+"?draft=1", {cache:"no-store", headers:authHeaders()});
     return (r.ok && r.status!==204) ? normalize(await r.json()) : null;
   }catch(e){ return null; }
 }
 
 /** ประวัติฉบับที่เคยมีผลจริง (ใหม่สุดมาก่อน) */
 export async function listZoneVersions(){
-  try{ const r = await fetch(API+"?history=1", {cache:"no-store"});
+  try{ const r = await fetch(API+"?history=1", {cache:"no-store", headers:authHeaders()});
     if(!r.ok) return [];
     const b = await r.json();
     return Array.isArray(b.versions) ? b.versions : [];

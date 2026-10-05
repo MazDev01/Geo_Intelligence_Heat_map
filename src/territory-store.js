@@ -14,8 +14,11 @@
 //   คีย์ = คีย์หน่วย (จังหวัด หรือ จังหวัด/โซน) · ค่า = id ของ TC
 // ---------------------------------------------------------------------------
 
+import {token} from "./auth.js";
+
 const API = "/api/territory";
 const LS_KEY = "geointel_territory";
+const authHeader = () => { const tk = token(); return tk ? {Authorization:"Bearer "+tk} : {}; };
 
 const readLocal = () => {
   try{
@@ -29,7 +32,7 @@ const readLocal = () => {
 /** โหลดการมอบหมาย · คืน null ถ้ายังไม่เคยบันทึกที่ไหนเลย (ให้ผู้เรียก fallback เป็นค่าตั้งต้นเอง) */
 export async function loadTerritory(){
   try{
-    const r = await fetch(API, {headers:{"Accept":"application/json"}});
+    const r = await fetch(API, {headers:{"Accept":"application/json", ...authHeader()}});
     if(r.ok){
       const body = await r.json();
       const a = body && body.assign;
@@ -55,7 +58,7 @@ export async function saveTerritory(assign){
   try{
     const r = await fetch(API, {
       method:"POST",
-      headers:{"Content-Type":"application/json"},
+      headers:{"Content-Type":"application/json", ...authHeader()},
       body: JSON.stringify({assign}),
     });
     const body = await r.json().catch(()=>({}));
