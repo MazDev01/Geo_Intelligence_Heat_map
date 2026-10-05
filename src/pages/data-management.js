@@ -522,7 +522,7 @@ function ImportFiles({staging, onManagePending}){
     ${rollback?html`<${Modal} title=${t("ยกเลิกการนำเข้าทั้งชุด", "Roll back the whole batch")} onClose=${()=>setRollback(null)}
       footer=${html`<div class="row" style=${{gap:"10px",justifyContent:"flex-end"}}>
         <${Btn} variant="ghost" onClick=${()=>setRollback(null)}>${t("ยกเลิก", "Cancel")}</${Btn}>
-        <${Btn} variant="danger" disabled=${confirmTxt.trim()!=="ยืนยัน"} onClick=${()=>doRollback(rollback)}>${t("ถอนการนำเข้า", "Withdrew the import")}</${Btn}></div>`}>
+        <${Btn} variant="danger" disabled=${confirmTxt.trim().toUpperCase()!==t("ยืนยัน", "CONFIRM")} onClick=${()=>doRollback(rollback)}>${t("ถอนการนำเข้า", "Withdrew the import")}</${Btn}></div>`}>
       <p>${t("ยกเลิกการนำเข้าจากไฟล์", "Roll back the import from")} <b>${rollback.file}</b></p>
       <ul class="dm-impact">
         <li>${t("จะถอนรายการที่นำเข้าจากไฟล์นี้", "This withdraws the records imported from this file")} <b>${num(Math.max(0,rollback.done-rollback.visited))} ${t("รายการ", "records")}</b></li>
@@ -531,8 +531,8 @@ function ImportFiles({staging, onManagePending}){
       </ul>
       <div class="dm-alert warn"><${Icon} name="gap" size=${15}/> ${t("ข้อมูลไม่ถูกลบถาวร — ชุดนี้จะเปลี่ยนสถานะเป็น \"ถอนออกแล้ว\" และซ่อนจากทุกหน้าจอ · บันทึกลงบันทึกการตรวจสอบ", "Nothing is permanently deleted — the batch is marked \"withdrawn\" and hidden everywhere · written to the audit log")}</div>
       <label class="dm-frm-f" style=${{marginTop:"12px"}}>
-        <span class="dm-frm-lb">${t("พิมพ์คำว่า \"ยืนยัน\" เพื่อดำเนินการต่อ", "Type \"ยืนยัน\" to continue")}</span>
-        <input class="dm-input" value=${confirmTxt} onInput=${e=>setConfirmTxt(e.target.value)} placeholder=${t("ยืนยัน", "Confirm")}/></label>
+        <span class="dm-frm-lb">${t("พิมพ์คำว่า \"ยืนยัน\" เพื่อดำเนินการต่อ", "Type \"CONFIRM\" to continue")}</span>
+        <input class="dm-input" value=${confirmTxt} onInput=${e=>setConfirmTxt(e.target.value)} placeholder=${t("ยืนยัน", "CONFIRM")}/></label>
     </${Modal}>`:""}
   </div>`;
 }
