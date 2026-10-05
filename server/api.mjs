@@ -12,6 +12,7 @@ const send = (res, code, obj) => {
     'Content-Type': 'application/json; charset=utf-8',
     'Cache-Control': 'no-store',
     'X-Content-Type-Options': 'nosniff',
+    ...(code === 413 ? {Connection: 'close'} : {}),
   });
   res.end(obj === undefined ? '' : JSON.stringify(obj));
 };
