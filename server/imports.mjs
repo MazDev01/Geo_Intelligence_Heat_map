@@ -157,6 +157,13 @@ where f.status <> 'pending'
 order by (f.status <> 'withdrawn' and coalesce(q.pending, 0) > 0) desc, f.uploaded_at desc, f.file_id desc
 limit $4 offset $6`;
 
+const SUMMARY_SQL = `
+select (select coalesce(sum(rows_ok), 0) from import_files where status not in ('pending', 'withdrawn'))::int
+    + count(*) filter (where r.status in ('imported', 'merged'))::int as imported,
+  count(*) filter (where r.status = 'pending')::int as pending,
+  (select max(uploaded_at) from import_files where status not in ('pending', 'withdrawn')) as last_uploaded_at
+from import_rows r join import_files f on f.file_id = r.file_id and f.status not in ('pending', 'withdrawn')`;
+
 export async function listFiles(pool, query) {
   const filter = query.get('filter') || 'all';
   if (!['all', 'pending', 'done'].includes(filter)) throw fail(400, 'ตัวกรองไม่ถูกต้อง');
@@ -165,8 +172,10 @@ export async function listFiles(pool, query) {
   const offset = Math.max(Number(query.get('offset')) || 0, 0);
   if (!Number.isSafeInteger(offset)) throw fail(400, 'ตำแหน่งเริ่มไม่ถูกต้อง');
   const rows = (await pool.query(FILES_SQL, [query.get('withdrawn') === '1', search, filter, limit, WITHDRAW_DAYS, offset])).rows;
+  const sum = (await pool.query(SUMMARY_SQL)).rows[0];
   return {
     ok: true, total: rows.length ? rows[0].total : 0, limit, offset, withdrawDays: WITHDRAW_DAYS,
+    summary: {imported: sum.imported, pending: sum.pending, lastUploadedAt: sum.last_uploaded_at ? sum.last_uploaded_at.toISOString() : null},
     files: rows.map(r => ({
       id: Number(r.file_id), filename: r.filename, sizeBytes: Number(r.size_bytes), status: r.status,
       uploadedAt: r.uploaded_at.toISOString(), uploadedBy: r.uploaded_by, template: r.template, ageDays: r.age_days,
