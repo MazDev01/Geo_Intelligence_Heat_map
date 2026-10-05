@@ -1,7 +1,7 @@
 import {Worker} from 'node:worker_threads';
 import {withTransaction} from './db/pool.mjs';
 import {headerSignature} from './import-parse.mjs';
-import {readMapping, classifyFile, previewFile} from './import-validate.mjs';
+import {readMapping, classifyFile, previewFile, applyFile} from './import-validate.mjs';
 
 const WORKER_URL = new URL('./import-worker.mjs', import.meta.url);
 const PARSE_TIMEOUT_MS = 60000;
@@ -101,5 +101,28 @@ export async function mapUpload(pool, body, userId) {
     await tx.query('update import_files set mapping = $2, template_id = coalesce($3, template_id) where file_id = $1',
       [fileId, JSON.stringify(plan.stored), templateId]);
     return {ok: true, fileId, mapping: plan.stored, templateId, ...preview};
+  });
+}
+
+export async function confirmUpload(pool, body) {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) throw fail(400, 'อ่านคำขอไม่ได้');
+  const fileId = Number(body.fileId);
+  if (!Number.isSafeInteger(fileId) || fileId < 1) throw fail(400, 'ต้องระบุไฟล์');
+  return withTransaction(pool, async tx => {
+    const file = (await tx.query(
+      "select file_id, filename, headers, mapping from import_files where file_id = $1 and status = 'pending' for update", [fileId])).rows[0];
+    if (!file) throw fail(404, 'ไม่พบไฟล์นี้ หรือไฟล์นี้ถูกยืนยันไปแล้ว');
+    const stored = file.mapping || {};
+    if (!stored.fields || !Object.keys(stored.fields).length) throw fail(400, 'ยังไม่ได้จับคู่คอลัมน์ของไฟล์นี้');
+    const plan = readMapping(file.headers, {mapping: stored.fields, defaults: stored.defaults});
+    await classifyFile(tx, fileId, plan);
+    const counts = await applyFile(tx, fileId);
+    await tx.query('delete from import_staging where file_id = $1', [fileId]);
+    const problems = counts.total - counts.ok;
+    const status = !problems ? 'completed' : counts.ok ? 'partial' : 'failed';
+    await tx.query(
+      'update import_files set status = $2, rows_total = $3, rows_ok = $4, rows_error = $5, rows_dup = $6 where file_id = $1',
+      [fileId, status, counts.total, counts.ok, counts.incomplete + counts.badcoord, counts.dup]);
+    return {ok: true, file: {id: fileId, filename: file.filename, status}, counts, queued: problems};
   });
 }

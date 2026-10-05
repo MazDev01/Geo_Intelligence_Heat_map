@@ -310,3 +310,30 @@ export async function previewFile(tx, known) {
     .filter(r => !knownSegments.has(r.segment)).slice(0, 30);
   return {counts, rows, previewLimit: PREVIEW_ROWS, newSegments, rule: {similarity: known.dup.similarity, distanceM: known.dup.distance}};
 }
+
+export async function applyFile(tx, fileId) {
+  await tx.query('alter table import_check add column place_id text');
+  await tx.query(`update import_check set place_id =
+      (case vals ->> 'type' when 'Existing' then 'CUSU' else 'PROU' end) || upper(substr(replace(gen_random_uuid()::text, '-', ''), 1, 12))
+    where kind = 'ok'`);
+  const placed = await tx.query(
+    `insert into places (id, type, account_no, business_name, category, segment, province, district, address,
+       latitude, longitude, phone, email, website, facebook, date_join, visit_status, source, import_file_id)
+     select place_id, vals ->> 'type', vals ->> 'accountNo', vals ->> 'businessName', vals ->> 'category', vals ->> 'segment',
+       vals ->> 'province', vals ->> 'district', vals ->> 'address', lat, lng, vals ->> 'phone', vals ->> 'email',
+       vals ->> 'website', vals ->> 'facebook', (vals ->> 'dateJoin')::date,
+       case when vals ->> 'type' = 'Prospect' then 'ยังไม่เข้าพบ' end, 'import_file', $1
+     from import_check where kind = 'ok' order by row_no`, [fileId]);
+  const queued = await tx.query(
+    `insert into import_rows (file_id, row_no, kind, raw, issues, match_place_id, similarity)
+     select $1, c.row_no, c.kind, c.vals, c.issues, coalesce(c.match_place_id, m.place_id), c.similarity
+     from import_check c left join import_check m on m.row_no = c.match_row_no
+     where c.kind <> 'ok' order by c.row_no`, [fileId]);
+  const counts = {total: 0, ok: 0, incomplete: 0, badcoord: 0, dup: 0};
+  for (const r of (await tx.query('select kind, count(*)::int as n from import_check group by kind')).rows) {
+    counts[r.kind] = r.n;
+    counts.total += r.n;
+  }
+  if (placed.rowCount !== counts.ok || queued.rowCount !== counts.total - counts.ok) throw new Error('import row counts do not add up');
+  return counts;
+}

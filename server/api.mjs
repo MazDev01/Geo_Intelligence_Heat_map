@@ -1,7 +1,7 @@
 import {createRequire} from 'node:module';
 import {withTransaction} from './db/pool.mjs';
 import {listPlaces, createPlaces, updatePlace, deletePlace} from './places.mjs';
-import {importUpload, mapUpload} from './imports.mjs';
+import {importUpload, mapUpload, confirmUpload} from './imports.mjs';
 import {cleanFilename, fileKind, MAX_FILE_BYTES} from './import-parse.mjs';
 
 const require = createRequire(import.meta.url);
@@ -242,7 +242,7 @@ export function makeApi({pool, authStore, zoneStore, demoPassword}) {
     }
   }
 
-  async function importsMapping(req, res) {
+  const importStep = run => async (req, res) => {
     if (req.method !== 'POST') return send(res, 405, {error: 'รองรับเฉพาะ POST'});
     const admin = await requireUser(req, res, 'Administrator');
     if (!admin) return;
@@ -250,12 +250,12 @@ export function makeApi({pool, authStore, zoneStore, demoPassword}) {
     try { body = JSON.parse(await readBody(req, 1e6)); }
     catch (e) { return send(res, e.status === 413 ? 413 : 400, {error: e.status === 413 ? 'ข้อมูลใหญ่เกินไป' : 'อ่านคำขอไม่ได้'}); }
     try {
-      return send(res, 200, await mapUpload(pool, body, admin.id));
+      return send(res, 200, await run(body, admin));
     } catch (e) {
       if (e && [400, 404].includes(e.status)) return send(res, e.status, {error: e.message});
       throw e;
     }
-  }
+  };
 
   const ROUTES = {
     '/api/auth': (req, res) => auth(req, res),
@@ -263,7 +263,8 @@ export function makeApi({pool, authStore, zoneStore, demoPassword}) {
     '/api/leads': places('leads'),
     '/api/places': placesWrite,
     '/api/imports': imports,
-    '/api/imports/mapping': importsMapping,
+    '/api/imports/mapping': importStep((body, admin) => mapUpload(pool, body, admin.id)),
+    '/api/imports/confirm': importStep(body => confirmUpload(pool, body)),
     '/api/zones': zones,
     '/api/territory': (req, res) => territory(req, res),
     '/api/visit-plans': visitPlans,
