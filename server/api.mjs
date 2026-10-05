@@ -4,6 +4,8 @@ import {withTransaction} from './db/pool.mjs';
 const require = createRequire(import.meta.url);
 const {MAX_BYTES} = require('../zone-validate.cjs');
 
+const DOOR_ROLE = {admin: 'Administrator', management: 'Management', tc: 'Trade Coordinator'};
+
 const send = (res, code, obj) => {
   res.writeHead(code, {
     'Content-Type': 'application/json; charset=utf-8',
@@ -39,7 +41,15 @@ export function makeApi({pool, authStore, zoneStore, demoPassword}) {
     const action = String(body.action || '');
     const reply = r => send(res, r && r.ok ? 200 : ((r && r.code) || 400), r);
 
-    if (action === 'login') return reply(await authStore.login(body.email, body.password));
+    if (action === 'login') {
+      const door = body.door;
+      if (door !== undefined && door !== null && !Object.hasOwn(DOOR_ROLE, door))
+        return send(res, 400, {ok: false, error: 'ประตูเข้าสู่ระบบไม่ถูกต้อง'});
+      const r = await authStore.login(body.email, body.password);
+      if (r.ok && door && r.user.role !== DOOR_ROLE[door])
+        return send(res, 401, {ok: false, code: 401, error: 'อีเมลหรือรหัสผ่านไม่ถูกต้อง'});
+      return reply(r);
+    }
     if (action === 'change') {
       const who = await authStore.auth(req.headers);
       if (!who.ok) return send(res, who.code, who);

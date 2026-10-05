@@ -55,7 +55,8 @@ export async function call(action, body = {}) {
   }
 }
 
-export const login          = (email, password) => call("login", { email, password });
+const door = () => { try { const m = /^\/(admin|management|tc)\/?$/.exec(location.pathname); return m ? m[1] : undefined; } catch (e) { return undefined; } };
+export const login          = (email, password) => call("login", { email, password, door: door() });
 export const changePassword = (oldPassword, newPassword) => call("change", { oldPassword, newPassword });
 export const me             = () => call("me");
 export const listUsers      = () => call("users.list");
