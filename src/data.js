@@ -69,6 +69,27 @@ export async function writePlaces(method, id, body){
   }
 }
 
+let _noPlansApi = false;
+
+export async function visitPlansApi(method="GET", id, body){
+  if(_noPlansApi) return {ok:true, local:true};
+  const tk = token();
+  try{
+    const r = await fetch("/api/visit-plans"+(id ? "?id="+encodeURIComponent(id) : ""), {method,
+      headers:{...(body ? {"Content-Type":"application/json"} : {}), ...(tk ? {Authorization:"Bearer "+tk} : {})},
+      body: body ? JSON.stringify(body) : undefined});
+    const data = await r.json().catch(()=>null);
+    if(r.status===404 && !(data && data.error)){ _noPlansApi = true; return {ok:true, local:true}; }
+    if(method==="GET" && r.ok && data && !Array.isArray(data.plans)){ _noPlansApi = true; return {ok:true, local:true}; }
+    if(method!=="GET" && r.status===405){ _noPlansApi = true; return {ok:true, local:true}; }
+    if(r.status===401) return {ok:false, status:401, error:t("เซสชันหมดอายุ กรุณาเข้าสู่ระบบใหม่", "Your session has expired. Please sign in again")};
+    if(!r.ok) return {...(data||{}), ok:false, status:r.status, error:(data && (data.error==="forbidden" ? data.message : data.error)) || t("บันทึกแผนไม่สำเร็จ", "Could not save the plan")+` (${r.status})`};
+    return {...(data||{}), ok:true};
+  }catch(e){
+    return {ok:false, error:t("ติดต่อเซิร์ฟเวอร์ไม่ได้", "Could not reach the server")};
+  }
+}
+
 let _noImportsApi = false;
 
 export async function importsApi(path="", {method="GET", query, body, file}={}){

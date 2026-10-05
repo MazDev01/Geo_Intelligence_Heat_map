@@ -21,6 +21,7 @@ import {WelcomeDialog, isOnboarded, markOnboarded} from "./onboarding.js";
 import {ProductTour} from "./tour.js";
 import {HelpTips} from "./help.js";
 import {VisitPlanner} from "./visit-planner.js";
+import {usePlanSync} from "./plan-sync.js";
 import {AddRecordsForm, USER_SOURCE} from "./add-records.js";
 import {OFFICE, officeFor, clusterCustomers, optimizeOrder} from "./visit.js";
 import {pushAudit} from "./audit.js";
@@ -160,19 +161,20 @@ function App(){
   const activePlan = visitPlans.find(p=>p.id===activePlanId) || visitPlans[0];
   const visitPlan = activePlan ? activePlan.customers : [];
   const visitRoute = activePlan ? activePlan.route : null;
-  const setVisitPlan = updater => setVisitPlans(prev => prev.map(p =>
-    p.id===activePlanId ? {...p, customers: typeof updater==="function" ? updater(p.customers) : updater} : p));
+  const planSync = usePlanSync({user, db, visitPlans, setVisitPlans, setActivePlanId});
+  const setVisitPlan = updater => { planSync.touch(activePlanId); setVisitPlans(prev => prev.map(p =>
+    p.id===activePlanId ? {...p, customers: typeof updater==="function" ? updater(p.customers) : updater} : p)); };
   const setVisitRoute = route => setVisitPlans(prev => prev.map(p => p.id===activePlanId ? {...p, route} : p));
-  const createPlan = name => { const id = "plan-"+Date.now(); setVisitPlans(prev=>[...prev, {id, name, customers:[], route:null, saved:false, visitDate:""}]); setActivePlanId(id); };
-  const deletePlan = id => setVisitPlans(prev=>{
+  const createPlan = name => { const id = "plan-"+Date.now(); planSync.touch(id); setVisitPlans(prev=>[...prev, {id, name, customers:[], route:null, saved:false, visitDate:""}]); setActivePlanId(id); };
+  const deletePlan = id => { planSync.remove(id); setVisitPlans(prev=>{
     const next = prev.filter(p=>p.id!==id);
     if(next.length===0) next.push({id:"plan-"+Date.now(), name:t("แผนที่ 1", "Plan 1"), customers:[], route:null, saved:false, visitDate:""});
     if(activePlanId===id) setActivePlanId(next[0].id);
     return next;
-  });
-  const renamePlan = (id, name) => setVisitPlans(prev=>prev.map(p=>p.id===id?{...p,name}:p));
-  const savePlan = ()=> setVisitPlans(prev=>prev.map(p=>p.id===activePlanId?{...p,saved:true}:p));
-  const setVisitDate = d => setVisitPlans(prev=>prev.map(p=>p.id===activePlanId?{...p,visitDate:d}:p));
+  }); };
+  const renamePlan = (id, name) => { planSync.touch(id); setVisitPlans(prev=>prev.map(p=>p.id===id?{...p,name}:p)); };
+  const savePlan = ()=> { planSync.touch(activePlanId); setVisitPlans(prev=>prev.map(p=>p.id===activePlanId?{...p,saved:true}:p)); };
+  const setVisitDate = d => { planSync.touch(activePlanId); setVisitPlans(prev=>prev.map(p=>p.id===activePlanId?{...p,visitDate:d}:p)); };
   const addToPlan = c => { setVisitPlan(p=> p.find(x=>x.id===c.id)? p : [...p, c]); setVisitRoute(null); };
   // กด "เลือกลูกค้า" ในแผงวางแผนเข้าพบ → ซูมเข้าไปในพื้นที่จนเห็นหมุดระดับไอคอน (zoom 13) เพื่อให้แตะเลือกลูกค้าได้
   // เล็งไปที่จุดศูนย์กลางของลูกค้า+Leadในจังหวัดที่กำลังดูอยู่ (ไม่ใช่ที่ตั้งสำนักงานใหญ่ ซึ่งอยู่คนละจังหวัด)
@@ -269,6 +271,7 @@ function App(){
     const round = { round:((rec.visitRounds||[]).length)+1, status:"ยกเลิก", reason, note:note||"",
       date:planTodayKey(), by:(user&&user.name)||"TC" };
     addVisitRound(rec, round);
+    planSync.touch(visitPlans.filter(p=>(p.customers||[]).some(x=>x.id===rec.id)).map(p=>p.id));
     setVisitPlans(prev=>prev.map(p=>{
       const left=(p.customers||[]).filter(x=>x.id!==rec.id);
       return left.length===(p.customers||[]).length ? p : {...p, customers:left, route:null};
