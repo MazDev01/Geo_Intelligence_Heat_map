@@ -126,3 +126,76 @@ export async function confirmUpload(pool, body) {
     return {ok: true, file: {id: fileId, filename: file.filename, status}, counts, queued: problems};
   });
 }
+
+const WITHDRAW_DAYS = 7;
+const KEPT = `(p.converted_at is not null or exists (select 1 from place_visits v where v.place_id = p.id and v.status <> 'ยกเลิก'))`;
+
+const FILES_SQL = `
+select f.file_id, f.filename, f.size_bytes, f.status, f.rows_total, f.rows_ok, f.rows_error, f.rows_dup, f.uploaded_at,
+  f.withdrawn_at, u.name as uploaded_by, w.name as withdrawn_by, t.name as template,
+  coalesce(q.pending, 0) as pending, coalesce(q.imported, 0) as imported, coalesce(q.merged, 0) as merged, coalesce(q.skipped, 0) as skipped,
+  coalesce(pl.live, 0) as live, coalesce(pl.kept, 0) as kept, coalesce(pl.edited, 0) as edited,
+  floor(extract(epoch from now() - f.uploaded_at) / 86400)::int as age_days,
+  (f.status <> 'withdrawn' and f.uploaded_at > now() - make_interval(days => $5)) as can_withdraw,
+  count(*) over ()::int as total
+from import_files f
+left join users u on u.id = f.uploaded_by
+left join users w on w.id = f.withdrawn_by
+left join mapping_templates t on t.id = f.template_id
+left join lateral (
+  select count(*) filter (where r.status = 'pending')::int as pending, count(*) filter (where r.status = 'imported')::int as imported,
+    count(*) filter (where r.status = 'merged')::int as merged, count(*) filter (where r.status = 'skipped')::int as skipped
+  from import_rows r where r.file_id = f.file_id) q on true
+left join lateral (
+  select count(*)::int as live, count(*) filter (where ${KEPT})::int as kept,
+    count(*) filter (where p.updated_at > p.created_at)::int as edited
+  from places p where p.import_file_id = f.file_id and p.deleted_at is null) pl on true
+where f.status <> 'pending'
+  and ($1::boolean or f.status <> 'withdrawn')
+  and ($2::text is null or position(lower($2) in lower(f.filename)) > 0)
+  and ($3::text = 'all' or (($3 = 'pending') = (f.status <> 'withdrawn' and coalesce(q.pending, 0) > 0)))
+order by (f.status <> 'withdrawn' and coalesce(q.pending, 0) > 0) desc, f.uploaded_at desc, f.file_id desc
+limit $4 offset $6`;
+
+export async function listFiles(pool, query) {
+  const filter = query.get('filter') || 'all';
+  if (!['all', 'pending', 'done'].includes(filter)) throw fail(400, 'ตัวกรองไม่ถูกต้อง');
+  const search = (query.get('q') || '').trim().slice(0, 200) || null;
+  const limit = Math.min(Math.max(Number(query.get('limit')) || 20, 1), 100);
+  const offset = Math.max(Number(query.get('offset')) || 0, 0);
+  if (!Number.isSafeInteger(offset)) throw fail(400, 'ตำแหน่งเริ่มไม่ถูกต้อง');
+  const rows = (await pool.query(FILES_SQL, [query.get('withdrawn') === '1', search, filter, limit, WITHDRAW_DAYS, offset])).rows;
+  return {
+    ok: true, total: rows.length ? rows[0].total : 0, limit, offset, withdrawDays: WITHDRAW_DAYS,
+    files: rows.map(r => ({
+      id: Number(r.file_id), filename: r.filename, sizeBytes: Number(r.size_bytes), status: r.status,
+      uploadedAt: r.uploaded_at.toISOString(), uploadedBy: r.uploaded_by, template: r.template, ageDays: r.age_days,
+      rowsTotal: r.rows_total, rowsOk: r.rows_ok, rowsError: r.rows_error, rowsDup: r.rows_dup,
+      queue: {pending: r.pending, imported: r.imported, merged: r.merged, skipped: r.skipped},
+      imported: r.rows_ok + r.imported + r.merged, hasPending: r.status !== 'withdrawn' && r.pending > 0,
+      canWithdraw: r.can_withdraw,
+      impact: {live: r.live, toWithdraw: r.live - r.kept, kept: r.kept, editedAfter: r.edited},
+      withdrawnAt: r.withdrawn_at ? r.withdrawn_at.toISOString() : null, withdrawnBy: r.withdrawn_by,
+    })),
+  };
+}
+
+export async function withdrawFile(pool, body, userId) {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) throw fail(400, 'อ่านคำขอไม่ได้');
+  const fileId = Number(body.fileId);
+  if (!Number.isSafeInteger(fileId) || fileId < 1) throw fail(400, 'ต้องระบุไฟล์');
+  return withTransaction(pool, async tx => {
+    const file = (await tx.query(
+      `select file_id, filename, status, uploaded_at > now() - make_interval(days => $2) as in_time
+       from import_files where file_id = $1 for update`, [fileId, WITHDRAW_DAYS])).rows[0];
+    if (!file || file.status === 'pending') throw fail(404, 'ไม่พบไฟล์นี้');
+    if (file.status === 'withdrawn') throw fail(409, 'ไฟล์นี้ถูกยกเลิกไปแล้ว');
+    if (!file.in_time) throw fail(409, 'ยกเลิกได้เฉพาะชุดที่นำเข้าไม่เกิน ' + WITHDRAW_DAYS + ' วัน');
+    const kept = await tx.query(
+      `update places p set needs_review = true where p.import_file_id = $1 and p.deleted_at is null and ${KEPT}`, [fileId]);
+    const gone = await tx.query(
+      `update places p set deleted_at = now() where p.import_file_id = $1 and p.deleted_at is null and not ${KEPT}`, [fileId]);
+    await tx.query("update import_files set status = 'withdrawn', withdrawn_by = $2, withdrawn_at = now() where file_id = $1", [fileId, userId]);
+    return {ok: true, file: {id: fileId, filename: file.filename, status: 'withdrawn'}, withdrawn: gone.rowCount, kept: kept.rowCount};
+  });
+}

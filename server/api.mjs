@@ -1,7 +1,7 @@
 import {createRequire} from 'node:module';
 import {withTransaction} from './db/pool.mjs';
 import {listPlaces, createPlaces, updatePlace, deletePlace} from './places.mjs';
-import {importUpload, mapUpload, confirmUpload} from './imports.mjs';
+import {importUpload, mapUpload, confirmUpload, listFiles, withdrawFile} from './imports.mjs';
 import {listQueue, actOnQueue} from './import-queue.mjs';
 import {cleanFilename, fileKind, MAX_FILE_BYTES} from './import-parse.mjs';
 
@@ -224,9 +224,13 @@ export function makeApi({pool, authStore, zoneStore, demoPassword}) {
   }
 
   async function imports(req, res, query) {
-    if (req.method !== 'POST') return send(res, 405, {error: 'รองรับเฉพาะ POST'});
+    if (req.method !== 'GET' && req.method !== 'POST') return send(res, 405, {error: 'รองรับเฉพาะ GET กับ POST'});
     const admin = await requireUser(req, res, 'Administrator');
     if (!admin) return;
+    if (req.method === 'GET') {
+      try { return send(res, 200, await listFiles(pool, query)); }
+      catch (e) { if (e && e.status === 400) return send(res, 400, {error: e.message}); throw e; }
+    }
     const tooBig = {error: 'ไฟล์ใหญ่เกิน 25 MB กรุณาแบ่งไฟล์'};
     const filename = cleanFilename(query.get('filename'));
     if (!fileKind(filename)) return send(res, 400, {error: 'รองรับเฉพาะไฟล์ .xlsx .xls .csv'});
@@ -253,7 +257,7 @@ export function makeApi({pool, authStore, zoneStore, demoPassword}) {
     try {
       return send(res, 200, await run(body, admin));
     } catch (e) {
-      if (e && [400, 404].includes(e.status)) return send(res, e.status, {error: e.message});
+      if (e && [400, 404, 409].includes(e.status)) return send(res, e.status, {error: e.message});
       throw e;
     }
   };
@@ -282,6 +286,7 @@ export function makeApi({pool, authStore, zoneStore, demoPassword}) {
     '/api/imports': imports,
     '/api/imports/mapping': importStep((body, admin) => mapUpload(pool, body, admin.id)),
     '/api/imports/rows': importRows,
+    '/api/imports/withdraw': importStep((body, admin) => withdrawFile(pool, body, admin.id)),
     '/api/imports/confirm': importStep(body => confirmUpload(pool, body)),
     '/api/zones': zones,
     '/api/territory': (req, res) => territory(req, res),
