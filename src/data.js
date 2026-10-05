@@ -69,6 +69,28 @@ export async function writePlaces(method, id, body){
   }
 }
 
+let _noImportsApi = false;
+
+export async function importsApi(path="", {method="GET", query, body, file}={}){
+  if(_noImportsApi) return {ok:true, local:true};
+  const tk = token();
+  const qs = query ? "?"+new URLSearchParams(Object.entries(query).filter(([,v])=>v!=null && v!=="")).toString() : "";
+  const headers = {...(tk ? {Authorization:"Bearer "+tk} : {})};
+  if(file) headers["Content-Type"] = "application/octet-stream";
+  else if(body) headers["Content-Type"] = "application/json";
+  try{
+    const r = await fetch("/api/imports"+path+qs, {method, headers, body: file || (body ? JSON.stringify(body) : undefined)});
+    const data = await r.json().catch(()=>null);
+    if((r.status===404 || r.status===405) && !(data && data.error)){ _noImportsApi = true; return {ok:true, local:true}; }
+    if(r.status===401) return {ok:false, status:401, error:t("เซสชันหมดอายุ กรุณาเข้าสู่ระบบใหม่", "Your session has expired. Please sign in again")};
+    if(!r.ok) return {...(data||{}), ok:false, status:r.status, error:(data && data.error) || t("ทำรายการไม่สำเร็จ", "The request failed")+` (${r.status})`};
+    if(method==="POST" && path!=="" && path!=="/mapping") clearDetail();
+    return {...(data||{}), ok:true};
+  }catch(e){
+    return {ok:false, error:t("ติดต่อเซิร์ฟเวอร์ไม่ได้", "Could not reach the server")};
+  }
+}
+
 export function loadDetail(country="Thailand"){
   const tk = token();
   if(tk !== _detailToken){ clearDetail(); _detailToken = tk; }
