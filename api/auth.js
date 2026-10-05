@@ -136,7 +136,7 @@ module.exports = async (req, res) => {
 
     if (action === 'users.list')     return send(res, 200, { ok: true, users: await store.list() });
     if (action === 'users.create')   { const r = await store.create(body); return send(res, r.ok ? 200 : r.code, r); }
-    if (action === 'users.update')   { const r = await store.update(body.email, body.patch); return send(res, r.ok ? 200 : r.code, r); }
+    if (action === 'users.update')   { const r = await store.update(body.email, body.patch, admin.user.email); return send(res, r.ok ? 200 : r.code, r); }
     if (action === 'users.remove')   { const r = await store.remove(body.email, admin.user.email); return send(res, r.ok ? 200 : r.code, r); }
     if (action === 'users.password') { const r = await store.setPassword(body.email, body.password); return send(res, r.ok ? 200 : r.code, r); }
 

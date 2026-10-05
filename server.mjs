@@ -161,7 +161,7 @@ createServer(async (req,res)=>{
         if(!admin.ok) return send(admin.code, admin);
         if(action==='users.list')     return send(200,{ok:true, users: await authStore.list()});
         if(action==='users.create')   return reply(await authStore.create(body));
-        if(action==='users.update')   return reply(await authStore.update(body.email, body.patch));
+        if(action==='users.update')   return reply(await authStore.update(body.email, body.patch, admin.user.email));
         if(action==='users.remove')   return reply(await authStore.remove(body.email, admin.user.email));
         if(action==='users.password') return reply(await authStore.setPassword(body.email, body.password));
         return send(400,{error:'ไม่รู้จักคำสั่ง: '+action});

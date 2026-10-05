@@ -25,6 +25,7 @@ const LOCK_MS    = 15 * 60 * 1000;
 const TOKEN_TTL  = 12 * 60 * 60 * 1000;   // อายุโทเคน 12 ชม.
 
 const ROLES = ['Administrator', 'Management', 'Trade Coordinator'];
+const STATUSES = ['Active', 'Suspended'];
 
 /* ── รหัสผ่าน ────────────────────────────────────────────────────────── */
 function hashPassword(pw, salt) {
@@ -79,6 +80,46 @@ const publicUser = u => ({ id: u.id, name: u.name, email: u.email, role: u.role,
                            status: u.status || 'Active', mustChange: !!u.mustChange,
                            hasPassword: !!(u.pw && u.pw.hash), last: u.last || '—' });
 
+const findBy = (users, email) => users.find(u => String(u.email || '').toLowerCase() === String(email || '').toLowerCase());
+
+function fileAdapter(files) {
+  let makeSeed = () => [];
+  const writeAll = users => files.writeText(USERS_FILE, JSON.stringify({ users }, null, 2));
+
+  async function readAll() {
+    const got = await files.readJSON(USERS_FILE);
+    if (got && Array.isArray(got.users)) return got.users;
+    // ครั้งแรก: สร้างจากรายชื่อตั้งต้น · ยังไม่มีรหัสผ่านสักคน (แอดมินต้องตั้งให้)
+    const users = makeSeed();
+    if (users.length) await writeAll(users);
+    return users;
+  }
+
+  return {
+    async ensureSeed(fn) { makeSeed = fn; },
+    list: readAll,
+    async findByEmail(email) { return findBy(await readAll(), email) || null; },
+    async insert(rec) {
+      const users = await readAll();
+      const u = { id: Math.max(0, ...users.map(x => x.id || 0)) + 1, ...rec };
+      users.push(u);
+      await writeAll(users);
+      return u;
+    },
+    async update(id, patch) {
+      const users = await readAll();
+      const u = users.find(x => x.id === id);
+      if (!u) return;
+      Object.assign(u, patch);
+      await writeAll(users);
+    },
+    async remove(id) {
+      const users = await readAll();
+      await writeAll(users.filter(x => x.id !== id));
+    },
+  };
+}
+
 function makeAuthStore(adapter, opts) {
   const o = opts || {};
   const secret = o.secret || 'geointel-dev-secret';
@@ -87,18 +128,13 @@ function makeAuthStore(adapter, opts) {
   // ระบบจริงห้ามตั้งค่านี้ — ปล่อยว่างไว้ บัญชีจะยังไม่มีรหัสจนกว่าแอดมินจะตั้งให้ทีละคน
   const seedPw = o.seedPassword || '';
 
-  const writeAll = users => adapter.writeText(USERS_FILE, JSON.stringify({ users }, null, 2));
+  const db = typeof adapter.findByEmail === 'function' ? adapter : fileAdapter(adapter);
+  const makeSeed = () => seed.map((u, i) => ({ ...u, id: u.id || i + 1, status: u.status || 'Active',
+    pw: seedPw ? hashPassword(seedPw) : null, mustChange: !seedPw }));
 
-  async function readAll() {
-    const got = await adapter.readJSON(USERS_FILE);
-    if (got && Array.isArray(got.users)) return got.users;
-    // ครั้งแรก: สร้างจากรายชื่อตั้งต้น · ยังไม่มีรหัสผ่านสักคน (แอดมินต้องตั้งให้)
-    const users = seed.map((u, i) => ({ ...u, id: u.id || i + 1, status: u.status || 'Active',
-      pw: seedPw ? hashPassword(seedPw) : null, mustChange: !seedPw }));
-    if (users.length) await writeAll(users);
-    return users;
-  }
-  const findBy = (users, email) => users.find(u => String(u.email || '').toLowerCase() === String(email || '').toLowerCase());
+  const readAll = async () => { await db.ensureSeed(makeSeed); return db.list(); };
+  const find    = async email => { await db.ensureSeed(makeSeed); return db.findByEmail(email); };
+  const save    = async (u, patch) => { await db.update(u.id, patch); return Object.assign(u, patch); };
 
   return {
     async list() { return (await readAll()).map(publicUser); },
@@ -111,12 +147,11 @@ function makeAuthStore(adapter, opts) {
      *  พอมีคนแรกมีรหัสแล้ว ประตูนี้ปิดถาวร */
     async bootstrapNeeded() { return (await readAll()).every(u => !(u.pw && u.pw.hash)); },
 
-    async get(email) { const u = findBy(await readAll(), email); return u ? publicUser(u) : null; },
+    async get(email) { const u = await find(email); return u ? publicUser(u) : null; },
 
     /** เข้าสู่ระบบ — คืนโทเคน และบอกว่าต้องเปลี่ยนรหัสก่อนใช้งานไหม */
     async login(email, password) {
-      const users = await readAll();
-      const u = findBy(users, email);
+      const u = await find(email);
       // ข้อความเดียวกันทุกกรณี ไม่บอกว่าอีเมลมีจริงไหม (กันไล่เดาบัญชี)
       const deny = { ok: false, code: 401, error: 'อีเมลหรือรหัสผ่านไม่ถูกต้อง' };
       if (!u || u.status === 'Suspended') return deny;
@@ -124,70 +159,79 @@ function makeAuthStore(adapter, opts) {
         return { ok: false, code: 423, error: 'กรอกผิดหลายครั้ง บัญชีถูกล็อกชั่วคราว ลองใหม่ภายหลัง' };
       if (!u.pw) return { ok: false, code: 403, error: 'บัญชีนี้ยังไม่ได้ตั้งรหัสผ่าน ติดต่อผู้ดูแลระบบ' };
       if (!verifyPassword(password, u.pw)) {
-        u.fails = (u.fails || 0) + 1;
-        if (u.fails >= MAX_FAILS) { u.lockUntil = Date.now() + LOCK_MS; u.fails = 0; }
-        await writeAll(users);
+        const fails = (u.fails || 0) + 1;
+        await save(u, fails >= MAX_FAILS ? { fails: 0, lockUntil: Date.now() + LOCK_MS } : { fails });
         return deny;
       }
-      u.fails = 0; u.lockUntil = 0;
-      u.last = new Date().toISOString().slice(0, 16).replace('T', ' ');
-      await writeAll(users);
+      await save(u, { fails: 0, lockUntil: 0, last: new Date().toISOString().slice(0, 16).replace('T', ' ') });
       return { ok: true, token: makeToken(u, secret), user: publicUser(u), mustChange: !!u.mustChange };
     },
 
     /** ผู้ใช้เปลี่ยนรหัสของตัวเอง — ต้องรู้รหัสเดิม · เปลี่ยนแล้วล้างธง "ต้องเปลี่ยน" */
     async changePassword(email, oldPw, newPw) {
-      const users = await readAll();
-      const u = findBy(users, email);
+      const u = await find(email);
       if (!u || !u.pw) return { ok: false, code: 404, error: 'ไม่พบบัญชี' };
       if (!verifyPassword(oldPw, u.pw)) return { ok: false, code: 401, error: 'รหัสผ่านเดิมไม่ถูกต้อง' };
       const st = checkStrength(newPw); if (!st.ok) return { ok: false, code: 400, error: st.error };
       if (verifyPassword(newPw, u.pw)) return { ok: false, code: 400, error: 'รหัสใหม่ต้องไม่ซ้ำกับรหัสเดิม' };
-      u.pw = hashPassword(newPw); u.mustChange = false; u.fails = 0; u.lockUntil = 0;
-      await writeAll(users);
+      await save(u, { pw: hashPassword(newPw), mustChange: false, fails: 0, lockUntil: 0 });
       return { ok: true, token: makeToken(u, secret), user: publicUser(u) };
     },
 
     /** แอดมินตั้ง/รีเซ็ตรหัสให้ — ไม่ต้องรู้รหัสเดิม · ผู้ใช้ต้องเปลี่ยนตอนเข้าครั้งถัดไป */
     async setPassword(email, newPw) {
-      const users = await readAll();
-      const u = findBy(users, email);
+      const u = await find(email);
       if (!u) return { ok: false, code: 404, error: 'ไม่พบบัญชี' };
       const pw = newPw || tempPassword();
       const st = checkStrength(pw); if (!st.ok) return { ok: false, code: 400, error: st.error };
-      u.pw = hashPassword(pw); u.mustChange = true; u.fails = 0; u.lockUntil = 0;
-      await writeAll(users);
+      await save(u, { pw: hashPassword(pw), mustChange: true, fails: 0, lockUntil: 0 });
       return { ok: true, password: pw, user: publicUser(u) };   // คืนรหัสให้แอดมินส่งต่อ (เห็นครั้งเดียว)
     },
 
     async create(rec) {
-      const users = await readAll();
       const name = rec && rec.name, email = rec && rec.email, role = rec && rec.role;
+      const taken = { ok: false, code: 409, error: 'อีเมลนี้มีบัญชีอยู่แล้ว' };
       if (!name || !String(name).trim()) return { ok: false, code: 400, error: 'ต้องใส่ชื่อ' };
       if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(String(email || ''))) return { ok: false, code: 400, error: 'อีเมลไม่ถูกต้อง' };
-      if (findBy(users, email)) return { ok: false, code: 409, error: 'อีเมลนี้มีบัญชีอยู่แล้ว' };
+      if (await find(email)) return taken;
       if (ROLES.indexOf(role) < 0) return { ok: false, code: 400, error: 'บทบาทไม่ถูกต้อง' };
       const pw = (rec && rec.password) || tempPassword();
       const st = checkStrength(pw); if (!st.ok) return { ok: false, code: 400, error: st.error };
-      const u = { id: Math.max(0, ...users.map(x => x.id || 0)) + 1, name: String(name).trim(),
+      let u;
+      try {
+        u = await db.insert({ name: String(name).trim(),
                   email: String(email).trim().toLowerCase(), role, province: (rec && rec.province) || null,
-                  status: 'Active', pw: hashPassword(pw), mustChange: true, last: '—' };
-      users.push(u);
-      await writeAll(users);
+                  status: 'Active', pw: hashPassword(pw), mustChange: true, last: '—' });
+      } catch (e) {
+        if (e && e.duplicate) return taken;
+        throw e;
+      }
       return { ok: true, password: pw, user: publicUser(u) };
     },
 
-    async update(email, patch) {
-      const users = await readAll();
-      const u = findBy(users, email);
+    async update(email, patch, actorEmail) {
+      const u = await find(email);
       const p = patch || {};
       if (!u) return { ok: false, code: 404, error: 'ไม่พบบัญชี' };
       if (p.role && ROLES.indexOf(p.role) < 0) return { ok: false, code: 400, error: 'บทบาทไม่ถูกต้อง' };
-      if (p.name !== undefined) u.name = String(p.name).trim() || u.name;
-      if (p.role) u.role = p.role;
-      if (p.province !== undefined) u.province = p.province || null;
-      if (p.status) u.status = p.status;
-      await writeAll(users);
+      if (p.status && STATUSES.indexOf(p.status) < 0) return { ok: false, code: 400, error: 'สถานะไม่ถูกต้อง' };
+      const next = {};
+      if (p.name !== undefined) next.name = String(p.name).trim() || u.name;
+      if (p.role) next.role = p.role;
+      if (p.province !== undefined) next.province = p.province || null;
+      if (p.status) next.status = p.status;
+      const role = next.role || u.role, status = next.status || u.status || 'Active';
+      if (role !== u.role || status !== (u.status || 'Active')) {
+        if (actorEmail && String(u.email).toLowerCase() === String(actorEmail).toLowerCase())
+          return { ok: false, code: 400, error: 'แก้บทบาทหรือสถานะของตัวเองไม่ได้' };
+        const wasAdmin = u.role === 'Administrator' && u.status !== 'Suspended';
+        const staysAdmin = role === 'Administrator' && status !== 'Suspended';
+        if (wasAdmin && !staysAdmin) {
+          const admins = (await readAll()).filter(x => x.role === 'Administrator' && x.status !== 'Suspended');
+          if (admins.length <= 1) return { ok: false, code: 400, error: 'ต้องเหลือผู้ดูแลระบบอย่างน้อย 1 คน' };
+        }
+      }
+      if (Object.keys(next).length) await save(u, next);
       return { ok: true, user: publicUser(u) };
     },
 
@@ -200,7 +244,7 @@ function makeAuthStore(adapter, opts) {
       const admins = users.filter(x => x.role === 'Administrator' && x.status !== 'Suspended');
       if (u.role === 'Administrator' && admins.length <= 1)
         return { ok: false, code: 400, error: 'ต้องเหลือผู้ดูแลระบบอย่างน้อย 1 คน' };
-      await writeAll(users.filter(x => x !== u));
+      await db.remove(u.id);
       return { ok: true };
     },
 
@@ -210,7 +254,7 @@ function makeAuthStore(adapter, opts) {
       const m = /^Bearer\s+(.+)$/.exec(raw);
       const p = m ? readToken(m[1].trim(), secret) : null;
       if (!p) return { ok: false, code: 401, error: 'ต้องเข้าสู่ระบบก่อน' };
-      const u = findBy(await readAll(), p.email);
+      const u = await find(p.email);
       if (!u || u.status === 'Suspended') return { ok: false, code: 401, error: 'บัญชีใช้งานไม่ได้แล้ว' };
       // บทบาทอ่านจากฐานข้อมูล ไม่ใช่จากโทเคน — แอดมินถอดสิทธิ์แล้วต้องมีผลทันที
       if (needRole && u.role !== needRole) return { ok: false, code: 403, error: 'ไม่มีสิทธิ์ใช้คำสั่งนี้' };
@@ -219,5 +263,5 @@ function makeAuthStore(adapter, opts) {
   };
 }
 
-module.exports = { makeAuthStore, hashPassword, verifyPassword, checkStrength, tempPassword,
+module.exports = { makeAuthStore, fileAdapter, hashPassword, verifyPassword, checkStrength, tempPassword,
                    makeToken, readToken, ROLES, USERS_FILE, MIN_PW, MAX_FAILS, LOCK_MS, TOKEN_TTL };
