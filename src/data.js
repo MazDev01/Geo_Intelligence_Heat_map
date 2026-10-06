@@ -72,7 +72,7 @@ export async function writePlaces(method, id, body){
 let _noPlansApi = false;
 
 export async function visitPlansApi(method="GET", id, body){
-  if(_noPlansApi) return {ok:true, local:true};
+  if(_noPlansApi || _noPlacesApi) return {ok:true, local:true};
   const tk = token();
   try{
     const r = await fetch("/api/visit-plans"+(id ? "?id="+encodeURIComponent(id) : ""), {method,

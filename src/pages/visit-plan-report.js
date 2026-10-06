@@ -18,7 +18,8 @@ import {Dropdown} from "../select.js";
 import {gapBySegment, gapLevelOf} from "../mock/geoData.js";
 import {officeFor, haversine, fmtKm} from "../visit.js";
 import {pushAudit} from "../audit.js";
-import {readSaved} from "../auth.js";
+import {visitPlansApi} from "../data.js";
+import {planResultOf, roundLabel, planTodayKey} from "../visit-rounds.js";
 import {ExportDialog, downloadXLS, defaultReportName} from "./reports.js";
 
 /* ---------- วันที่ พ.ศ. ---------- */
@@ -109,6 +110,51 @@ export function genVisitPlans(prospects, province, ownerEmail, customers){
   return plans.sort((a,b)=>b.dateISO<a.dateISO?-1:1);
 }
 
+const thaiDay = iso => { const ms=Date.parse(iso||""); return Number.isNaN(ms) ? "" : new Date(ms+7*3600e3).toISOString().slice(0,10); };
+
+export function plansFromServer(serverPlans, db, province){
+  const byId = new Map([...(db.customers||[]), ...(db.prospects||[])].map(x=>[x.id, x]));
+  const today = planTodayKey();
+  const saved = (serverPlans||[]).filter(sp=>sp.saved)
+    .map(sp=>({sp, dateISO: sp.visitDate || thaiDay(sp.savedAt)}))
+    .filter(x=>x.dateISO && x.dateISO<=today);
+  const savedTimes = new Map();
+  for(const sp of (serverPlans||[]).filter(x=>x.saved)) for(const it of sp.items||[]){
+    if(!savedTimes.has(it.placeId)) savedTimes.set(it.placeId, []);
+    savedTimes.get(it.placeId).push(sp.savedAt||"");
+  }
+  savedTimes.forEach(a=>a.sort());
+  const nextSaved = (placeId, at)=> (savedTimes.get(placeId)||[]).find(x=>x>(at||"")) || null;
+  const o = officeFor(province);
+  const office = {businessName:o.businessName, latitude:o.latitude, longitude:o.longitude};
+  const plans = saved.map(({sp, dateISO})=>{
+    let prev = office;
+    const targets = [];
+    for(const it of [...(sp.items||[])].sort((a,b)=>a.seq-b.seq)){
+      const p = byId.get(it.placeId);
+      if(!p || it.deleted) continue;
+      const res = planResultOf(p.visitRounds, {savedAt:sp.savedAt, visitDate:dateISO}, nextSaved(it.placeId, sp.savedAt));
+      const status = !res ? "missed" : res.status==="เสร็จสิ้น" ? "visited" : "cancelled";
+      const outcome = status==="visited" ? roundLabel(res.outcome || res.interest || "") || null : null;
+      const note = status==="visited" && res.note ? res.note : null;
+      const cur = {latitude:p.latitude, longitude:p.longitude};
+      const distFromPrev = p.latitude!=null && p.longitude!=null && prev.latitude!=null ? haversine(prev, cur) : 0;
+      if(p.latitude!=null && p.longitude!=null) prev = cur;
+      const snap = it.snapshot || {};
+      targets.push({id:p.id, businessName:p.businessName, segment:p.segment, district:p.district,
+        latitude:p.latitude, longitude:p.longitude, gap_at: snap.gap ?? null, gapLevel_at: snap.level || null,
+        status, time:null, outcome, note, distFromPrev});
+    }
+    const planned = targets.length;
+    const visited = targets.filter(x=>x.status==="visited").length;
+    const rate = planned ? Math.round(visited/planned*100) : 0;
+    return {id:sp.id, dateISO, office, planned, visited, rate,
+      status: visited===0 ? "none" : visited===planned ? "complete" : "partial",
+      districts:[...new Set(targets.map(x=>x.district).filter(Boolean))], targets};
+  }).filter(pl=>pl.planned>0);
+  return plans.sort((a,b)=>b.dateISO<a.dateISO?-1:b.dateISO>a.dateISO?1:0);
+}
+
 const PAGE_SIZE = 20;
 
 export function VisitPlanReport(){
@@ -134,19 +180,22 @@ export function VisitPlanReport(){
   useEffect(()=>{ if(!isTC){ toast(t("หน้านี้สำหรับผู้ประสานงานการค้าเท่านั้น", "This page is for Trade Coordinators only"),"bad"); nav && nav("workspace"); } }, [isTC]);
 
   // ── บังคับสิทธิ์ที่เซิร์ฟเวอร์จาก token: ขอแผนของตัวเอง = 200 · ของคนอื่น = 403 ──
+  const [serverPlans,setServerPlans] = useState(undefined);
   useEffect(()=>{ if(!isTC) return; let alive=true;
-    const saved = readSaved();
-    const tok = saved && saved.token;
-    const mine = saved && saved.user && String(saved.user.email||"").toLowerCase()===String(user.email||"").toLowerCase();
-    if(!tok || !mine) return;
-    fetch(`/api/visit-plans?owner=${encodeURIComponent(user.email)}`, {headers:{Authorization:"Bearer "+tok}})
-      .then(r=>{ if(!alive) return; if(r.status===403){ setDenied(true); toast(t("เซิร์ฟเวอร์ปฏิเสธการเข้าถึงแผนนี้ (403)", "The server refused access to this plan (403)"),"bad"); } })
-      .catch(()=>{});   // เซิร์ฟเวอร์รุ่นเก่า/ออฟไลน์: ไม่บล็อกการแสดงผล (data มาจากข้อมูลจริงในเครื่องอยู่แล้ว)
+    setServerPlans(undefined);
+    visitPlansApi("GET").then(res=>{ if(!alive) return;
+      if(res.local){ setServerPlans(null); return; }
+      if(res.status===403){ setDenied(true); toast(t("เซิร์ฟเวอร์ปฏิเสธการเข้าถึงแผนนี้ (403)", "The server refused access to this plan (403)"),"bad"); return; }
+      if(!res.ok){ toast(res.error,"bad"); setServerPlans([]); return; }
+      setServerPlans(res.plans||[]);
+    });
     return ()=>{ alive=false; };
-  }, [isTC, province]);
+  }, [isTC, province, user && user.email]);
 
-  // ── ข้อมูลแผน (จากข้อมูลจริงในจังหวัดของ TC) ──
-  const plans = useMemo(()=> isTC ? genVisitPlans(db.prospects||[], province, user.email, db.customers||[]) : [], [isTC, db.prospects, db.customers, province, user && user.email]);
+  const plans = useMemo(()=> !isTC || serverPlans===undefined ? []
+    : serverPlans===null ? genVisitPlans(db.prospects||[], province, user.email, db.customers||[])
+    : plansFromServer(serverPlans, db, province),
+    [isTC, serverPlans, db.prospects, db.customers, province, user && user.email]);
   // อำเภอทั้งหมดที่ปรากฏในแผน (ตัวเลือกตัวกรองอำเภอ) — จากข้อมูลจริง
   const distOpts = useMemo(()=>{ const s=new Set(); plans.forEach(pl=>pl.districts.forEach(d=>s.add(d)));
     return [["all",t("ทุกอำเภอ", "All districts")], ...[...s].sort().map(d=>[d, districtTH(d)])]; }, [plans, getLang()]);
@@ -211,7 +260,7 @@ export function VisitPlanReport(){
       rows.push([t("แผนวันที่ ", "Plan for ")+beDateVP(pl.dateISO)+t(" · จุดเริ่มต้น ", " · starting at ")+pl.office.businessName+t(" · วางแผน ", " · planned ")+pl.planned+t(" · เข้าพบ ", " · visited ")+pl.visited]);
       rows.push([t("ลำดับ", "Order"),t("ธุรกิจ", "Business"),t("Lead ของหมวด (ณ วันนั้น)", "Category Lead index (on the day)"),t("หมวดธุรกิจ", "Business category"),t("อำเภอ", "District"),t("สถานะ", "Status"),t("เวลา", "Time"),t("ผลการเข้าพบ", "Visit outcome"),t("บันทึก", "Note"),t("ระยะจากจุดก่อน (เส้นตรง)", "Distance from previous (straight line)")]);
       // ⚠ ตัวแปรวนลูปห้ามชื่อ t — จะบัง t() ของ i18n ที่เรียกอยู่ในบรรทัดเดียวกัน
-      pl.targets.forEach((tg,i)=>rows.push([i+1, tg.businessName, gapTH(tg.gapLevel_at)+t(" · ขาด ", " · short by ")+tg.gap_at+t(" ราย", " businesses"), segTH(tg.segment), districtTH(tg.district),
+      pl.targets.forEach((tg,i)=>rows.push([i+1, tg.businessName, tg.gapLevel_at ? gapTH(tg.gapLevel_at)+t(" · ขาด ", " · short by ")+tg.gap_at+t(" ราย", " businesses") : "—", segTH(tg.segment), districtTH(tg.district),
         VP_TARGET_TH[tg.status], tg.time||"—", tg.outcome||"—", tg.note||"—", fmtKm(tg.distFromPrev)]));
     });
     return rows; };
@@ -226,7 +275,7 @@ export function VisitPlanReport(){
   };
 
   if(!isTC) return html`<div class="page"><div class="vp-denied"><${Icon} name="lock" size=${18} color="var(--accent)"/> ${t("หน้านี้สำหรับผู้ประสานงานการค้าเท่านั้น กำลังนำคุณออก…", "This page is for Trade Coordinators only — redirecting you…")}</div><style>${VP_CSS}</style></div>`;
-  if(!db.prospects) return html`<div class="page"><div class="emptybox">${t("กำลังโหลดข้อมูลแผนการเข้าพบ…", "Loading visit plan data…")}</div><style>${VP_CSS}</style></div>`;
+  if(!db.prospects || (serverPlans===undefined && !denied)) return html`<div class="page"><div class="emptybox">${t("กำลังโหลดข้อมูลแผนการเข้าพบ…", "Loading visit plan data…")}</div><style>${VP_CSS}</style></div>`;
   if(denied) return html`<div class="page"><div class="vp-denied"><${Icon} name="lock" size=${18} color="var(--accent)"/> ${t("เซิร์ฟเวอร์ปฏิเสธการเข้าถึง (403) — คุณเรียกดูได้เฉพาะแผนของตนเองในพื้นที่ที่รับผิดชอบ", "The server refused access (403) — you may only view your own plans within your territory")}</div><style>${VP_CSS}</style></div>`;
 
   const STATUS_OPTS = [["all",t("ทุกสถานะ", "All statuses")],["complete",t("เสร็จสมบูรณ์", "Complete")],["partial",t("ทำได้บางส่วน", "Partly done")],["none",t("ไม่ได้ออกพื้นที่", "Did not go out")]];
@@ -305,15 +354,15 @@ export function VisitPlanReport(){
             <div class="vp-tc-top">
               <div class="vp-tc-seq">${i+1}</div>
               <div class="vp-tc-main">
-                <div class="vp-tc-nm">${tg.businessName} <span class=${"vp-gap g-"+tg.gapLevel_at}>${t("ขาด", "Short")} ${tg.gap_at} ${t("ราย", "businesses")}</span></div>
+                <div class="vp-tc-nm">${tg.businessName} ${tg.gapLevel_at ? html`<span class=${"vp-gap g-"+tg.gapLevel_at}>${t("ขาด", "Short")} ${tg.gap_at} ${t("ราย", "businesses")}</span>` : ""}</div>
                 <div class="vp-tc-meta">${segTH(tg.segment)} · ${districtTH(tg.district)}</div>
               </div>
               <span class=${"vp-tbadge tb-"+tg.status}>${VP_TARGET_TH[tg.status]}</span>
             </div>
             ${tg.status==="visited" ? html`<div class="vp-tc-body">
-                <div class="vp-tc-line"><span>${t("เวลาที่บันทึก", "Recorded at")}</span><b>${tg.time} ${t("น.", "")}</b></div>
-                <div class="vp-tc-line"><span>${t("ผลการเข้าพบ", "Visit outcome")}</span><b>${tg.outcome}</b></div>
-                <div class="vp-tc-note">“${tg.note}”</div>
+                ${tg.time ? html`<div class="vp-tc-line"><span>${t("เวลาที่บันทึก", "Recorded at")}</span><b>${tg.time} ${t("น.", "")}</b></div>` : ""}
+                <div class="vp-tc-line"><span>${t("ผลการเข้าพบ", "Visit outcome")}</span><b>${tg.outcome||"—"}</b></div>
+                ${tg.note ? html`<div class="vp-tc-note">“${tg.note}”</div>` : ""}
               </div>`
              : tg.status==="cancelled" ? html`<div class="vp-tc-flag">${t("นัดถูกยกเลิก", "Appointment cancelled")}</div>`
              : html`<div class="vp-tc-flag">${t("ไม่ได้เข้าพบ — หลุดออกจากแผนเมื่อสิ้นวัน", "Not visited — dropped from the plan at the end of the day")}</div>`}

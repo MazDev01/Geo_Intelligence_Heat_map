@@ -16,7 +16,8 @@ left join (
     'round', pv.round, 'status', pv.status,
     'apptDate', to_char(pv.appt_date, 'YYYY-MM-DD'), 'doneDate', to_char(pv.done_date, 'YYYY-MM-DD'),
     'tc', t.name, 'interest', pv.interest, 'outcome', pv.outcome,
-    'cancelReason', pv.cancel_reason, 'note', pv.note) order by pv.round) as rounds
+    'cancelReason', pv.cancel_reason, 'note', pv.note,
+    'at', to_char(pv.created_at at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')) order by pv.round) as rounds
   from place_visits pv
   left join users t on t.id = pv.tc_id
   group by pv.place_id
@@ -35,7 +36,7 @@ const putIf = (obj, key, value) => { if (value !== null && value !== undefined) 
 
 const toRound = v => {
   const out = {round: v.round, status: v.status};
-  for (const k of ['apptDate', 'doneDate', 'tc', 'interest', 'outcome', 'cancelReason', 'note']) putIf(out, k, v[k]);
+  for (const k of ['apptDate', 'doneDate', 'tc', 'interest', 'outcome', 'cancelReason', 'note', 'at']) putIf(out, k, v[k]);
   return out;
 };
 

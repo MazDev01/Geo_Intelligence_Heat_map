@@ -26,7 +26,7 @@ import {AddRecordsForm, USER_SOURCE} from "./add-records.js";
 import {OFFICE, officeFor, clusterCustomers, optimizeOrder} from "./visit.js";
 import {pushAudit} from "./audit.js";
 import {buildNotifs} from "./notifications.js";   // กระดิ่ง: กรองตามบทบาท + ขอบเขตพื้นที่ + สวิตช์จริง
-import {deriveVisitStatus, planTodayKey} from "./visit-rounds.js";
+import {deriveVisitStatus, planTodayKey, planResultOf} from "./visit-rounds.js";
 
 // Country / Area / Customer are NOT nav items — they are interaction states of the one map.
 // ⚠ ต้องเป็น "ฟังก์ชัน" ไม่ใช่ค่าคงที่ระดับโมดูล — label ผ่าน t() ซึ่งอ่านภาษาปัจจุบัน ณ เวลาที่เรียก
@@ -173,7 +173,7 @@ function App(){
     return next;
   }); };
   const renamePlan = (id, name) => { planSync.touch(id); setVisitPlans(prev=>prev.map(p=>p.id===id?{...p,name}:p)); };
-  const savePlan = ()=> { planSync.touch(activePlanId); setVisitPlans(prev=>prev.map(p=>p.id===activePlanId?{...p,saved:true}:p)); };
+  const savePlan = ()=> { planSync.touch(activePlanId); setVisitPlans(prev=>prev.map(p=>p.id===activePlanId?{...p,saved:true,savedAt:p.savedAt||new Date().toISOString()}:p)); };
   const setVisitDate = d => { planSync.touch(activePlanId); setVisitPlans(prev=>prev.map(p=>p.id===activePlanId?{...p,visitDate:d}:p)); };
   const addToPlan = c => { setVisitPlan(p=> p.find(x=>x.id===c.id)? p : [...p, c]); setVisitRoute(null); };
   // กด "เลือกลูกค้า" ในแผงวางแผนเข้าพบ → ซูมเข้าไปในพื้นที่จนเห็นหมุดระดับไอคอน (zoom 13) เพื่อให้แตะเลือกลูกค้าได้
@@ -273,7 +273,7 @@ function App(){
     if(!res.ok){ toast(res.error,"bad"); return false; }
     if(res.local){
       const n = Math.max(0, ...(rec.visitRounds||[]).map(r=>Number(r.round)||0)) + 1;
-      addVisitRound(rec, {...body, round:n, doneDate:body.doneDate||planTodayKey(), tc:(user&&user.name)||"TC"});
+      addVisitRound(rec, {...body, round:n, doneDate:body.doneDate||planTodayKey(), tc:(user&&user.name)||"TC", at:new Date().toISOString()});
     } else {
       const round = ((res.record&&res.record.visitRounds)||[]).find(r=>r.round===res.round) || {round:res.round, status:body.status};
       addVisitRound(rec, round, res.record);
@@ -285,8 +285,9 @@ function App(){
     ...(form.interest==="ไม่สนใจ" ? {} : {outcome:form.outcome}), ...noteOf(form.note)});
   const cancelVisit = async (rec, reason, note)=>{
     if(!(await saveVisitRound(rec, {status:"ยกเลิก", cancelReason:reason, ...noteOf(note)}))) return false;
-    planSync.touch(visitPlans.filter(p=>(p.customers||[]).some(x=>x.id===rec.id)).map(p=>p.id));
+    planSync.touch(visitPlans.filter(p=>!p.saved && (p.customers||[]).some(x=>x.id===rec.id)).map(p=>p.id));
     setVisitPlans(prev=>prev.map(p=>{
+      if(p.saved) return p;
       const left=(p.customers||[]).filter(x=>x.id!==rec.id);
       return left.length===(p.customers||[]).length ? p : {...p, customers:left, route:null};
     }));
@@ -903,7 +904,10 @@ function App(){
           onEditRecord=${r=>setAddForm({edit:r})} onDeleteRecord=${deleteRecord}
           onAddToPlan=${addToPlan} inPlan=${visitPlan.some(x=>x.id===selectedCustomer.id)}
           user=${user} onSubmitDeal=${submitDeal} onCancelVisit=${cancelVisit}
-          dealPlan=${(()=>{ const sp=visitPlans.find(p=>p.saved && (p.customers||[]).some(x=>x.id===selectedCustomer.id)); return sp?{visitDate:sp.visitDate, visitor:(user&&user.name)||"—", planName:sp.name}:null; })()}/>`}
+          dealPlan=${(()=>{ const sp=visitPlans.filter(p=>p.saved && (p.customers||[]).some(x=>x.id===selectedCustomer.id))
+              .sort((a,b)=>String(b.savedAt||"").localeCompare(String(a.savedAt||"")))[0];
+            const last = sp && planResultOf(selectedCustomer.visitRounds, sp);
+            return sp && !(last && last.status==="ยกเลิก")?{visitDate:sp.visitDate, visitor:(user&&user.name)||"—", planName:sp.name}:null; })()}/>`}
 
         ${isTC && view==="workspace" && mode==="map" && !onGlobe && html`<${VisitPlanner} db=${db} office=${planOffice}
           plan=${visitPlan} setPlan=${setVisitPlan} route=${visitRoute} setRoute=${setVisitRoute} savePlan=${savePlan}

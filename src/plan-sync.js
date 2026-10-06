@@ -43,6 +43,8 @@ export function usePlanSync({user, db, visitPlans, setVisitPlans, setActivePlanI
       if(res.local){ s.local = true; return; }
       if(!res.ok){ s.dirty.add(id); fail(res); continue; }
       s.warned = false;
+      const at = res.plan && res.plan.savedAt;
+      if(at && p.savedAt!==at) setVisitPlans(prev=>prev.map(x=>x.id===id && x.saved ? {...x, savedAt:at} : x));
       if(!sid && res.plan){
         if(latest.current.some(x=>x.id===id)) s.sid.set(id, res.plan.id);
         else await visitPlansApi("DELETE", res.plan.id);
@@ -89,7 +91,7 @@ export function usePlanSync({user, db, visitPlans, setVisitPlans, setActivePlanI
         for(const it of sp.items){ const c = byId.get(it.placeId); if(c && !it.deleted) customers.push(c); else dropped++; }
         s.sid.set(sp.id, sp.id);
         if(customers.length!==sp.items.length) s.dirty.add(sp.id);
-        return {id:sp.id, name:sp.name, customers, route:null, saved:!!sp.saved, visitDate:sp.visitDate||""};
+        return {id:sp.id, name:sp.name, customers, route:null, saved:!!sp.saved, savedAt:sp.savedAt||"", visitDate:sp.visitDate||""};
       });
       if(plans.length){
         const mine = latest.current.filter(p=>s.dirty.has(p.id) && !s.sid.has(p.id));

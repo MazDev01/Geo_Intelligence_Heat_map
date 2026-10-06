@@ -88,6 +88,18 @@ export const replanWarnMsg = () => t("วางแผนมาแล้ว 3 ค
 // วันที่ "วันนี้" ตามโซนไทย UTC+7 (ระบบจริง) — เดโมส่ง PLAN_TODAY เข้ามาแทนเพื่อให้ตรงกับ mock ที่ผูกวันไว้
 export function planTodayKey(){ const d=new Date(Date.now()+7*3600e3); return d.toISOString().slice(0,10); }
 
+const msOf = s => { const n=Date.parse(s||""); return Number.isNaN(n) ? null : n; };
+export function roundsInPlan(rounds, plan, until){
+  const from=msOf(plan&&plan.savedAt), to=msOf(until), day=(plan&&plan.visitDate)||"";
+  return (rounds||[]).filter(r=>{ const a=msOf(r.at);
+    if(a===null || from===null) return !!day && String(r.doneDate||"")>=day;
+    return a>=from && (to===null || a<to); });
+}
+export function planResultOf(rounds, plan, until){
+  const rs=roundsInPlan(rounds, plan, until).filter(r=>r.status==="เสร็จสิ้น" || r.status==="ยกเลิก");
+  return rs.length ? rs[rs.length-1] : null;
+}
+
 // นัดที่เลยกำหนด: รอบสถานะ "นัดแล้ว" ที่วันนัดผ่านไปแล้วแต่ยังไม่บันทึกผล → คงสถานะไว้ ไม่หลุด
 export function overdueAppt(rounds, today=PLAN_TODAY){
   const a=(rounds||[]).filter(r=>r.status==="นัดแล้ว" && r.apptDate && String(r.apptDate)<today).map(r=>r.apptDate).sort();
