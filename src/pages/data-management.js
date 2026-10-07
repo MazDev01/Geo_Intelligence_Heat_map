@@ -494,7 +494,7 @@ function ImportWizard({resumeFile, staging, setStaging, onExitResume, onImported
       <div class="dim" style=${{fontSize:"12.5px",marginBottom:"12px"}}>${t("ระบบจับคู่คอลัมน์อัตโนมัติแล้ว — ตรวจและแก้ไขได้ · ช่องที่มี", "Columns were mapped automatically — review and adjust · fields marked")} <span class="dm-auto">${t("จับคู่อัตโนมัติ", "auto-mapped")}</span> ${t("คือระบบเดาให้ · ดูตัวอย่างค่าจริงก่อนยืนยันได้", "were guessed · check the real sample values before confirming")}</div>
       <div class="dm-mapwrap"><${Table} cols=${[
         {h:t("คอลัมน์ในไฟล์", "Column in the file"), render:r=>html`<div><b>${r.col}</b>
-          <div class="dim" style=${{fontSize:"11px",marginTop:"2px"}}>${t("ตัวอย่าง:", "Sample:")} ${r.sample.slice(0,3).join(" · ")}</div></div>`},
+          <div class="dim" style=${{fontSize:"11px",marginTop:"2px"}}>${t("ตัวอย่าง:", "Sample:")} ${r.sample.filter(v=>String(v).trim()!=="").slice(0,3).join(" · ") || "—"}</div></div>`},
         {h:t("จับคู่กับฟิลด์ในระบบ", "Maps to system field"), render:r=>{ const w=mapWarn(mapping[r.col], r.sample.filter(v=>String(v).trim()!==""));
           return html`<div style=${{display:"flex",flexDirection:"column",gap:"6px"}}>
             <div class="row" style=${{gap:"8px"}}>
