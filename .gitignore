@@ -32,3 +32,4 @@ data/zones.draft.geojson
 
 # บัญชีผู้ใช้ + รหัสผ่าน (แฮชแล้ว) ของแต่ละเครื่อง — ห้ามขึ้น git
 data/auth/
+!.env.example

@@ -1,0 +1,17 @@
+.git
+.vercel
+.vscode
+.idea
+.env*
+node_modules
+server/node_modules
+basemap
+dev
+dist
+geo-intel
+data/auth
+data/history
+data/zones.draft.geojson
+*.pmtiles
+*.log
+tmp

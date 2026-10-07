@@ -18,5 +18,32 @@ services:
       timeout: 3s
       retries: 20
 
+  app:
+    profiles: ["app"]
+    build: .
+    image: geointel-app
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      HOST: 0.0.0.0
+      PORT: 3000
+      DB_HOST: db
+      DB_PORT: 5432
+      POSTGRES_DB: geointel
+      POSTGRES_USER: geointel
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      AUTH_SECRET: ${AUTH_SECRET:-}
+      DEMO_PASSWORD: ${DEMO_PASSWORD:-}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@geointel.io}
+      DB_POOL_MAX: ${DB_POOL_MAX:-10}
+      BASEMAP_URL: ${BASEMAP_URL:-}
+    ports:
+      - "127.0.0.1:${APP_PORT:-3000}:3000"
+    volumes:
+      - ./basemap:/app/basemap:ro
+
 volumes:
   pgdata:
