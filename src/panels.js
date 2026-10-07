@@ -28,9 +28,7 @@ function segGapOf(db, rec){
 
 const L = window.L;
 // derive Sales Owner + Sales History deterministically from the record (no extra API needed)
-const OWNERS=["สมชาย กิตติ","ปรียา วงศ์","ณัฐพงษ์ ศรี","อรุณี ทองดี","David Chen","วิชัย มณี","กมลชนก พร"];
-const hashOf=s=>{let h=0;for(let i=0;i<s.length;i++)h=(h*31+s.charCodeAt(i))|0;return Math.abs(h);};
-const salesOwner=c=>OWNERS[hashOf(c.id)%OWNERS.length];
+const salesOwner=c=>c.tc_owner&&c.tc_owner!=="ยังไม่มอบหมาย"?c.tc_owner:t("ยังไม่มอบหมาย", "Unassigned");
 // (เดิมมี salesHistory() สร้างประวัติการซื้อขายจำลอง — ถอดออกแล้ว
 //  ข้อมูลลูกค้าจริงจาก Barter ไม่มียอดขาย/ประวัติการซื้อ จึงไม่แต่งตัวเลขขึ้นมาแสดง)
 // ── ข้อมูลติดต่อของลูกค้า = ฟิลด์จริงจากไฟล์ Barter (โทรศัพท์ · เว็บไซต์ · เฟซบุ๊ก) ──
@@ -403,7 +401,7 @@ export function CustomerPanel({db, customer, onClose, onOpenArea, setCustomer, o
       ${row(t("ชื่อ Lead", "Lead name"), c.businessName)}
       ${row(t("สถานะ", "Status"), html`<${Badge} tone="neutral">Lead</${Badge}>`)}
       ${row(t("หมวดธุรกิจ", "Business category"), segTH(c.segment))}
-      ${row(t("ที่อยู่", "Address"), (c.address||"")+", "+provinceTH(c.province))}
+      ${row(t("ที่อยู่", "Address"), [c.address, provinceTH(c.province)].filter(Boolean).join(", "))}
       ${row(t("ผู้ดูแลการขาย", "Sales owner"), salesOwner(c))}
       ${c.source ? row(t("แหล่งที่มา", "Source"), html`<${Badge} tone="neutral">${c.source}</${Badge}>`) : ""}
       ${row(t("เบอร์โทร", "Phone"), c.phone||html`<span class="dim">—</span>`)}

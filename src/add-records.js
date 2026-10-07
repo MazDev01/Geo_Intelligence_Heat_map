@@ -192,7 +192,7 @@ export function AddRecordsForm({onClose, onSave, editRecord, db={}, prospectOnly
   // เตือนชื่อซ้ำกับรายการที่มีอยู่ (ไม่บล็อก)
   const dupWarn = rows.map(r=>{ const n=r.name.trim().toLowerCase(); if(!n) return null;
     const prov = (r.lat!==""&&r.lng!=="") ? provinceOf(+r.lat,+r.lng) : null;
-    const hit = existing.find(x=> (x.businessName||"").trim().toLowerCase()===n && (!prov||x.province===prov));
+    const hit = existing.find(x=> !(isEdit && x.id===editRecord.id) && (x.businessName||"").trim().toLowerCase()===n && (!prov||x.province===prov));
     return hit ? hit.businessName : null; });
 
   const save=()=>{
