@@ -97,7 +97,7 @@ export function buildNotifs(user, db){
 
   // Lead ใหม่: นับเทียบกับ "วันล่าสุดที่มี Lead ในข้อมูล" ไม่ใช่วันนี้ (ชุดข้อมูลนิ่ง ไม่ใช่ realtime)
   const now = Date.now();
-  const recent = pros.map(o => Date.parse(o.created_at)).filter(x => Number.isFinite(x) && x <= now && x >= now - NEW_WINDOW_DAYS*864e5);
+  const recent = pros.map(o => Date.parse(o.createdAt || o.created_at)).filter(x => Number.isFinite(x) && x <= now && x >= now - NEW_WINDOW_DAYS*864e5);
   const newLeads = recent.length;
   const newest = newLeads ? Math.max(...recent) : 0;
 

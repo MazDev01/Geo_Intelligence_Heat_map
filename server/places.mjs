@@ -10,6 +10,7 @@ select p.id, p.type, p.account_no, p.business_name, p.category, p.segment, p.cou
   p.address, p.latitude::float8 as latitude, p.longitude::float8 as longitude, p.phone, p.email, p.website,
   p.facebook, to_char(p.date_join, 'YYYY-MM-DD') as date_join,
   to_char(p.created_at at time zone 'Asia/Bangkok', 'YYYY-MM-DD') as created_at,
+  to_char(p.created_at at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as created_iso,
   o.name as tc_owner, p.visit_status, v.rounds,
   d.status as deal_status, d.payload->>'visitDate' as deal_visit_date, d.reject_reason as deal_reject_reason, d.reject_note as deal_reject_note,
   to_char(d.submitted_at at time zone 'Asia/Bangkok', 'YYYY-MM-DD') as deal_submitted, ds.name as deal_visitor
@@ -82,6 +83,7 @@ const toLead = r => {
     latitude: r.latitude, longitude: r.longitude, created_at: r.created_at, tc_owner: r.tc_owner,
     visitRounds: (r.rounds || []).map(toRound), visit_status: r.visit_status, phone: r.phone,
   };
+  putIf(out, 'createdAt', r.created_iso);
   putIf(out, 'accountNo', r.account_no);
   putIf(out, 'website', r.website);
   putIf(out, 'facebook', r.facebook);
