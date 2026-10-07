@@ -13,10 +13,10 @@ import {t} from "./i18n.js";
 // "Pattaya" ใช้ key นี้ทั้งระบบ โดยอิงขอบเขต/พิกัดของพื้นที่ชายฝั่งตะวันออกเดิม
 // label = ชื่อไทยไว้อ่านในโค้ดเท่านั้น — ชื่อที่แสดงบนการ์ดมาจาก provinceTH() จึงสลับภาษาตามผู้ใช้
 const FEATURED_PROVINCES = [
-  {province:"Bangkok Metropolis", get label(){ return t("กรุงเทพมหานคร","Bangkok"); }},
-  {province:"Chiang Mai",         get label(){ return t("เชียงใหม่","Chiang Mai"); }},
-  {province:"Phuket",             get label(){ return t("ภูเก็ต","Phuket"); }},
-  {province:"Pattaya",            get label(){ return t("พัทยา","Pattaya"); }},
+  {province:"Bangkok Metropolis", center:[100.601, 13.7021], get label(){ return t("กรุงเทพมหานคร","Bangkok"); }},
+  {province:"Chiang Mai",         center:[98.7635, 18.7057], get label(){ return t("เชียงใหม่","Chiang Mai"); }},
+  {province:"Phuket",             center:[98.3406, 7.9863], get label(){ return t("ภูเก็ต","Phuket"); }},
+  {province:"Pattaya",            center:[101.1753, 13.1398], get label(){ return t("พัทยา","Pattaya"); }},
 ];
 const CALLOUT_CSS = `
 /* ── หน้าเลือกจังหวัด: 3 คอลัมน์ 30/40/30 — การ์ดคงที่ซ้าย-ขวา ลูกโลกอยู่ตรงกลาง ──
@@ -104,7 +104,7 @@ export function GeoStage({db, mode, activeCountry, flyTarget, globeUnder, onArri
     return ()=>ro.disconnect();
   },[zoneEdit, mode]);
 
-  const featuredCards = FEATURED_PROVINCES.map(f=>({...f, area:areaByProvince[f.province]}));
+  const featuredCards = FEATURED_PROVINCES.map(f=>({...f, area:areaByProvince[f.province] || (db.areasReady ? {customerCount:0, prospectCount:0, center:f.center} : null)}));
 
   // ── หน้าเลือกจังหวัด: การ์ดคงที่ 2 ฝั่งซ้าย-ขวา (ไม่ขยับตามการหมุนของลูกโลก) ──
   const [hoverId, setHoverId]   = useState(null);   // การ์ดที่ชี้อยู่ → ส่งให้ลูกโลกหมุนโฟกัสจังหวัดนั้น
@@ -121,7 +121,7 @@ export function GeoStage({db, mode, activeCountry, flyTarget, globeUnder, onArri
 
   // หมุด 4 จังหวัด (พิกัดจริง) — area.center = [lng,lat] จึง lat=center[1], lng=center[0]
   const pins = useMemo(()=> featuredCards.filter(f=>f.area&&f.area.center)
-    .map(f=>({id:f.province, lat:f.area.center[1], lng:f.area.center[0]})), [db.areaByProvince]);
+    .map(f=>({id:f.province, lat:f.area.center[1], lng:f.area.center[0]})), [db.areaByProvince, db.areasReady]);
 
   // คลิกการ์ด: โชว์เอฟเฟกต์ก่อน แล้วค่อยบินเข้าจังหวัดตาม flow เดิม (onSelectProvince — ไม่แตะ flyToBounds/maxZoom)
   const clickCard = f => { if(!f.area || clicking) return; setClicking(f.province);

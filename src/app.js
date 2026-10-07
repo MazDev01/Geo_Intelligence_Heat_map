@@ -1,7 +1,7 @@
 import {React, html, useState, useEffect, useMemo, createRoot, AppCtx, Icon, brandMark, num, roleTH, countryTH, provinceTH} from "./lib.js";
 import {t, useLang, getLang, setLang} from "./lib.js";   // สลับภาษา TH/EN — ดู src/i18n.js
 import {getLayerOpacity, subscribeLayerOpacity} from "./layer-opacity.js";   // ความทึบ = ตั้งที่แอดมินที่เดียว
-import {loadCountries, loadWorld, loadAreas, loadProvincesGeo, loadDetail, clearDetail, writePlaces, placeVisitsApi, loadCountry, loadDistricts, defaultFilters} from "./data.js";
+import {loadCountries, loadWorld, loadAreas, loadProvincesGeo, loadDetail, clearDetail, clearAggregates, writePlaces, placeVisitsApi, leadRequestsApi, loadCountry, loadDistricts, defaultFilters} from "./data.js";
 import {LoadingScreen, ToastHost, Badge, Btn, toast, LangToggle} from "./ui.js";
 import {Login} from "./pages/login.js";
 import * as auth from "./auth.js";   // โทเคน/บัญชีจริง (ดู api/auth.js · auth-store.cjs)
@@ -12,7 +12,7 @@ import {Reports} from "./pages/reports.js";
 import {Profile} from "./pages/profile.js";
 import {Users, Config, Audit, Monitoring, SEED_USERS} from "./pages/admin.js";
 import {loadTerritory} from "./territory-store.js";   // การมอบหมาย TC ↔ จังหวัด/โซน ที่แอดมินบันทึกไว้
-import {BKK} from "./mock/geoData.js";
+import {BKK, SEGMENTS, setScoring, scoringKey} from "./mock/geoData.js";
 import {loadZoneRegistry, zoneRegistry, zonesOf, zoneLabel} from "./zone-registry.js";   // ทะเบียนโซน (แหล่งเดียว)
 import {MasterData} from "./pages/master-data.js";
 import {DataManagement, DataImport, DataFiles, DataLeads, TerritoryManager} from "./pages/data-management.js";
@@ -25,8 +25,14 @@ import {usePlanSync} from "./plan-sync.js";
 import {AddRecordsForm, USER_SOURCE} from "./add-records.js";
 import {OFFICE, officeFor, clusterCustomers, optimizeOrder} from "./visit.js";
 import {pushAudit} from "./audit.js";
-import {buildNotifs} from "./notifications.js";   // กระดิ่ง: กรองตามบทบาท + ขอบเขตพื้นที่ + สวิตช์จริง
+import {buildNotifs, applyServerNotif, inboxView, agoText} from "./notifications.js";
+import {loadInbox, markInboxRead} from "./notif-api.js";
+import {loadSettings} from "./settings-api.js";
+import {applyMaster, masterKey} from "./master-api.js";   // กระดิ่ง: กรองตามบทบาท + ขอบเขตพื้นที่ + สวิตช์จริง
 import {deriveVisitStatus, planTodayKey, planResultOf} from "./visit-rounds.js";
+
+let _placesTimer = null;
+let _inboxKey = "";
 
 // Country / Area / Customer are NOT nav items — they are interaction states of the one map.
 // ⚠ ต้องเป็น "ฟังก์ชัน" ไม่ใช่ค่าคงที่ระดับโมดูล — label ผ่าน t() ซึ่งอ่านภาษาปัจจุบัน ณ เวลาที่เรียก
@@ -79,6 +85,7 @@ function App(){
   const lang = useLang();
   const [db,setDb] = useState({countries:[], world:null, areas:[], areaByProvince:{}, districts:[], customers:[], prospects:[], provincesGeo:null});
   const [user,setUser] = useState(null);
+  const [restoring,setRestoring] = useState(()=>{ try{ return !new URLSearchParams(location.search).get("demo") && !!auth.token(); }catch(e){ return false; } });
   const [tcDenied,setTcDenied] = useState(null);   // หน้า 403 ของ TC เมื่อพยายามเข้าถึงข้อมูลนอกพื้นที่รับผิดชอบ
   const [zoneEdit,setZoneEdit] = useState(false);    // โหมดแก้รูปโซน: แถบเครื่องมือมาแทนแถบค้นหาบนแมพ
   const [zoneEditFrom,setZoneEditFrom] = useState(null);  // หน้าที่กดเข้ามา — กด "ออก" ต้องพากลับไปหน้านั้น
@@ -108,6 +115,7 @@ function App(){
   // (บัญชีสาธิต tc@geointel.io ไม่มีใน SEED_USERS จึง fallback ไปเทียบ role + จังหวัด)
   const tcId = useMemo(()=>{
     if(!user || user.role!=="Trade Coordinator") return null;
+    if(Number.isInteger(user.id)) return user.id;
     const byEmail = SEED_USERS.find(u=>u.email===user.email);
     if(byEmail) return byEmail.id;
     const byProv = SEED_USERS.find(u=>u.role==="Trade Coordinator" && u.province===user.province);
@@ -213,6 +221,7 @@ function App(){
       if(r.status==="Existing") custs.push(r); else pros.push(r);
       return {...prev, customers:custs, prospects:pros};
     });
+    refreshAggregates();
     setSelectedCustomer(r);
     toast(t("บันทึกการแก้ไขแล้ว", "Changes saved"),"good");
     setAddForm(null);
@@ -225,6 +234,7 @@ function App(){
     setDb(prev=>({...prev,
       customers:[...(prev.customers||[]), ...saved.filter(r=>r.status==="Existing")],
       prospects:[...(prev.prospects||[]), ...saved.filter(r=>r.status!=="Existing")] }));
+    refreshAggregates();
     return saved;
   };
   // ลบระเบียนจากหน้า "จัดการข้อมูล" (ผู้ดูแลระบบ) — ไม่ติดเงื่อนไข "เฉพาะรายการที่เพิ่มเอง" แบบแผงบนแผนที่
@@ -234,6 +244,7 @@ function App(){
     setDb(prev=>({...prev,
       customers:(prev.customers||[]).filter(x=>x.id!==rec.id),
       prospects:(prev.prospects||[]).filter(x=>x.id!==rec.id) }));
+    refreshAggregates();
     pushAudit({ user:(user&&user.email)||"system", action:t("ลบระเบียน", "Delete record"), category:"ลบ",
       detail:`${rec.businessName} (${rec.accountNo||rec.id})` });
     toast(t("ลบรายการแล้ว", "Record deleted"),"good");
@@ -296,34 +307,39 @@ function App(){
 
   // ── โฟลว์ปิดดีลLead → แอดมินอนุมัติเปลี่ยนเป็นลูกค้า ──
   // TC ส่งสถานะ "ดีลสำเร็จ" (แนบเอกสารได้) → prospect.dealStatus="pending" เข้าคิวรออนุมัติในหน้าจัดการข้อมูล
-  const submitDeal = (prospect, doc)=>{
-    const stamp = { dealStatus:"pending", dealDoc:doc||"", dealVisitor:(user&&user.name)||"TC",
-      dealVisitDate:(activePlan&&activePlan.visitDate)||"", dealSubmittedDate:new Date().toISOString().slice(0,10) };
+  const dealPlanOf = rec => {
+    const sp = visitPlans.filter(p=>p.saved && (p.customers||[]).some(x=>x.id===rec.id))
+      .sort((a,b)=>String(b.savedAt||"").localeCompare(String(a.savedAt||"")))[0];
+    const last = sp && planResultOf(rec.visitRounds, sp);
+    return sp && !(last && last.status==="ยกเลิก") ? {visitDate:sp.visitDate, visitor:(user&&user.name)||"—", planName:sp.name} : null;
+  };
+  const submitDeal = async (prospect, doc)=>{
+    const plan = dealPlanOf(prospect);
+    const visitDate = (plan&&plan.visitDate)||"";
+    const res = await leadRequestsApi("POST", {action:"submit", body:{placeId:prospect.id, ...(visitDate?{visitDate}:{})}});
+    if(!res.ok){ toast(res.error,"bad"); return false; }
+    const stamp = { dealStatus:"pending", dealDoc:doc||"", dealVisitor:(user&&user.name)||"TC", dealVisitDate:visitDate,
+      dealSubmittedDate: planTodayKey() };
     setDb(prev=>({...prev, prospects:(prev.prospects||[]).map(x=> x.id===prospect.id ? {...x, ...stamp} : x) }));
     setSelectedCustomer(x=> x && x.id===prospect.id ? {...x, ...stamp} : x);
-    pushAudit({ user:(user&&user.email)||"system", action:t("ส่งดีลปิดการขาย", "Deal submitted for closing"), category:"แก้ไข",
-      detail:`${prospect.businessName} ${t("· รออนุมัติเปลี่ยนเป็นลูกค้า", "· awaiting approval to convert to customer ")}${doc?t(" · แนบ ", " · attached ")+doc:""}` });
     toast(t("ส่งดีลให้แอดมินตรวจสอบแล้ว", "Deal sent to the admin for review"),"good");
+    return true;
   };
-  // แอดมินอนุมัติ → ย้าย Lead ไปเป็นสมาชิกเครือข่าย (status Existing) → Lead ของหมวดนั้นลดลง heat/marker ทั้งระบบขยับตาม
-  const approveDeal = (prospect)=>{
-    // ลูกค้าที่เกิดจากการปิดดีลใช้ฟิลด์ชุดเดียวกับข้อมูลลูกค้าจริง (ไม่มียอดขาย/สถานะการค้า)
-    const asCust = {...prospect, status:"Existing", dealStatus:"approved",
-      accountNo: prospect.id, dateJoin: new Date().toISOString().slice(0,10),
-      phone: prospect.phone||null, website: prospect.website||null, facebook: prospect.facebook||null,
-      convertedFrom:"prospect" };
-    setDb(prev=>({...prev,
-      prospects:(prev.prospects||[]).filter(x=>x.id!==prospect.id),
-      customers:[...(prev.customers||[]), asCust] }));
-    setSelectedCustomer(x=> x && x.id===prospect.id ? asCust : x);
-    pushAudit({ user:(user&&user.email)||"system", action:t("อนุมัติดีล เปลี่ยนเป็นลูกค้า", "Deal approved — converted to customer"), category:"แก้ไข",
-      detail:`${prospect.businessName} · ${provinceTH(prospect.province)}` });
-    toast(`${t("อนุมัติดีล — \"", "Deal approved — \"")}${prospect.businessName}${t("\" เป็นลูกค้าแล้ว", "\" is now a customer")}`,"good");
+  const applyDealApproved = req => {
+    const conv = p => ({...p, status:"Existing", segment:req.segment||p.segment, accountNo:p.accountNo||req.accountNo||p.id,
+      dateJoin:p.dateJoin||planTodayKey(), tc_owner:req.ownerName||p.tc_owner, dealStatus:"approved", convertedFrom:"prospect"});
+    setDb(prev=>{
+      const p=(prev.prospects||[]).find(x=>x.id===req.placeId);
+      if(!p) return prev;
+      return {...prev, prospects:prev.prospects.filter(x=>x.id!==p.id), customers:[...(prev.customers||[]), conv(p)]};
+    });
+    setSelectedCustomer(x=> x && x.id===req.placeId ? conv(x) : x);
+    refreshAggregates();
   };
-  const rejectDeal = (prospect)=>{
-    setDb(prev=>({...prev, prospects:(prev.prospects||[]).map(x=> x.id===prospect.id ? {...x, dealStatus:"rejected"} : x) }));
-    pushAudit({ user:(user&&user.email)||"system", action:t("ตีกลับดีล", "Deal returned"), category:"แก้ไข", detail:`${prospect.businessName}` });
-    toast(t("ตีกลับดีลแล้ว — ส่งกลับให้ TC", "Deal returned — sent back to the TC"),"warn");
+  const applyDealRejected = (placeId, reason, note)=>{
+    const stamp = {dealStatus:"rejected", dealRejectReason:reason, dealRejectNote:note||undefined};
+    setDb(prev=>({...prev, prospects:(prev.prospects||[]).map(x=> x.id===placeId ? {...x, ...stamp} : x) }));
+    setSelectedCustomer(x=> x && x.id===placeId ? {...x, ...stamp} : x);
   };
 
   // STARTUP: progressive streaming. Stage 1 (tiny country aggregates) lets the globe
@@ -332,10 +348,17 @@ function App(){
     const countries = await loadCountries();                                   // Stage 1 (2.5 KB)
     setDb(prev=>({...prev, countries}));
     loadWorld().then(world=>setDb(prev=>({...prev, world}))).catch(()=>{});     // Stage 2 (borders)
-    loadAreas().then(a=>setDb(prev=>({...prev, areas:a.areas, areaByProvince:a.areaByProvince}))).catch(()=>{}); // Stage 3 (aggregates)
+    loadAreas().then(a=>setDb(prev=>({...prev, areas:a.areas, areaByProvince:a.areaByProvince, areasReady:true}))).catch(()=>{}); // Stage 3 (aggregates)
     loadDistricts().then(districts=>setDb(prev=>({...prev, districts}))).catch(()=>{});                          // Stage 3b (district aggregates)
 
     const q=new URLSearchParams(location.search);
+    if(!q.get("demo") && auth.token()){
+      const r = await auth.me();
+      setRestoring(false);
+      if(r.ok && r.user && !r.user.mustChange && auth.doorOk(r.user)) handleLogin(r.user);
+      else if(r.code===401 || r.code===403) auth.clearAuth();
+      return;
+    }
     if(q.get("demo")){ let demo=q.get("demo");
       // บทบาท "ผู้ใช้ธุรกิจ (user)" เดิมถูกยกเลิก → เปลี่ยนเส้นทางเป็น TC และแก้ URL ให้ตรง (คงพารามิเตอร์ go/prov เดิม)
       if(demo==="user"){ demo="tc"; const u=new URL(location.href); u.searchParams.set("demo","tc"); history.replaceState(null,"",u.pathname+u.search+u.hash); }
@@ -403,7 +426,7 @@ function App(){
       else if(go && MODALS[go] && (!ADMIN.has(go) || admin)){ setOverlay(go); ensureData("Thailand").catch(()=>{}); }
       if(q.get("tour")){ setShowWelcome(false); setTourOpen(true); }   // ทางลัดเปิดคำแนะนำตรง ๆ (ใช้ตอนสาธิต/ทดสอบ)
     }
-  })().catch(()=>toast(t("โหลดข้อมูลเริ่มต้นไม่สำเร็จ ลองรีเฟรชหน้าอีกครั้ง", "Could not load the initial data — please refresh the page"),"bad")); },[]);
+  })().catch(()=>{ setRestoring(false); toast(t("โหลดข้อมูลเริ่มต้นไม่สำเร็จ ลองรีเฟรชหน้าอีกครั้ง", "Could not load the initial data — please refresh the page"),"bad"); }); },[]);
 
   // close the top-right menus when clicking anywhere outside them
   useEffect(()=>{ if(!menu) return;
@@ -509,7 +532,7 @@ function App(){
   // Lazily fetch + cache one country's working set, merge into db.
   const ensureData = async (country="Thailand")=>{
     const cd = await loadCountry(country);
-    setDb(prev=>({...prev, ...cd}));
+    setDb(prev=>({...prev, ...cd, dataReady:true, areasReady:true}));
     return cd;
   };
   // ครอบการโหลดที่ต้องบังหน้าจอไว้ ใช้เฉพาะเส้นทางที่ต้องได้ข้อมูลก่อนถึงจะรู้ว่าจะเปิดอะไร
@@ -589,7 +612,58 @@ function App(){
   // map is up, so returning here REMOUNTS it — a stale flyTarget would make its mount effect re-fly to the last
   // province and then fire onArrive, bouncing the user straight back into the map.
   // กระดิ่ง: เหตุการณ์ที่บทบาทนี้มีสิทธิ์ได้รับ · ข้อความนับจากข้อมูลจริงในขอบเขตของผู้ใช้
-  const notifs = useMemo(()=>buildNotifs(user, db), [user, db.customers, db.prospects]);
+  const [settingsVer,setSettingsVer] = useState(0);
+  const [masterVer,setMasterVer] = useState(0);
+  const userKey = user ? (user.email||"")+"|"+(user.role||"") : "";
+  const refreshAggregates = ()=>{
+    clearAggregates();
+    loadAreas().then(a=>setDb(prev=>({...prev, areas:a.areas, areaByProvince:a.areaByProvince}))).catch(()=>{});
+    loadDistricts().then(districts=>setDb(prev=>({...prev, districts}))).catch(()=>{});
+    loadCountries().then(countries=>setDb(prev=>({...prev, countries}))).catch(()=>{});
+  };
+  const placesChanged = ()=>{
+    clearTimeout(_placesTimer);
+    _placesTimer = setTimeout(()=>{
+      clearDetail();
+      refreshAggregates();
+      loadDetail(activeCountry||"Thailand").then(d=>setDb(prev=>({...prev, customers:d.customers, prospects:d.prospects}))).catch(()=>{});
+    }, 400);
+  };
+  const scoringChanged = ()=>{
+    setDb(prev=>({...prev, customers:[...(prev.customers||[])], prospects:[...(prev.prospects||[])]}));
+    refreshAggregates();
+  };
+  const masterChanged = (remount=true)=>{
+    setFilters(f=>({...f, segments:Object.fromEntries(SEGMENTS.map(s=>[s, f.segments && Object.prototype.hasOwnProperty.call(f.segments, s) ? f.segments[s] : true]))}));
+    if(remount) setMasterVer(v=>v+1);
+    scoringChanged();
+  };
+  useEffect(()=>{
+    const k0 = scoringKey(), m0 = masterKey();
+    const settle = ()=>{ if(masterKey()!==m0) masterChanged(); else if(scoringKey()!==k0) scoringChanged(); setSettingsVer(v=>v+1); };
+    if(!userKey){ applyServerNotif({}, {}); setScoring(null); applyMaster(null); settle(); return; }
+    let alive=true;
+    loadSettings().then(r=>{ if(alive) settle(); });
+    return ()=>{ alive=false; };
+  },[userKey]);
+  const notifs = useMemo(()=>buildNotifs(user, db), [user, db.customers, db.prospects, settingsVer]);
+  const [inbox,setInbox] = useState({items:[], unread:0});
+  const takeInbox = (r, key) => { if(r && r.ok && !r.local && key===_inboxKey) setInbox({items:r.items||[], unread:r.unread||0}); };
+  const refreshInbox = ()=>{ const key = userKey; return loadInbox().then(r=>takeInbox(r, key)); };
+  useEffect(()=>{
+    _inboxKey = userKey;
+    setInbox({items:[], unread:0});
+    if(!userKey) return;
+    refreshInbox();
+    const timer = setInterval(refreshInbox, 60000);
+    return ()=>clearInterval(timer);
+  },[userKey]);
+  const readInbox = ids => { const key = userKey; return markInboxRead(ids).then(r=>takeInbox(r, key)); };
+  const openInboxItem = n => {
+    if(!n.read) readInbox([n.id]);
+    const go = inboxView(n).go;
+    if(go && user && user.role==="Administrator") navItem(go);
+  };
 
   const backToGlobe = ()=>{ setView("workspace"); setMode("globe"); setActiveCountry(null); setSelectedProvince(null); setFilters(f=>({...f,province:"All"})); setOverlay(null); setFlyTarget(null); };
   // คลิกจังหวัด = กรองแผนที่ไปที่จังหวัดนั้น · แผงวิเคราะห์พื้นที่เปิดให้ "ผู้บริหาร" เท่านั้น
@@ -652,6 +726,7 @@ function App(){
   // globe camera. Reset every piece of workspace state; setFlyTarget(null) also triggers the globe's
   // resetView() so the camera zooms back out to the default wide view.
   const logout = ()=>{
+    auth.logout();
     auth.clearAuth();                       // ทิ้งโทเคนด้วย ไม่งั้นรีเฟรชแล้วกลับเข้ามาเอง
     clearDetail(); setDb(prev=>({...prev, customers:[], prospects:[]}));
     setUser(null); setView("dashboard"); setMode("globe"); setActiveCountry(null); setOverlay(null);
@@ -691,11 +766,12 @@ function App(){
   };
   // ⚠ ไม่ใช่แค่ปิดโหมด — ถ้าปล่อยไว้เฉย ๆ แอดมินจะค้างอยู่บนแมพใหญ่ที่ไม่มีเครื่องมืออะไรเลย
   const exitZoneEdit = ()=>{ setZoneEdit(false); if(zoneEditFrom) setOverlay(zoneEditFrom); setZoneEditFrom(null); };
-  const ctx = {db,user,logout,nav,filters,setFilters,startZoneEdit,routeParams:{area:selectedProvince},profileTab,visitPlans,office:planOffice,lang,setLang,
+  const ctx = {db,user,logout,nav,settingsVer,scoringChanged,placesChanged,masterVer,masterChanged,filters,setFilters,startZoneEdit,routeParams:{area:selectedProvince},profileTab,visitPlans,office:planOffice,lang,setLang,
 
-    deletePlan,setActivePlanId,approveDeal,rejectDeal,addToPlan,goMap,updateRecord,adminAddRecords,adminDeleteRecord,
+    deletePlan,setActivePlanId,applyDealApproved,applyDealRejected,addToPlan,goMap,updateRecord,adminAddRecords,adminDeleteRecord,
     selectedProvince,setSelectedProvince,selectedCustomer,setSelectedCustomer,selectedCountry:activeCountry};
 
+  if(!user && restoring) return html`<${AppCtx.Provider} value=${ctx}><div class="login" style=${{display:"grid",placeItems:"center"}}><div class="dim">${t("กำลังตรวจสอบการเข้าสู่ระบบ…", "Checking your sign-in…")}</div></div><${ToastHost}/></${AppCtx.Provider}>`;
   if(!user) return html`<${AppCtx.Provider} value=${ctx}><${Login} db=${db} onLogin=${handleLogin}/><${ToastHost}/></${AppCtx.Provider}>`;
 
   // sidebar highlight
@@ -804,17 +880,28 @@ function App(){
               fontFamily:"var(--font)",fontSize:"12.5px",fontWeight:600,cursor:"pointer",backdropFilter:"blur(8px)"}}>
             <${Icon} name="reports" size=${15} color="var(--accent)"/> ${t("รายงาน", "Reports")}</button>`}
           <div style=${{position:"relative"}}>
-            <button class="icon-btn" onClick=${()=>setMenu(menu==="notif"?null:"notif")}><${Icon} name="bell" size=${18}/>
-              ${notifs.length ? html`<span class="dot"></span>` : ""}</button>
-            ${menu==="notif" && (()=>{ const shown = notifs;
-              return html`<div class="dropdown" style=${{width:"300px"}}>
+            <button class="icon-btn" data-bell="1" aria-label=${t("การแจ้งเตือน", "Notifications")} onClick=${()=>{ if(menu!=="notif") refreshInbox(); setMenu(menu==="notif"?null:"notif"); }}><${Icon} name="bell" size=${18}/>
+              ${(notifs.length || inbox.unread) ? html`<span class="dot"></span>` : ""}</button>
+            ${menu==="notif" && (()=>{ const shown = notifs; const count = shown.length + inbox.unread;
+              return html`<div class="dropdown" data-inbox="1" style=${{width:"320px",maxHeight:"70vh",overflowY:"auto"}}>
               <div class="row between" style=${{padding:"6px 10px 10px"}}><b style=${{fontSize:"13px"}}>${t("การแจ้งเตือน", "Notifications")}</b>
-                ${shown.length? html`<${Badge} tone="bad">${shown.length}</${Badge}>`:""}</div>
-              ${shown.length ? shown.map((n,i)=>html`<div key=${n.key} class="dd-item" style=${{alignItems:"flex-start",cursor:"default"}}>
+                <div class="row" style=${{gap:"8px"}}>
+                  ${inbox.unread ? html`<button type="button" data-inbox-all="1" onClick=${()=>readInbox(null)}
+                    style=${{border:"none",background:"none",padding:0,color:"var(--accent)",fontFamily:"var(--font)",fontSize:"12px",fontWeight:600,cursor:"pointer"}}>${t("อ่านทั้งหมด", "Mark all read")}</button>` : ""}
+                  ${count? html`<${Badge} tone="bad">${count}</${Badge}>`:""}</div></div>
+              ${inbox.items.map(n=>{ const v = inboxView(n); const at = Date.parse(n.at);
+                return html`<div key=${"i"+n.id} class="dd-item" data-inbox-id=${n.id} data-read=${n.read?"1":"0"} role="button" tabindex="0"
+                  onClick=${()=>openInboxItem(n)} onKeyDown=${e=>{ if(e.key==="Enter"||e.key===" "){ e.preventDefault(); openInboxItem(n); } }}
+                  style=${{alignItems:"flex-start",opacity:n.read?.6:1}}>
+                <${Icon} name=${v.icon} size=${15} color="var(--accent2)"/>
+                <div style=${{flex:1}}><div style=${{fontSize:"12.5px",color:"var(--txt)",fontWeight:n.read?400:600}}>${v.t}</div>
+                  ${Number.isFinite(at) ? html`<div class="dim" style=${{fontSize:"12px",marginTop:"2px"}}>${agoText(at)}</div>` : ""}</div>
+                ${n.read ? "" : html`<span style=${{width:"8px",height:"8px",borderRadius:"50%",background:"var(--accent)",flex:"none",marginTop:"5px"}}></span>`}</div>`; })}
+              ${shown.map((n,i)=>html`<div key=${n.key} class="dd-item" style=${{alignItems:"flex-start",cursor:"default"}}>
                 <${Icon} name=${n.icon} size=${15} color="var(--accent2)"/>
                 <div style=${{flex:1}}><div style=${{fontSize:"12.5px",color:"var(--txt)"}}>${n.t}</div>
-                  <div class="dim" style=${{fontSize:"12px",marginTop:"2px"}}>${n.time}${t("ที่แล้ว", " ago")}</div></div></div>`)
-                : html`<div class="dim" style=${{padding:"14px 10px",fontSize:"12.5px",textAlign:"center"}}>${t("ไม่มีการแจ้งเตือน", "No notifications")}</div>`}
+                  ${n.time ? html`<div class="dim" style=${{fontSize:"12px",marginTop:"2px"}}>${n.time}</div>` : ""}</div></div>`)}
+              ${!shown.length && !inbox.items.length ? html`<div class="dim" style=${{padding:"14px 10px",fontSize:"12.5px",textAlign:"center"}}>${t("ไม่มีการแจ้งเตือน", "No notifications")}</div>` : ""}
             </div>`; })()}
           </div>
           <div style=${{position:"relative"}}>
@@ -904,10 +991,7 @@ function App(){
           onEditRecord=${r=>setAddForm({edit:r})} onDeleteRecord=${deleteRecord}
           onAddToPlan=${addToPlan} inPlan=${visitPlan.some(x=>x.id===selectedCustomer.id)}
           user=${user} onSubmitDeal=${submitDeal} onCancelVisit=${cancelVisit}
-          dealPlan=${(()=>{ const sp=visitPlans.filter(p=>p.saved && (p.customers||[]).some(x=>x.id===selectedCustomer.id))
-              .sort((a,b)=>String(b.savedAt||"").localeCompare(String(a.savedAt||"")))[0];
-            const last = sp && planResultOf(selectedCustomer.visitRounds, sp);
-            return sp && !(last && last.status==="ยกเลิก")?{visitDate:sp.visitDate, visitor:(user&&user.name)||"—", planName:sp.name}:null; })()}/>`}
+          dealPlan=${dealPlanOf(selectedCustomer)}/>`}
 
         ${isTC && view==="workspace" && mode==="map" && !onGlobe && html`<${VisitPlanner} db=${db} office=${planOffice}
           plan=${visitPlan} setPlan=${setVisitPlan} route=${visitRoute} setRoute=${setVisitRoute} savePlan=${savePlan}
@@ -925,7 +1009,7 @@ function App(){
             <button class="icon-btn" style=${{position:"absolute",top:"16px",right:"16px",zIndex:5,width:"34px",height:"34px",background:"var(--surface)"}}
               onClick=${()=>setOverlay(null)}><${Icon} name="close" size=${16}/></button>
             <!-- ใส่ mdl-page ไว้ให้ CSS รู้ว่าหน้านี้มีปุ่มกากบาทลอยอยู่มุมขวาบน จะได้เว้นที่ด้านขวาของหัวข้อให้ -->
-            <div class="mdl-page" style=${{height:"100%",overflow:"auto"}}><${ModalComp} key=${modalId}/></div>
+            <div class="mdl-page" style=${{height:"100%",overflow:"auto"}}><${ModalComp} key=${modalId+":"+masterVer}/></div>
           </div>
         </div>`}
 

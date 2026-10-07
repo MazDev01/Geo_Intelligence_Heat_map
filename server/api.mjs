@@ -1,11 +1,18 @@
 import {createRequire} from 'node:module';
 import {withTransaction} from './db/pool.mjs';
+import {auditCtx, clientIp, writeAudit, listAudit} from './audit.mjs';
 import {listPlaces, createPlaces, updatePlace, deletePlace} from './places.mjs';
 import {importUpload, mapUpload, confirmUpload, listFiles, withdrawFile} from './imports.mjs';
 import {listQueue, actOnQueue} from './import-queue.mjs';
 import {listPlans, createPlan, updatePlan, deletePlan} from './visit-plans.mjs';
 import {addPlaceVisit} from './place-visits.mjs';
+import {listRequests, submitRequest, approveRequest, rejectRequests, undoRequest} from './lead-requests.mjs';
 import {cleanFilename, fileKind, MAX_FILE_BYTES} from './import-parse.mjs';
+import {readSettings, writeSettings, readPrefs, writePrefs, SETTING_PERMS} from './settings.mjs';
+import {readStats, STAT_FILES} from './stats.mjs';
+import {readMaster, writeMaster} from './master-data.mjs';
+import {notify, listNotifications, markRead} from './notifications.mjs';
+import {MAX_BODY, MAX_ROWS, readRequest, checkSource, cleanName, dataRows, buildFile, disposition, sourceRows, sourceFilters} from './exports.mjs';
 
 const require = createRequire(import.meta.url);
 const {MAX_BYTES} = require('../zone-validate.cjs');
@@ -42,7 +49,9 @@ async function readBytes(req, limit, discardUpTo = limit) {
 
 const readBody = async (req, limit) => (await readBytes(req, limit)).toString('utf8');
 
-export function makeApi({pool, authStore, zoneStore, demoPassword}) {
+export function makeApi({pool, authStore, zoneStore, demoPassword, perms, webBootstrap = true, runtime = {}}) {
+  const can = (user, key) => !perms || perms.effectivePerms(user.role, user.permOverrides || {}).has(key);
+
   async function auth(req, res) {
     if (req.method !== 'POST') return send(res, 405, {error: 'ใช้ POST เท่านั้น'});
     let body;
@@ -58,20 +67,35 @@ export function makeApi({pool, authStore, zoneStore, demoPassword}) {
       if (door !== undefined && door !== null && !Object.hasOwn(DOOR_ROLE, door))
         return send(res, 400, {ok: false, error: 'ประตูเข้าสู่ระบบไม่ถูกต้อง'});
       const r = await authStore.login(body.email, body.password);
-      if (r.ok && door && r.user.role !== DOOR_ROLE[door])
+      const attempt = {actor: {id: null, email: String(body.email || '').trim().toLowerCase().slice(0, 200) || '-'}, ip: clientIp(req)};
+      if (r.ok && door && r.user.role !== DOOR_ROLE[door]) {
+        await writeAudit(pool, attempt, 'login_fail', attempt.actor.email, {reason: 'door', door});
         return send(res, 401, {ok: false, code: 401, error: 'อีเมลหรือรหัสผ่านไม่ถูกต้อง'});
+      }
+      if (r.ok) await writeAudit(pool, auditCtx(req, r.user), 'login', r.user.email, {door: door || null});
+      else await writeAudit(pool, attempt, 'login_fail', attempt.actor.email, {reason: r.code === 423 ? 'locked' : 'credentials'});
       return reply(r);
     }
     if (action === 'change') {
       const who = await authStore.auth(req.headers);
       if (!who.ok) return send(res, who.code, who);
-      return reply(await authStore.changePassword(who.user.email, body.oldPassword, body.newPassword));
+      const r = await authStore.changePassword(who.user.email, body.oldPassword, body.newPassword);
+      if (r.ok) await writeAudit(pool, auditCtx(req, who.user), 'password_change', who.user.email, {});
+      return reply(r);
     }
     if (action === 'bootstrap') {
+      if (!webBootstrap) return send(res, 403, {ok: false, error: 'ตั้งรหัสผู้ดูแลระบบคนแรกได้จากคำสั่งบนเครื่องเซิร์ฟเวอร์เท่านั้น'});
       if (!(await authStore.bootstrapNeeded())) return send(res, 403, {ok: false, error: 'ระบบตั้งค่าครั้งแรกไปแล้ว'});
       const target = await authStore.get(body.email);
       if (!target || target.role !== 'Administrator') return send(res, 400, {ok: false, error: 'ตั้งได้เฉพาะบัญชีผู้ดูแลระบบ'});
       return reply(await authStore.setPassword(body.email, body.password));
+    }
+    if (action === 'logout') {
+      const who = await authStore.auth(req.headers);
+      if (!who.ok) return send(res, 200, {ok: true});
+      const r = await authStore.revokeTokens(who.user.email);
+      if (r.ok) await writeAudit(pool, auditCtx(req, who.user), 'logout', who.user.email, {});
+      return reply(r);
     }
     if (action === 'info')
       return send(res, 200, {ok: true, demo: authStore.demoMode(), demoPassword: authStore.demoMode() ? demoPassword : ''});
@@ -82,13 +106,31 @@ export function makeApi({pool, authStore, zoneStore, demoPassword}) {
 
     const admin = await authStore.auth(req.headers, 'Administrator');
     if (!admin.ok) return send(res, admin.code, admin);
+    const USER_PERM = {'users.list': 'user.view', 'users.create': 'user.manage', 'users.remove': 'user.manage', 'users.password': 'user.manage'};
+    if (Object.hasOwn(USER_PERM, action) && !can(admin.user, USER_PERM[action]))
+      return send(res, 403, {ok: false, error: 'ไม่มีสิทธิ์ทำรายการนี้ (' + USER_PERM[action] + ')'});
     if (action === 'users.list') return send(res, 200, {ok: true, users: await authStore.list()});
-    if (action === 'users.create') return reply(await authStore.create(body));
-    if (action === 'users.update') return reply(await authStore.update(body.email, body.patch, admin.user.email));
-    if (action === 'users.remove') return reply(await authStore.remove(body.email, admin.user.email));
-    if (action === 'users.password') return reply(await authStore.setPassword(body.email, body.password));
+    const ctx = auditCtx(req, admin.user);
+    const done = async (r, event, target, detail) => {
+      if (r && r.ok) await writeAudit(pool, ctx, event, target, detail);
+      return reply(r);
+    };
+    const target = String(body.email || '').trim().toLowerCase();
+    if (action === 'users.create') return done(await authStore.create(body), 'user_create', target, {role: body.role});
+    if (action === 'users.update') {
+      const patch = body.patch && typeof body.patch === 'object' ? body.patch : {};
+      return done(await authStore.update(body.email, body.patch, admin.user.email), 'user_update', target, {fields: Object.keys(patch)});
+    }
+    if (action === 'users.remove') return done(await authStore.remove(body.email, admin.user.email), 'user_remove', target, {});
+    if (action === 'users.password') return done(await authStore.setPassword(body.email, body.password), 'user_password_reset', target, {});
     return send(res, 400, {error: 'ไม่รู้จักคำสั่ง: ' + action.slice(0, 40)});
   }
+
+  const denied = (res, user, key) => {
+    if (can(user, key)) return false;
+    send(res, 403, {error: 'บัญชีนี้ไม่มีสิทธิ์ทำรายการนี้'});
+    return true;
+  };
 
   async function requireUser(req, res, role) {
     const who = await authStore.auth(req.headers, role);
@@ -118,13 +160,20 @@ export function makeApi({pool, authStore, zoneStore, demoPassword}) {
     if (req.method === 'POST') {
       const admin = await requireUser(req, res, 'Administrator');
       if (!admin) return;
-      if (query.get('approve')) return reply(await zoneStore.approve(admin.id));
-      if (query.get('discard')) return reply(await zoneStore.discardDraft());
-      if (query.get('restore')) return reply(await zoneStore.restore(query.get('restore'), admin.id));
+      const ctx = auditCtx(req, admin);
+      const done = async (r, event, target) => {
+        if (r && r.ok) await writeAudit(pool, ctx, event, target, {});
+        return reply(r);
+      };
+      if (query.get('approve')) return done(await zoneStore.approve(admin.id), 'zone_approve');
+      if (query.get('discard')) return done(await zoneStore.discardDraft(), 'zone_discard');
+      if (query.get('restore')) return done(await zoneStore.restore(query.get('restore'), admin.id), 'zone_restore', query.get('restore'));
       let raw;
       try { raw = await readBody(req, MAX_BYTES * 2); }
       catch (e) { if (e.status === 413) return send(res, 413, {error: 'ไฟล์ใหญ่เกิน'}); throw e; }
-      return reply(query.get('publish') ? await zoneStore.publish(raw, admin.id) : await zoneStore.saveDraft(raw, admin.id));
+      return query.get('publish')
+        ? done(await zoneStore.publish(raw, admin.id), 'zone_publish')
+        : done(await zoneStore.saveDraft(raw, admin.id), 'zone_draft_save');
     }
 
     return send(res, 405, {error: 'รองรับเฉพาะ GET กับ POST'});
@@ -134,6 +183,17 @@ export function makeApi({pool, authStore, zoneStore, demoPassword}) {
     if (req.method !== 'GET' && req.method !== 'HEAD') return send(res, 405, {error: 'รองรับเฉพาะ GET'});
     const gj = await zoneStore.readPublished();
     return gj ? send(res, 200, gj) : send(res, 404, {error: 'ยังไม่มีโซน'});
+  }
+
+  function runtimeConfig(req, res) {
+    if (req.method !== 'GET' && req.method !== 'HEAD') return send(res, 405, {error: 'รองรับเฉพาะ GET'});
+    res.writeHead(200, {'Content-Type': 'text/javascript; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff'});
+    res.end(req.method === 'HEAD' ? '' : 'window.__GEO_CONFIG = ' + JSON.stringify(runtime).replace(/</g, '\\u003c') + ';\n');
+  }
+
+  async function statsFile(req, res, name) {
+    if (req.method !== 'GET' && req.method !== 'HEAD') return send(res, 405, {error: 'รองรับเฉพาะ GET'});
+    return send(res, 200, await readStats(pool, name));
   }
 
   async function territory(req, res) {
@@ -171,6 +231,7 @@ export function makeApi({pool, authStore, zoneStore, demoPassword}) {
           for (const [key, kind, userId] of clean)
             await tx.query('insert into territory_assign (key, kind, user_id, assigned_by) values ($1, $2, $3, $4)',
               [key, kind, userId, admin.id]);
+          await writeAudit(tx, auditCtx(req, admin), 'territory_assign', null, {count: clean.length});
         });
       } catch (e) {
         if (e && e.code === '23503') return send(res, 400, {error: 'มี id ของ TC ที่ไม่มีบัญชีอยู่ในระบบ'});
@@ -188,6 +249,7 @@ export function makeApi({pool, authStore, zoneStore, demoPassword}) {
     if (!who.ok) return send(res, 401, {error: 'unauthenticated', message: 'ต้องเข้าสู่ระบบก่อน'});
     const user = who.user;
     if (user.role !== 'Trade Coordinator') return send(res, 403, {error: 'forbidden', message: 'เฉพาะผู้ประสานงานการค้าเท่านั้น'});
+    if (denied(res, user, 'visit.manage_own')) return;
     try {
       if (req.method === 'GET') {
         const owner = query.get('owner');
@@ -197,12 +259,12 @@ export function makeApi({pool, authStore, zoneStore, demoPassword}) {
         if (prov && prov !== user.province) return send(res, 403, {error: 'forbidden', message: 'เรียกดูได้เฉพาะจังหวัดที่รับผิดชอบ'});
         return send(res, 200, await listPlans(pool, user));
       }
-      if (req.method === 'DELETE') return send(res, 200, await deletePlan(pool, user, query.get('id')));
+      if (req.method === 'DELETE') return send(res, 200, await deletePlan(pool, user, query.get('id'), auditCtx(req, user)));
       let body;
       try { body = JSON.parse(await readBody(req, 1e6)); }
       catch (e) { return send(res, e.status === 413 ? 413 : 400, {error: e.status === 413 ? 'ข้อมูลใหญ่เกินไป' : 'อ่านคำขอไม่ได้'}); }
-      if (req.method === 'POST') return send(res, 201, await createPlan(pool, user, body));
-      return send(res, 200, await updatePlan(pool, user, query.get('id'), body));
+      if (req.method === 'POST') return send(res, 201, await createPlan(pool, user, body, auditCtx(req, user)));
+      return send(res, 200, await updatePlan(pool, user, query.get('id'), body, auditCtx(req, user)));
     } catch (e) {
       if (e && [400, 403, 404, 409].includes(e.status)) return send(res, e.status, {error: e.message});
       throw e;
@@ -214,11 +276,12 @@ export function makeApi({pool, authStore, zoneStore, demoPassword}) {
     const who = await authStore.auth(req.headers);
     if (!who.ok) return send(res, 401, {error: 'ต้องเข้าสู่ระบบก่อน'});
     if (who.user.role !== 'Trade Coordinator') return send(res, 403, {error: 'เฉพาะผู้ประสานงานการค้าเท่านั้น'});
+    if (denied(res, who.user, 'visit.manage_own')) return;
     let body;
     try { body = JSON.parse(await readBody(req, 1e4)); }
     catch (e) { return send(res, e.status === 413 ? 413 : 400, {error: e.status === 413 ? 'ข้อมูลใหญ่เกินไป' : 'อ่านคำขอไม่ได้'}); }
     try {
-      return send(res, 201, await addPlaceVisit(pool, who.user, query.get('id'), body));
+      return send(res, 201, await addPlaceVisit(pool, who.user, query.get('id'), body, auditCtx(req, who.user)));
     } catch (e) {
       if (e && [400, 403, 404].includes(e.status)) return send(res, e.status, {error: e.message});
       throw e;
@@ -236,17 +299,18 @@ export function makeApi({pool, authStore, zoneStore, demoPassword}) {
     if (!['POST', 'PUT', 'DELETE'].includes(req.method)) return send(res, 405, {error: 'รองรับเฉพาะ POST PUT DELETE'});
     const admin = await requireUser(req, res, 'Administrator');
     if (!admin) return;
+    if (denied(res, admin, {POST: 'customer.create', PUT: 'customer.edit_any', DELETE: 'customer.delete'}[req.method])) return;
     const id = query.get('id') || '';
     if (req.method !== 'POST' && (!id || id.length > 20)) return send(res, 400, {error: 'ต้องระบุ id ของรายการ'});
     try {
       if (req.method === 'DELETE')
-        return (await deletePlace(pool, id)) ? send(res, 200, {ok: true}) : send(res, 404, {error: 'ไม่พบรายการนี้'});
+        return (await deletePlace(pool, id, auditCtx(req, admin))) ? send(res, 200, {ok: true}) : send(res, 404, {error: 'ไม่พบรายการนี้'});
       let body;
       try { body = JSON.parse(await readBody(req, 1e6)); }
       catch (e) { return send(res, e.status === 413 ? 413 : 400, {error: e.status === 413 ? 'ข้อมูลใหญ่เกินไป' : 'อ่านคำขอไม่ได้'}); }
       if (req.method === 'POST')
-        return send(res, 201, {ok: true, records: await createPlaces(pool, body && body.records)});
-      const record = await updatePlace(pool, id, body);
+        return send(res, 201, {ok: true, records: await createPlaces(pool, body && body.records, auditCtx(req, admin))});
+      const record = await updatePlace(pool, id, body, auditCtx(req, admin));
       return record ? send(res, 200, {ok: true, record}) : send(res, 404, {error: 'ไม่พบรายการนี้'});
     } catch (e) {
       if (e && e.status === 400) return send(res, 400, {error: e.message});
@@ -254,10 +318,173 @@ export function makeApi({pool, authStore, zoneStore, demoPassword}) {
     }
   }
 
+  async function leadRequests(req, res, query) {
+    if (!['GET', 'POST'].includes(req.method)) return send(res, 405, {error: 'รองรับเฉพาะ GET กับ POST'});
+    const who = await authStore.auth(req.headers);
+    if (!who.ok) return send(res, who.code, {error: who.error});
+    const user = who.user;
+    const isAdmin = user.role === 'Administrator', isTc = user.role === 'Trade Coordinator';
+    if (!isAdmin && !isTc) return send(res, 403, {error: 'ไม่มีสิทธิ์ใช้คำสั่งนี้'});
+    try {
+      if (req.method === 'GET') return send(res, 200, await listRequests(pool, user, query));
+      let body;
+      try { body = JSON.parse(await readBody(req, 1e5)); }
+      catch (e) { return send(res, e.status === 413 ? 413 : 400, {error: e.status === 413 ? 'ข้อมูลใหญ่เกินไป' : 'อ่านคำขอไม่ได้'}); }
+      const act = query.get('action') || 'submit';
+      const ctx = auditCtx(req, user);
+      if (act === 'submit') {
+        if (!isTc) return send(res, 403, {error: 'เฉพาะผู้ประสานงานการค้าเท่านั้น'});
+        if (denied(res, user, 'visit.manage_own')) return;
+        return send(res, 201, await submitRequest(pool, user, body, ctx));
+      }
+      if (!isAdmin) return send(res, 403, {error: 'เฉพาะผู้ดูแลระบบเท่านั้น'});
+      if (denied(res, user, 'customer.convert')) return;
+      if (act === 'approve') return send(res, 200, await approveRequest(pool, user, body, ctx));
+      if (act === 'reject') return send(res, 200, await rejectRequests(pool, user, body, ctx));
+      if (act === 'undo') return send(res, 200, await undoRequest(pool, user, body, ctx));
+      return send(res, 400, {error: 'ไม่รู้จักคำสั่ง'});
+    } catch (e) {
+      if (e && [400, 403, 404, 409].includes(e.status)) return send(res, e.status, {error: e.message});
+      throw e;
+    }
+  }
+
+  async function auditList(req, res, query) {
+    if (req.method !== 'GET') return send(res, 405, {error: 'รองรับเฉพาะ GET'});
+    const admin = await requireUser(req, res, 'Administrator');
+    if (!admin) return;
+    if (denied(res, admin, 'audit.view')) return;
+    try { return send(res, 200, await listAudit(pool, query)); }
+    catch (e) { if (e && e.status === 400) return send(res, 400, {error: e.message}); throw e; }
+  }
+
+  const sendFile = (res, file, name) => {
+    res.writeHead(200, {
+      'Content-Type': file.type,
+      'Content-Disposition': disposition(name, file.ext),
+      'Content-Length': file.body.length,
+      'Cache-Control': 'no-store',
+      'X-Content-Type-Options': 'nosniff',
+    });
+    res.end(file.body);
+  };
+
+  async function exportsApi(req, res, query) {
+    if (req.method !== 'GET' && req.method !== 'POST') return send(res, 405, {error: 'รองรับเฉพาะ GET กับ POST'});
+    const user = await requireUser(req, res);
+    if (!user) return;
+    const ctx = auditCtx(req, user);
+    const refuse = async (target, detail) => {
+      await writeAudit(pool, ctx, 'export_denied', target, detail);
+      return send(res, 403, {error: 'บัญชีนี้ไม่มีสิทธิ์ส่งออกข้อมูลนี้'});
+    };
+    const told = (kind, format, filename, rows) =>
+      notify(pool, user.id, 'export_done', 'ส่งออก ' + (filename || kind) + ' เรียบร้อย', {kind, format, filename: filename || null, rows})
+        .catch(e => console.error('[api] export notification:', e));
+    try {
+      if (req.method === 'GET') {
+        const source = query.get('source') || '', format = query.get('format') || '';
+        const perm = checkSource(source, format);
+        const filters = sourceFilters(query);
+        if (user.role !== 'Administrator' || !can(user, perm)) return refuse(source, {source, format, perm, filters});
+        const list = source === 'audit'
+          ? await listAudit(pool, query, {max: MAX_ROWS})
+          : await listRequests(pool, user, query, {max: MAX_ROWS});
+        if (list.rows.length > MAX_ROWS) return send(res, 400, {error: 'ข้อมูลเกิน ' + MAX_ROWS.toLocaleString('en-US') + ' แถว กรุณากรองให้แคบลง'});
+        const file = buildFile(format, sourceRows(source, list.rows, query.get('lang')));
+        const name = cleanName(query.get('filename'), source);
+        await writeAudit(pool, ctx, 'export', source, {source, format, filename: name, rows: list.rows.length, filters});
+        await told(source, format, name, list.rows.length);
+        return sendFile(res, file, name);
+      }
+      let body;
+      try { body = JSON.parse(await readBody(req, MAX_BODY)); }
+      catch (e) { return send(res, e.status === 413 ? 413 : 400, {error: e.status === 413 ? 'ข้อมูลใหญ่เกินไป กรุณากรองให้แคบลง' : 'อ่านคำขอไม่ได้'}); }
+      const r = readRequest(body);
+      const base = {kind: r.kind, format: r.format, filename: r.filename, records: r.records, scope: r.scope};
+      if (!can(user, r.perm)) return refuse(r.kind, {...base, perm: r.perm});
+      if (r.format === 'pdf') {
+        await writeAudit(pool, ctx, 'export', r.kind, base);
+        await told(r.kind, r.format, r.filename, null);
+        return send(res, 200, {ok: true});
+      }
+      const file = buildFile(r.format, r.rows);
+      await writeAudit(pool, ctx, 'export', r.kind, {...base, rows: dataRows(r.rows)});
+      await told(r.kind, r.format, r.filename, dataRows(r.rows));
+      return sendFile(res, file, r.filename);
+    } catch (e) {
+      if (e && e.status === 400) return send(res, 400, {error: e.message});
+      throw e;
+    }
+  }
+
+  const readJson = async (req, res, limit) => {
+    try { return {body: JSON.parse(await readBody(req, limit))}; }
+    catch (e) { send(res, e.status === 413 ? 413 : 400, {error: e.status === 413 ? 'ข้อมูลใหญ่เกินไป' : 'อ่านคำขอไม่ได้'}); return null; }
+  };
+
+  async function settingsApi(req, res) {
+    if (req.method !== 'GET' && req.method !== 'PUT') return send(res, 405, {error: 'รองรับเฉพาะ GET กับ PUT'});
+    if (req.method === 'GET') {
+      const user = await requireUser(req, res);
+      if (!user) return;
+      return send(res, 200, {ok: true, settings: await readSettings(pool)});
+    }
+    const admin = await requireUser(req, res, 'Administrator');
+    if (!admin) return;
+    const got = await readJson(req, res, 1e5);
+    if (!got) return;
+    const b = got.body;
+    const keys = b && typeof b === 'object' && !Array.isArray(b) ? Object.keys(b).filter(k => Object.hasOwn(SETTING_PERMS, k)) : [];
+    const need = keys.length ? [...new Set(keys.map(k => SETTING_PERMS[k]))] : ['settings.manage'];
+    for (const p of need) if (denied(res, admin, p)) return;
+    try { return send(res, 200, await writeSettings(pool, got.body, admin, auditCtx(req, admin))); }
+    catch (e) { if (e && e.status === 400) return send(res, 400, {error: e.message}); throw e; }
+  }
+
+  async function masterApi(req, res) {
+    if (req.method !== 'GET' && req.method !== 'POST') return send(res, 405, {error: 'รองรับเฉพาะ GET กับ POST'});
+    if (req.method === 'GET') {
+      const user = await requireUser(req, res);
+      if (!user) return;
+      return send(res, 200, {ok: true, data: await readMaster(pool)});
+    }
+    const admin = await requireUser(req, res, 'Administrator');
+    if (!admin) return;
+    if (denied(res, admin, 'settings.manage')) return;
+    const got = await readJson(req, res, 1e4);
+    if (!got) return;
+    try { return send(res, 200, await writeMaster(pool, got.body, admin, auditCtx(req, admin))); }
+    catch (e) { if (e && [400, 404, 409].includes(e.status)) return send(res, e.status, {error: e.message}); throw e; }
+  }
+
+  async function prefsApi(req, res) {
+    if (req.method !== 'GET' && req.method !== 'PUT') return send(res, 405, {error: 'รองรับเฉพาะ GET กับ PUT'});
+    const user = await requireUser(req, res);
+    if (!user) return;
+    if (req.method === 'GET') return send(res, 200, {ok: true, prefs: await readPrefs(pool, user)});
+    const got = await readJson(req, res, 1e4);
+    if (!got) return;
+    try { return send(res, 200, await writePrefs(pool, user, got.body)); }
+    catch (e) { if (e && [400, 404].includes(e.status)) return send(res, e.status, {error: e.message}); throw e; }
+  }
+
+  async function notificationsApi(req, res) {
+    if (req.method !== 'GET' && req.method !== 'POST') return send(res, 405, {error: 'รองรับเฉพาะ GET กับ POST'});
+    const user = await requireUser(req, res);
+    if (!user) return;
+    if (req.method === 'GET') return send(res, 200, await listNotifications(pool, user));
+    const got = await readJson(req, res, 1e4);
+    if (!got) return;
+    try { return send(res, 200, await markRead(pool, user, got.body)); }
+    catch (e) { if (e && e.status === 400) return send(res, 400, {error: e.message}); throw e; }
+  }
+
   async function imports(req, res, query) {
     if (req.method !== 'GET' && req.method !== 'POST') return send(res, 405, {error: 'รองรับเฉพาะ GET กับ POST'});
     const admin = await requireUser(req, res, 'Administrator');
     if (!admin) return;
+    if (denied(res, admin, 'data.import')) return;
     if (req.method === 'GET') {
       try { return send(res, 200, await listFiles(pool, query)); }
       catch (e) { if (e && e.status === 400) return send(res, 400, {error: e.message}); throw e; }
@@ -271,7 +498,7 @@ export function makeApi({pool, authStore, zoneStore, demoPassword}) {
     catch (e) { if (e.status === 413) return send(res, 413, tooBig); throw e; }
     if (!bytes.length) return send(res, 400, {error: 'ไฟล์ว่างเปล่า'});
     try {
-      return send(res, 201, await importUpload(pool, {bytes, filename, userId: admin.id}));
+      return send(res, 201, await importUpload(pool, {bytes, filename, userId: admin.id}, auditCtx(req, admin)));
     } catch (e) {
       if (e && [400, 413, 429].includes(e.status)) return send(res, e.status, {error: e.message});
       throw e;
@@ -282,11 +509,12 @@ export function makeApi({pool, authStore, zoneStore, demoPassword}) {
     if (req.method !== 'POST') return send(res, 405, {error: 'รองรับเฉพาะ POST'});
     const admin = await requireUser(req, res, 'Administrator');
     if (!admin) return;
+    if (denied(res, admin, 'data.import')) return;
     let body;
     try { body = JSON.parse(await readBody(req, 1e6)); }
     catch (e) { return send(res, e.status === 413 ? 413 : 400, {error: e.status === 413 ? 'ข้อมูลใหญ่เกินไป' : 'อ่านคำขอไม่ได้'}); }
     try {
-      return send(res, 200, await run(body, admin));
+      return send(res, 200, await run(body, admin, auditCtx(req, admin)));
     } catch (e) {
       if (e && [400, 404, 409].includes(e.status)) return send(res, e.status, {error: e.message});
       throw e;
@@ -297,12 +525,13 @@ export function makeApi({pool, authStore, zoneStore, demoPassword}) {
     if (req.method !== 'GET' && req.method !== 'POST') return send(res, 405, {error: 'รองรับเฉพาะ GET กับ POST'});
     const admin = await requireUser(req, res, 'Administrator');
     if (!admin) return;
+    if (denied(res, admin, 'data.import')) return;
     try {
       if (req.method === 'GET') return send(res, 200, await listQueue(pool, query));
       let body;
       try { body = JSON.parse(await readBody(req, 1e6)); }
       catch (e) { return send(res, e.status === 413 ? 413 : 400, {error: e.status === 413 ? 'ข้อมูลใหญ่เกินไป' : 'อ่านคำขอไม่ได้'}); }
-      return send(res, 200, await actOnQueue(pool, body, admin.id));
+      return send(res, 200, await actOnQueue(pool, body, admin.id, auditCtx(req, admin)));
     } catch (e) {
       if (e && [400, 404, 409].includes(e.status)) return send(res, e.status, {error: e.message, ...(e.extra || {})});
       throw e;
@@ -315,15 +544,24 @@ export function makeApi({pool, authStore, zoneStore, demoPassword}) {
     '/api/leads': places('leads'),
     '/api/places': placesWrite,
     '/api/places/visits': placeVisits,
+    '/api/audit': auditList,
+    '/api/exports': exportsApi,
+    '/api/settings': settingsApi,
+    '/api/me/prefs': prefsApi,
+    '/api/notifications': notificationsApi,
+    '/api/master-data': masterApi,
+    '/api/lead-requests': leadRequests,
     '/api/imports': imports,
-    '/api/imports/mapping': importStep((body, admin) => mapUpload(pool, body, admin.id)),
+    '/api/imports/mapping': importStep((body, admin, ctx) => mapUpload(pool, body, admin.id, ctx)),
     '/api/imports/rows': importRows,
-    '/api/imports/withdraw': importStep((body, admin) => withdrawFile(pool, body, admin.id)),
-    '/api/imports/confirm': importStep(body => confirmUpload(pool, body)),
+    '/api/imports/withdraw': importStep((body, admin, ctx) => withdrawFile(pool, body, admin.id, ctx)),
+    '/api/imports/confirm': importStep((body, admin, ctx) => confirmUpload(pool, body, ctx)),
     '/api/zones': zones,
     '/api/territory': (req, res) => territory(req, res),
     '/api/visit-plans': visitPlans,
     '/data/zones.geojson': (req, res) => zonesFile(req, res),
+    '/config/runtime.js': runtimeConfig,
+    ...Object.fromEntries(STAT_FILES.map(name => ['/data/' + name + '.json', (req, res) => statsFile(req, res, name)])),
   };
 
   return {

@@ -1,5 +1,7 @@
 import {randomBytes} from 'node:crypto';
 import {withTransaction} from './db/pool.mjs';
+import {writeAudit} from './audit.mjs';
+import {segmentList} from './master-data.mjs';
 import {FIELDS, makeRowChecker, dupSettings, PROVINCE_SNAP_DEGREES} from './import-validate.mjs';
 
 const fail = (status, message, extra) => Object.assign(new Error(message), {status, extra});
@@ -52,7 +54,7 @@ function readValues(values, allowed) {
 
 async function makeContext(tx) {
   const provinces = (await tx.query('select key, name_th, name_en from provinces')).rows;
-  const segments = (await tx.query('select distinct segment from places where deleted_at is null')).rows.map(r => r.segment);
+  const segments = await segmentList(tx);
   const check = makeRowChecker({cols: Object.fromEntries(KEYS.map((k, i) => [k, i])), defaults: {}}, provinces, segments);
   return {check, dup: await dupSettings(tx)};
 }
@@ -219,14 +221,18 @@ async function actSkip(tx, body, userId, from, to) {
   return {ok: true, [to === 'skipped' ? 'skipped' : 'restored']: done, failed};
 }
 
-export async function actOnQueue(pool, body, userId) {
+export async function actOnQueue(pool, body, userId, ctx) {
   if (!body || typeof body !== 'object' || Array.isArray(body)) throw fail(400, 'อ่านคำขอไม่ได้');
   return withTransaction(pool, async tx => {
-    if (body.action === 'import') return actImport(tx, body, userId);
-    if (body.action === 'merge') return actMerge(tx, body, userId);
-    if (body.action === 'skip') return actSkip(tx, body, userId, 'pending', 'skipped');
-    if (body.action === 'unskip') return actSkip(tx, body, userId, 'skipped', 'pending');
-    throw fail(400, 'ไม่รู้จักคำสั่งนี้');
+    let out;
+    if (body.action === 'import') out = await actImport(tx, body, userId);
+    else if (body.action === 'merge') out = await actMerge(tx, body, userId);
+    else if (body.action === 'skip') out = await actSkip(tx, body, userId, 'pending', 'skipped');
+    else if (body.action === 'unskip') out = await actSkip(tx, body, userId, 'skipped', 'pending');
+    else throw fail(400, 'ไม่รู้จักคำสั่งนี้');
+    const ids = body.ids !== undefined ? body.ids : body.id;
+    await writeAudit(tx, ctx, 'import_queue_' + body.action, null, {rows: Array.isArray(ids) ? ids.length : 1, ids: Array.isArray(ids) ? ids.slice(0, 50) : [ids]});
+    return out;
   });
 }
 

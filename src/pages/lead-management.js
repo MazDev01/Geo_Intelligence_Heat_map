@@ -1,4 +1,5 @@
 import {t} from "../i18n.js";   // สลับภาษา TH/EN — ดู src/i18n.js
+import {rejectReasons} from "../master-api.js";
 // ═══════════════════════════════════════════════════════════════════════════
 // src/pages/lead-management.js — "จัดการ Lead" (route /admin/leads, tab=leads)
 // รวมงานเดิม 2 แท็บ ("ข้อมูลที่ TC กรอกเข้ามา" + "คำขอเปลี่ยนเป็นลูกค้า") เป็นไปป์ไลน์เดียว
@@ -6,24 +7,19 @@ import {t} from "../i18n.js";   // สลับภาษา TH/EN — ดู src
 // สถานะ: รอตรวจสอบ · ข้อมูลซ้ำ · รออนุมัติ · อนุมัติแล้ว · ปฏิเสธ · เปลี่ยนเป็นลูกค้าแล้ว
 // วันที่ทุกจุดเป็นพุทธศักราช · ตัวอักษร slate-900/700/600 บนพื้นขาว · ทุกการตัดสินเขียน audit log
 // ═══════════════════════════════════════════════════════════════════════════
-import {html, useState, useEffect, useMemo, useRef, useApp, Icon, num, provinceTH, thDate, segTH} from "../lib.js";
+import {html, useState, useEffect, useApp, Icon, num, provinceTH, thDate, segTH, gapTH} from "../lib.js";
 import {Btn, Badge, Table, Modal, DateField, toast} from "../ui.js";
 import {SEGMENTS, PROVINCE_KEYS} from "../mock/geoData.js";
-import {pushAudit} from "../audit.js";
+import {leadRequestsApi} from "../data.js";
+import {canExportSource, exportFromServer, beStamp} from "../export-api.js";
+import * as auth from "../auth.js";
 import {Dropdown} from "../select.js";
 import {createPortal} from "react-dom";
 
 
-const LD_TODAY=Date.parse("2026-08-03T00:00:00Z");
 const beD = thDate;   // ใช้ตัวแปลงกลาง
-function mulberry32(a){return function(){a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296;};}
 
 const PROV_TH = PROVINCE_KEYS;
-const BIZ = ["ครัวคุณย่า","เดอะโค้ชโฮเทล","บิวตี้เฮาส์","สปาเรือนไทย","มอเตอร์พลัส","โฮมสตูดิโอ","ติวเตอร์เฮาส์","ที่ปรึกษาธุรกิจสยาม","มาร์ทเฟรช","เทคโฟกัส","คลีนโปร","อีเวนต์เอเจนซี","คาเฟ่ริมคลอง","รีสอร์ทภูวิว","ร้านอะไหล่ยนต์","เฟอร์นิเจอร์ดีไซน์"];
-const CONTACTS=["สมชาย ใจดี","มาลี ทองคำ","วิภา สุขสันต์","ธนา รุ่งเรือง","อนงค์ พิพัฒน์","เกียรติ ชัยชนะ","พิมพ์ ศรีสุข","รัตน์ วัฒนา"];
-// มีแต่ TC เท่านั้นที่ส่งหลักฐานเข้ามาให้อนุมัติ (ผู้บริหารเพิ่ม Lead เข้าระบบไม่ได้แล้ว)
-const SUBMITTERS=[{name:"ธนพล ศรีวัฒน์",role:"TC"},{name:"ปิยะนุช วงศ์สกุล",role:"TC"},{name:"ศุภมาส เจริญสุข",role:"TC"},{name:"ณัฐริกา พงษ์ไพบูลย์",role:"TC"},{name:"กิตติศักดิ์ อารยะกุล",role:"TC"}];
-const OWNERS=["ธนพล ศรีวัฒน์","ปิยะนุช วงศ์สกุล","ศุภมาส เจริญสุข","ผู้ดูแลระบบ"];
 const CUST_TYPES=["ลูกค้าองค์กร","ลูกค้ารายย่อย","คู่ค้า/พันธมิตร"];
 // ค่าที่บันทึกลงเรกคอร์ดคือ "รหัส" (dup/evidence/…) ป้ายจึงแปลได้อย่างปลอดภัย
 // ป้ายเป็นฟังก์ชัน ไม่ใช่สตริง — ค่าคงที่ระดับโมดูลจะถูกประเมินครั้งเดียวตอนโหลดไฟล์
@@ -33,16 +29,9 @@ const REJECT_REASONS=[["dup",()=>t("เป็นลูกค้าอยู่�
   ["notreal",()=>t("ไม่พบว่ามีกิจการจริง","No real business found")],
   ["other",()=>t("อื่น ๆ (ระบุ)","Other (specify)")]];
 const _REJ=Object.fromEntries(REJECT_REASONS.map(([k,v])=>[k,v]));
+const rejectList = () => { const rows = rejectReasons(); return rows ? rows.filter(r=>r.active).map(r=>[r.code, ()=>r.label]) : REJECT_REASONS; };
 /* ป้ายเหตุผลการปฏิเสธตามภาษาปัจจุบัน — รับ "รหัส" คืนข้อความ */
-export const REJ_TH_OF = code => (_REJ[code] ? _REJ[code]() : code);
-// หลักฐานที่ TC แนบมาให้ผู้ดูแลตรวจก่อนอนุมัติ (จำลอง)
-const DOC_SETS=[["ภาพหน้าร้าน.jpg","ทะเบียนพาณิชย์.pdf"],["ภาพหน้าร้าน.jpg"],
-  ["บัตรประชาชนผู้ติดต่อ.jpg","ภาพหน้าร้าน.jpg"],["สัญญาแลกเปลี่ยนฉบับร่าง.pdf","ภาพหน้าร้าน.jpg"]];
-const TC_NOTES=["เข้าพบแล้ว เจ้าของสนใจเข้าร่วมเครือข่ายแลกเปลี่ยน",
-  "คุยกับผู้จัดการสาขาแล้ว ขอเวลาตัดสินใจ 1 สัปดาห์",
-  "ร้านเปิดใหม่ ต้องการลูกค้าองค์กร เหมาะกับหมวดนี้ในพื้นที่",
-  "ตกลงเงื่อนไขเบื้องต้นแล้ว รอผู้ดูแลระบบอนุมัติ"];
-
+export const REJ_TH_OF = code => { const row = (rejectReasons()||[]).find(r=>r.code===code); return row ? row.label : (_REJ[code] ? _REJ[code]() : code); };
 // สถานะไปป์ไลน์: ป้าย + สี (badge)
 // label เป็น getter — ค่าคงที่ระดับโมดูลถูกประเมินครั้งเดียวตอนโหลด ห่อ t() ตรง ๆ จะไม่เปลี่ยนตามภาษา
 export const LEAD_STATUS={
@@ -54,40 +43,13 @@ export const LEAD_STATUS={
   converted:{get label(){ return t("เป็นลูกค้าแล้ว","Converted"); },        bg:"rgba(47,127,224,.15)", fg:"#2f7fe0"},
 };
 
-// ตัดชุดฟังก์ชันตรวจข้อมูลซ้ำ (dupScoreOf / haversineM / stripPhone) ออกแล้ว — ระบบไม่มีคิวตรวจซ้ำอีก
-// stripName ยังใช้อยู่ที่เดียว: ตั้งอีเมลจำลองจากชื่อธุรกิจ
-const stripName=s=>(s||"").replace(/บริษัท|ห้างหุ้นส่วนจำกัด|หจก\.?|ร้าน|จำกัด|\(.*?\)/g,"").replace(/\s+/g,"");
-
-// ── mock: 40 รายการกระจายทุกสถานะ ──
-export function genLeads(){
-  const R=mulberry32(20260808); const rp=a=>a[Math.floor(R()*a.length)]; const ri=(a,b)=>Math.floor(a+R()*(b-a+1));
-  const suf=["","สาขา 1","สาขา 2","สำนักงานใหญ่","ในเมือง"];
-  // แผนสถานะ 40 ช่อง: pending31 · rejected4 · converted5
-  // อนุมัติแล้ว = เปลี่ยนเป็นลูกค้าทันที จึงไม่มีสถานะ "approved" ค้างอยู่ในระบบอีก
-  const plan=[].concat(Array(31).fill("pending"),
-    Array(4).fill("rejected"),Array(5).fill("converted"));
-  const out=[];
-  for(let i=0;i<40;i++){
-    const status=plan[i];
-    const base=rp(BIZ); const nm=(base+" "+rp(suf)).trim();
-    const prov=rp(PROV_TH); const lat=+(13+R()*6).toFixed(4), lng=+(98+R()*3).toFixed(4);
-    const phone="0"+ri(600000000,899999999); const email=stripName(base).slice(0,6).toLowerCase()+ri(1,99)+"@mail.com";
-    const sub=rp(SUBMITTERS);
-    const days = status==="pending" ? ri(1,60) : ri(20,120);
-    const submittedAt=new Date(LD_TODAY-days*864e5).toISOString();
-    const lead={ id:"LD-"+String(125+i).padStart(5,"0"), businessName:nm,
-      address:ri(1,999)+" ถ."+rp(["สุขุมวิท","นิมมานเหมินท์","ช้างคลาน","เจริญเมือง","ท่าแพ"]), province:prov, district:"",
-      lat, lng, contact:rp(CONTACTS), phone, email, type:rp(["Prospect","Lead"]),
-      segment:rp(SEGMENTS), submitter:sub, submittedAt, status,
-      docs:rp(DOC_SETS), tcNote:rp(TC_NOTES),
-      customerId:null, rejectReason:null, rejectNote:null, convertedAt:null, owner:null, custType:null };
-    if(status==="converted"){ lead.customerId="CU-"+String(125+i).padStart(5,"0"); lead.convertedAt=new Date(LD_TODAY-ri(1,15)*864e5).toISOString();
-      lead.owner=rp(OWNERS); lead.custType=rp(CUST_TYPES); }
-    if(status==="rejected"){ const rr=rp(REJECT_REASONS); lead.rejectReason=rr[0]; }
-    out.push(lead);
-  }
-  return out;
-}
+const toLead = r => ({
+  id:r.placeId, reqId:r.id, businessName:r.businessName||"—", address:r.address, province:r.province, segment:r.segment,
+  phone:r.phone, email:r.email, submitter:{name:r.requestedBy||"—", role:"TC"}, submitterEmail:r.requestedByEmail,
+  submittedAt:r.requestedAt, status:r.status==="approved"?"converted":r.status, docs:r.files||[], tcNote:r.note,
+  customerId:r.accountNo, rejectReason:r.rejectReason, rejectNote:r.rejectNote, convertedAt:r.convertedAt,
+  owner:r.ownerName, custType:r.custType, gap:r.gapSnapshot, gapLevel:r.gapLevelSnapshot, visitDate:r.visitDate,
+  segmentFrom:r.segmentFrom, reviewedBy:r.reviewedBy });
 
 const StatusBadge=({s})=>{ const m=LEAD_STATUS[s]||{}; return html`<span class="ld-badge" style=${{background:m.bg,color:m.fg}}>${m.label}</span>`; };
 const RoleBadge=({role})=>html`<span class=${"ld-role "+(role==="Manager"?"mgr":"tc")}>${role}</span>`;
@@ -98,8 +60,8 @@ function actionOf(status){
   return null;   // rejected / converted → ไม่มีปุ่ม
 }
 
-export function LeadManagement({leads, setLeads}){
-  const {db, nav} = useApp();
+export function LeadManagement({onCounts}){
+  const {applyDealApproved, applyDealRejected, user} = useApp();
   const readP=()=>{ const q=new URLSearchParams(location.search);
     return {st:q.get("lst")||"all", sub:q.get("lsub")||"all", prov:q.get("lprov")||"all",
       from:q.get("lfrom")||"", to:q.get("lto")||"", q:q.get("lq")||""}; };
@@ -110,10 +72,13 @@ export function LeadManagement({leads, setLeads}){
   const [fFrom,setFFrom]=useState(p0.from);
   const [fTo,setFTo]=useState(p0.to);
   const [q,setQ]=useState(p0.q);
+  const [qd,setQd]=useState(p0.q.trim());
   const [page,setPage]=useState(1);
+  const [tick,setTick]=useState(0);
+  const [res,setRes]=useState({loading:true});
   const [drawer,setDrawer]=useState(null);   // lead ที่กำลังตรวจสอบ
   const [convert,setConvert]=useState(null);  // lead ที่กำลังแปลงเป็นลูกค้า
-  const first=useRef(true);
+  const PAGE=10;
 
   // URL sync (แชร์ลิงก์/บุ๊กมาร์กได้)
   useEffect(()=>{ const u=new URL(location.href);
@@ -122,37 +87,58 @@ export function LeadManagement({leads, setLeads}){
     set("lfrom",fFrom,""); set("lto",fTo,""); set("lq",q,"");
     history.replaceState(null,"",u.pathname+u.search);
   },[fSt,fSub,fProv,fFrom,fTo,q]);
-  useEffect(()=>{ setPage(1); },[fSt,fSub,fProv,fFrom,fTo,q]);
+  useEffect(()=>{ const id=setTimeout(()=>setQd(q.trim()),300); return ()=>clearTimeout(id); },[q]);
+  useEffect(()=>{ setPage(1); },[fSt,fSub,fProv,fFrom,fTo,qd]);
+  useEffect(()=>{
+    let dead=false;
+    setRes(r=>({...r,loading:true}));
+    leadRequestsApi("GET", {query:{status:fSt==="converted"?"approved":fSt, submitter:fSub==="all"?"":fSub, province:fProv==="all"?"":fProv,
+      from:fFrom, to:fTo, q:qd, page, limit:PAGE}}).then(r=>{
+      if(dead) return;
+      setRes(r.ok ? r : {error:r.error});
+      if(r.ok && !r.local && onCounts) onCounts(r.counts);
+    });
+    return ()=>{ dead=true; };
+  },[fSt,fSub,fProv,fFrom,fTo,qd,page,tick]);
 
-  const subNames=[...new Set(leads.map(l=>l.submitter.name))];
-  const statusCounts=useMemo(()=>{ const c={all:leads.length}; leads.forEach(l=>c[l.status]=(c[l.status]||0)+1); return c; },[leads]);
+  const rows=(res.rows||[]).map(toLead);
+  const total=res.total||0;
+  const counts=res.counts||{};
+  const statusCounts={all:counts.all, pending:counts.pending, rejected:counts.rejected, converted:counts.approved};
+  const totalPages=Math.max(1,Math.ceil(total/PAGE)); const pageSafe=Math.min(page,totalPages);
 
-  // กรอง
-  const dateOk=l=>{ const d=l.submittedAt.slice(0,10);
-    return (!fFrom||d>=fFrom) && (!fTo||d<=fTo); };
-  const filtered=useMemo(()=> leads.filter(l=>
-    (fSt==="all"||l.status===fSt) &&
-    (fSub==="all"|| l.submitter.name===fSub) &&
-    (fProv==="all"||l.province===fProv) && dateOk(l) &&
-    (!q || [l.businessName,l.contact,l.phone,l.email].some(v=>(v||"").toLowerCase().includes(q.toLowerCase())))
-  ).sort((a,b)=> a.submittedAt<b.submittedAt?1:-1),   // ใหม่→เก่า ทุกสถานะคละกันตามเวลาจริง
-  [leads,fSt,fSub,fProv,fFrom,fTo,q]);
+  const canXlsx = canExportSource((user&&user.role)||"", "lead_requests");
+  const [exporting,setExporting]=useState(false);
+  const doExport=async ()=>{
+    if(exporting) return;
+    setExporting(true);
+    const r = await exportFromServer("lead_requests", "excel", {status:fSt==="converted"?"approved":fSt, submitter:fSub==="all"?"":fSub,
+      province:fProv==="all"?"":fProv, from:fFrom, to:fTo, q:qd}, t("คำขอดีล_", "deal_requests_")+beStamp());
+    setExporting(false);
+    toast(r.ok ? t("ส่งออกไฟล์ Excel แล้ว", "Excel file exported") : r.error, r.ok ? "good" : "bad");
+  };
 
-  // แถวต่อหน้าในตารางจัดการ Lead
-  const PAGE=10; const totalPages=Math.max(1,Math.ceil(filtered.length/PAGE)); const pageSafe=Math.min(page,totalPages);
-  const pageRows=filtered.slice((pageSafe-1)*PAGE,pageSafe*PAGE);
-
-
-  // (ไม่มีปุ่ม "ล้างตัวกรอง" ในกลุ่มจัดการข้อมูลแล้ว — จึงไม่ต้องมีตัวช่วยล้างค่า)
-  const doExport=()=>{ pushAudit({action:t("ส่งออกรายงาน Lead", "Export Lead report"), category:"ส่งออก", detail:`${t("ตามตัวกรองปัจจุบัน ·", "Using the current filters ·")} ${filtered.length} ${t("รายการ", "records")}`});
-    toast(`${t("ส่งออก", "Exported")} ${filtered.length} ${t("รายการแล้ว", "records")}`,"good"); };
-
-  const patch=(id,p)=>setLeads(ls=>ls.map(l=>l.id===id?{...l,...p}:l));
   const CHIPS=[["all",t("ทั้งหมด", "All")],["pending",t("รออนุมัติ", "Awaiting approval")],["rejected",t("ปฏิเสธ", "Rejected")],["converted",t("เปลี่ยนเป็นลูกค้าแล้ว", "Converted to customer")]];
   const provOpts=[["all",t("ทุกจังหวัด", "All provinces")],...PROV_TH.map(p=>[p,provinceTH(p)])];
-  const subOpts=[["all",t("ผู้ส่งทั้งหมด", "All submitters")],...subNames.map(n=>[n,n])];   // ไม่มีตัวเลือกกรองตามบทบาทแล้ว เพราะผู้ส่งเป็น TC ทั้งหมด
+  const subOpts=[["all",t("ผู้ส่งทั้งหมด", "All submitters")],...(res.submitters||[]).map(x=>[String(x.id),x.name])];
 
-  const onAction=l=>setDrawer(l);   // มีปุ่มเฉพาะสถานะรออนุมัติ → เปิดแผงตรวจหลักฐาน
+  const onAction=l=>setDrawer(l);
+  const doReject=async (lead, reason, note)=>{
+    const r=await leadRequestsApi("POST", {action:"reject", body:{id:lead.reqId, reason, ...(note?{note}:{})}});
+    if(!r.ok){ toast(r.error,"bad"); return false; }
+    if(r.failed && r.failed.length){ toast(r.failed[0].error,"bad"); setTick(x=>x+1); return false; }
+    if(applyDealRejected) applyDealRejected(lead.id, reason, note);
+    toast(t("ปฏิเสธรายการแล้ว", "Record rejected"),"warn"); setDrawer(null); setTick(x=>x+1);
+    return true;
+  };
+  const doApprove=async (lead, ownerId, seg, ctype)=>{
+    const r=await leadRequestsApi("POST", {action:"approve", body:{id:lead.reqId, ...(ownerId?{ownerId:Number(ownerId)}:{}), segment:seg, custType:ctype}});
+    if(!r.ok){ toast(r.error,"bad"); return false; }
+    if(applyDealApproved && r.request) applyDealApproved(r.request);
+    toast(`${t("เปลี่ยนเป็นลูกค้าแล้ว (", "Converted to a customer (")}${(r.request&&r.request.accountNo)||lead.id}${t(") — คง Lead ID เดิม", ") — the original Lead ID is kept")}`,"good");
+    setConvert(null); setTick(x=>x+1);
+    return true;
+  };
 
   return html`<div class="ld-page">
     <!-- ═══ การ์ดเดียว: แถบตัวกรองเป็นส่วนหัวของตาราง (เดิมแยกเป็นอีกกล่องลอยอยู่ด้านบน) ═══ -->
@@ -160,21 +146,24 @@ export function LeadManagement({leads, setLeads}){
     <div class="ld-filters">
       <div class="ld-chips">
         ${CHIPS.map(([v,l])=>html`<button key=${v} class=${"ld-chip"+(fSt===v?" on":"")} onClick=${()=>setFSt(v)}>
-          ${l} <b>${num(statusCounts[v==="all"?"all":v]||0)}</b></button>`)}
+          ${l} <b>${statusCounts[v]==null?"—":num(statusCounts[v])}</b></button>`)}
       </div>
       <div class="ld-frow">
-        <input class="ld-search" placeholder=${t("ค้นหา ชื่อลูกค้า · บริษัท · เบอร์โทร · อีเมล", "Search by customer, company, phone or email")} value=${q} onInput=${e=>setQ(e.target.value)}/>
+        <input class="ld-search" placeholder=${t("ค้นหา ชื่อร้าน · รหัส · เบอร์โทร · อีเมล", "Search by business, ID, phone or email")} value=${q} onInput=${e=>setQ(e.target.value)}/>
         <div class="ld-dd"><${Dropdown} value=${fSub} onChange=${setFSub} options=${subOpts}/></div>
         <div class="ld-dd"><${Dropdown} value=${fProv} onChange=${setFProv} options=${provOpts}/></div>
         <${DateField} className="ld-date" value=${fFrom} max=${fTo||undefined} onChange=${setFFrom} title=${t("วันที่ส่ง (ตั้งแต่)", "Submitted from")}/>
         <span class="ld-dash">–</span>
         <${DateField} className="ld-date" value=${fTo} min=${fFrom||undefined} onChange=${setFTo} title=${t("ถึง", "to")}/>
+        ${canXlsx && !res.local && html`<${Btn} size="sm" variant="ghost" icon="download" disabled=${exporting || !total} onClick=${doExport}>${t("ส่งออก Excel", "Export to Excel")}</${Btn}>`}
       </div>
     </div>
 
     <!-- ═══ ตาราง (อยู่ในการ์ดเดียวกับตัวกรอง) ═══ -->
-    ${filtered.length===0 ? html`<div class="ld-empty">
-        <${Icon} name="info" size=${18} color="var(--accent)"/> ${t("ไม่พบรายการตามเงื่อนไขที่เลือก", "No records match the current filters")}
+    ${res.error ? html`<div class="ld-empty"><${Icon} name="info" size=${18} color="var(--accent)"/> ${res.error}</div>`
+    : res.local ? html`<div class="ld-empty"><${Icon} name="info" size=${18} color="var(--accent)"/> ${t("เซิร์ฟเวอร์นี้ยังไม่รองรับคิวอนุมัติดีล", "This server does not support the deal approval queue yet")}</div>`
+    : rows.length===0 ? html`<div class="ld-empty">
+        <${Icon} name="info" size=${18} color="var(--accent)"/> ${res.loading ? t("กำลังโหลด…", "Loading…") : t("ไม่พบรายการตามเงื่อนไขที่เลือก", "No records match the current filters")}
       </div>` : html`
     <div class="ld-tablewrap">
       <table class="ld-table">
@@ -183,8 +172,8 @@ export function LeadManagement({leads, setLeads}){
           <th class="rt">${t("การจัดการ", "Actions")}</th>
         </tr></thead>
         <tbody>
-          ${pageRows.map(l=>{ const a=actionOf(l.status);
-            return html`<tr key=${l.id}>
+          ${rows.map(l=>{ const a=actionOf(l.status);
+            return html`<tr key=${l.reqId}>
             <td><${StatusBadge} s=${l.status}/></td>
             <td><b>${l.id}</b>${l.customerId?html`<div class="ld-cid">${l.customerId}</div>`:""}</td>
             <td>${l.businessName}</td>
@@ -192,13 +181,14 @@ export function LeadManagement({leads, setLeads}){
             <td>${beD(l.submittedAt)}</td>
             <td class="rt">${a ? html`<button class="ld-eye" title=${a.label} aria-label=${a.label+" "+l.businessName}
                 onClick=${()=>onAction(l)}><${Icon} name="eye" size=${16}/></button>`
-              : html`<span class="ld-dim">${LEAD_STATUS[l.status] ? LEAD_STATUS[l.status].label : "—"}</span>`}</td>
+              : html`<button class="ld-eye" title=${t("ดูรายละเอียด", "View details")} aria-label=${t("ดูรายละเอียด", "View details")+" "+l.businessName}
+                onClick=${()=>onAction(l)}><${Icon} name="eye" size=${16}/></button>`}</td>
           </tr>`; })}
         </tbody>
       </table>
     </div>
     ${totalPages>1?html`<div class="ld-pager">
-      <span class="ld-dim">${t("แสดง", "Showing")} ${(pageSafe-1)*PAGE+1}–${Math.min(pageSafe*PAGE,filtered.length)} ${t("จาก", "of")} ${num(filtered.length)} ${t("รายการ", "records")}</span>
+      <span class="ld-dim">${t("แสดง", "Showing")} ${(pageSafe-1)*PAGE+1}–${Math.min(pageSafe*PAGE,total)} ${t("จาก", "of")} ${num(total)} ${t("รายการ", "records")}</span>
       <div class="row" style=${{gap:"5px"}}>
         <button class="ld-pg" disabled=${pageSafe<=1} onClick=${()=>setPage(p=>Math.max(1,p-1))}>‹</button>
         <span class="ld-dim">${pageSafe}/${totalPages}</span>
@@ -207,17 +197,11 @@ export function LeadManagement({leads, setLeads}){
     </div>
 
     ${drawer?html`<${ReviewDrawer} lead=${drawer} onClose=${()=>setDrawer(null)}
-      onReject=${(reason,note)=>{ patch(drawer.id,{status:"rejected",rejectReason:reason,rejectNote:note});
-        pushAudit({action:t("ปฏิเสธ Lead", "Rejected the Lead"), category:"แก้ไข", detail:`${drawer.businessName} (${drawer.id}${t(") · เหตุผล:", ") · reason:")} ${REJ_TH_OF(reason)}${reason==="other"&&note?" — "+note:""}`});
-        toast(t("ปฏิเสธรายการแล้ว", "Record rejected"),"warn"); setDrawer(null); }}
+      onReject=${(reason,note)=>doReject(drawer, reason, note)}
       onApprove=${()=>{ const l=drawer; setDrawer(null); setConvert(l); }}/>`:""}
 
     ${convert?html`<${ConvertForm} lead=${convert} onClose=${()=>setConvert(null)}
-      onDone=${(owner,seg,ctype)=>{ const cid="CU-"+convert.id.replace("LD-","");
-        patch(convert.id,{status:"converted",customerId:cid,convertedAt:new Date(LD_TODAY).toISOString(),owner,segment:seg,custType:ctype});
-        pushAudit({action:t("อนุมัติเปลี่ยนเป็นลูกค้า", "Approved conversion to customer"), category:"แก้ไข", detail:`${convert.businessName} (${convert.id}${t(") · คงรหัส Lead เดิม เชื่อมกับ", ") · keeps the original Lead ID, linked to")} ${cid}`});
-        pushAudit({action:t("เปลี่ยนประเภทเป็นลูกค้า (เรคคอร์ด)", "Changed the record type to customer"), category:"แก้ไข", detail:`${cid} ${t("· ผู้ดูแล", "· owner")} ${owner} ${t("· หมวด", "· category")} ${segTH(seg)} ${t("· ประเภท", "· type")} ${ctype} ${t("· แจ้งเตือน", "· notified")} ${convert.submitter.name}`});
-        toast(`${t("เปลี่ยนเป็นลูกค้าแล้ว (", "Converted to a customer (")}${cid}${t(") — คง Lead ID เดิม", ") — the original Lead ID is kept")}`,"good"); setConvert(null); }}/>`:""}
+      onDone=${(ownerId,seg,ctype)=>doApprove(convert, ownerId, seg, ctype)}/>`:""}
     <style>${LD_CSS}</style>
   </div>`;
 }
@@ -225,29 +209,31 @@ export function LeadManagement({leads, setLeads}){
 /* ── แผงตรวจสอบ (drawer ขวา · 3 ส่วน) ── */
 export function ReviewDrawer({lead, onClose, onReject, onApprove}){
   const [mode,setMode]=useState(null);   // null | 'reject'
-  const [rcode,setRcode]=useState("dup"); const [rnote,setRnote]=useState("");
+  const [rcode,setRcode]=useState("dup"); const [rnote,setRnote]=useState(""); const [busy,setBusy]=useState(false);
   const decided = lead.status!=="pending";   // อนุมัติแล้ว/ปฏิเสธ/เปลี่ยนเป็นลูกค้าแล้ว → อ่านอย่างเดียว
   const node=html`<div class="ld-back" onMouseDown=${e=>{ if(e.target.classList.contains("ld-back")) onClose(); }}>
     <div class="ld-drawer">
       <div class="ld-dr-head">
         <div><div class="ld-dr-nm">${lead.businessName}</div>
-          <div class="ld-dim">${lead.id}${lead.customerId?" · "+lead.customerId:""} · ${lead.type} · ${provinceTH(lead.province)}</div></div>
+          <div class="ld-dim">${lead.id}${lead.customerId&&lead.customerId!==lead.id?" · "+lead.customerId:""} · ${segTH(lead.segment)} · ${provinceTH(lead.province)}</div></div>
         <button class="ld-x" onClick=${onClose}><${Icon} name="close" size=${16}/></button>
       </div>
       <div class="ld-dr-body">
         <!-- ส่วนที่ 1 · ข้อมูล Lead -->
         <div class="ld-sec-t">${t("ข้อมูล Lead", "Lead details")}</div>
         <div class="ld-kv"><span>${t("ชื่อบริษัท", "Company name")}</span><b>${lead.businessName}</b></div>
-        <div class="ld-kv"><span>${t("ที่อยู่", "Address")}</span><b>${lead.address}</b></div>
-        <div class="ld-kv"><span>${t("จังหวัด", "provinces")}</span><b>${provinceTH(lead.province)}</b></div>
-        <div class="ld-kv"><span>${t("ผู้ติดต่อ", "Contact")}</span><b>${lead.contact}</b></div>
-        <div class="ld-kv"><span>${t("เบอร์โทร", "Phone")}</span><b>${lead.phone}</b></div>
-        <div class="ld-kv"><span>${t("อีเมล", "Email")}</span><b>${lead.email}</b></div>
+        <div class="ld-kv"><span>${t("ที่อยู่", "Address")}</span><b>${lead.address||"—"}</b></div>
+        <div class="ld-kv"><span>${t("จังหวัด", "Province")}</span><b>${provinceTH(lead.province)}</b></div>
+        <div class="ld-kv"><span>${t("หมวดธุรกิจ", "Business category")}</span><b>${segTH(lead.segment)}${lead.segmentFrom?html` <span class="ld-dim">(${t("เดิม", "was")} ${segTH(lead.segmentFrom)})</span>`:""}</b></div>
+        <div class="ld-kv"><span>${t("เบอร์โทร", "Phone")}</span><b>${lead.phone||"—"}</b></div>
+        <div class="ld-kv"><span>${t("อีเมล", "Email")}</span><b>${lead.email||"—"}</b></div>
 
         <!-- ส่วนที่ 2 · หลักฐานที่ TC ส่งมาให้ผู้ดูแลตรวจ -->
         <div class="ld-sec-t">${t("หลักฐานที่ผู้ประสานงานการค้าส่งมา", "Evidence submitted by the Trade Coordinator")}</div>
         <div class="ld-kv"><span>${t("ผู้ส่ง", "Submitted by")}</span><b>${lead.submitter.name}</b></div>
         <div class="ld-kv"><span>${t("วันที่ส่ง", "Submitted")}</span><b>${beD(lead.submittedAt)}</b></div>
+        ${lead.visitDate?html`<div class="ld-kv"><span>${t("วันนัดเข้าพบ", "Visit date")}</span><b>${beD(lead.visitDate)}</b></div>`:""}
+        ${lead.gap!=null?html`<div class="ld-kv"><span>${t("ช่องว่างตลาด ณ วันที่ส่ง", "Market gap when submitted")}</span><b>${num(lead.gap)}${lead.gapLevel?" · "+gapTH(lead.gapLevel):""}</b></div>`:""}
         ${lead.tcNote?html`<div class="ld-kv"><span>${t("บันทึกจากการเข้าพบ", "Visit notes")}</span>
           <b style=${{maxWidth:"60%",textAlign:"right",fontWeight:500,lineHeight:1.5}}>${lead.tcNote}</b></div>`:""}
         ${(lead.docs||[]).length ? html`<div class="ld-docs">
@@ -260,12 +246,14 @@ export function ReviewDrawer({lead, onClose, onReject, onApprove}){
           ${lead.rejectReason?html`<div class="ld-kv"><span>${t("เหตุผลที่ปฏิเสธ", "Rejection reason")}</span><b>${REJ_TH_OF(lead.rejectReason)}${lead.rejectNote?" — "+lead.rejectNote:""}</b></div>`:""}
           ${lead.customerId?html`<div class="ld-kv"><span>${t("รหัสลูกค้าที่เชื่อมไว้", "Linked customer ID")}</span><b>${lead.customerId}</b></div>`:""}
           ${lead.convertedAt?html`<div class="ld-kv"><span>${t("วันที่เปลี่ยนเป็นลูกค้า", "Converted on")}</span><b>${beD(lead.convertedAt)}</b></div>`:""}
-          ${lead.owner?html`<div class="ld-kv"><span>${t("ผู้ดูแลลูกค้า", "Customer owner")}</span><b>${lead.owner}</b></div>`:""}`
+          ${lead.owner?html`<div class="ld-kv"><span>${t("ผู้ดูแลลูกค้า", "Customer owner")}</span><b>${lead.owner}</b></div>`:""}
+          ${lead.custType?html`<div class="ld-kv"><span>${t("ประเภทลูกค้า", "Customer type")}</span><b>${lead.custType}</b></div>`:""}
+          ${lead.reviewedBy?html`<div class="ld-kv"><span>${t("ตัดสินโดย", "Decided by")}</span><b>${lead.reviewedBy}</b></div>`:""}`
         : html`<div class="ld-sec-t">${t("การดำเนินการของผู้ดูแลระบบ", "Administrator actions")}</div>
         ${mode==="reject" ? html`<div class="ld-act-box">
           <div class="ld-dim" style=${{marginBottom:"8px"}}>${t("เลือกเหตุผลการปฏิเสธ:", "Pick a rejection reason:")}</div>
-          <div class="ld-reasons">${REJECT_REASONS.map(([k,v])=>html`<label key=${k} class=${"ld-reason"+(rcode===k?" on":"")}>
-            <input type="radio" name="rj" checked=${rcode===k} onChange=${()=>setRcode(k)}/> ${v}</label>`)}</div>
+          <div class="ld-reasons">${rejectList().map(([k,v])=>html`<label key=${k} class=${"ld-reason"+(rcode===k?" on":"")}>
+            <input type="radio" name="rj" checked=${rcode===k} onChange=${()=>setRcode(k)}/> ${v()}</label>`)}</div>
           ${rcode==="other"?html`<textarea class="ld-note" placeholder=${t("ระบุเหตุผล…", "Describe the reason…")} value=${rnote} onInput=${e=>setRnote(e.target.value)}></textarea>`:""}
         </div>`
         : html`<div class="ld-dim">${t("ตรวจหลักฐานด้านบนแล้วเลือกดำเนินการด้านล่าง — อนุมัติเพื่อไปขั้นเปลี่ยนเป็นลูกค้า หรือปฏิเสธพร้อมเหตุผล", "Check the evidence above, then act below — approve to move on to conversion, or reject with a reason")}</div>`}`}
@@ -273,9 +261,10 @@ export function ReviewDrawer({lead, onClose, onReject, onApprove}){
       <div class="ld-dr-foot">
         ${mode ? html`<${Btn} variant="ghost" onClick=${()=>setMode(null)}>${t("ย้อนกลับ", "Back")}</${Btn}>` : html`<span></span>`}
         ${decided ? html`<${Btn} variant="ghost" onClick=${onClose}>${t("ปิด", "Close")}</${Btn}>`
-        : mode==="reject" ? html`<${Btn} variant="primary" onClick=${()=>{ if(rcode==="other"&&!rnote.trim()){toast(t("กรุณาระบุเหตุผล", "Please give a reason"),"warn");return;} onReject(rcode,rnote.trim()); }}>${t("ยืนยันปฏิเสธ", "Confirm rejection")}</${Btn}>`
+        : mode==="reject" ? html`<${Btn} variant="primary" disabled=${busy} onClick=${async ()=>{ if(busy) return; if(rcode==="other"&&!rnote.trim()){toast(t("กรุณาระบุเหตุผล", "Please give a reason"),"warn");return;}
+            setBusy(true); await onReject(rcode,rnote.trim()); setBusy(false); }}>${t("ยืนยันปฏิเสธ", "Confirm rejection")}</${Btn}>`
         : html`<div class="row" style=${{gap:"8px"}}>
-            <${Btn} variant="ghost" onClick=${()=>setMode("reject")}>${t("ปฏิเสธ", "Rejected")}</${Btn}>
+            <${Btn} variant="ghost" onClick=${()=>setMode("reject")}>${t("ปฏิเสธ", "Reject")}</${Btn}>
             <${Btn} variant="primary" icon="check" onClick=${onApprove}>${t("อนุมัติ", "Approve")}</${Btn}>
           </div>`}
       </div>
@@ -286,25 +275,37 @@ export function ReviewDrawer({lead, onClose, onReject, onApprove}){
 
 /* ── ฟอร์มเปลี่ยนเป็นลูกค้า ── */
 function ConvertForm({lead, onClose, onDone}){
-  const cid="CU-"+lead.id.replace("LD-","");
-  const [owner,setOwner]=useState(OWNERS[0]);
+  const [owners,setOwners]=useState(null);
+  const [owner,setOwner]=useState("");
   const [seg,setSeg]=useState(lead.segment||SEGMENTS[0]);
   const [ctype,setCtype]=useState(CUST_TYPES[0]);
+  const [busy,setBusy]=useState(false);
+  useEffect(()=>{ let dead=false;
+    auth.call("users.list").then(r=>{ if(dead) return;
+      const tcs=((r&&r.users)||[]).filter(u=>u.role==="Trade Coordinator" && u.status!=="Suspended");
+      setOwners(tcs);
+      const mine=tcs.find(u=>u.email===lead.submitterEmail);
+      setOwner(mine?String(mine.id):(tcs[0]?String(tcs[0].id):""));
+    }).catch(()=>{ if(!dead) setOwners([]); });
+    return ()=>{ dead=true; }; },[]);
+  const segOpts=[...new Set([lead.segment, ...SEGMENTS].filter(Boolean))].map(s=>[s,segTH(s)]);
   return html`<${Modal} title=${t("เปลี่ยนเป็นลูกค้า", "Convert to customer")} onClose=${onClose}>
     <div class="ld-conv">
       <div class="ld-kv"><span>${t("Lead เดิม", "Original Lead")}</span><b>${lead.id} · ${lead.businessName}</b></div>
       <div class="ld-conv-f"><label>${t("รหัสลูกค้า", "Customer ID")}</label>
-        <input class="ld-in" value=${cid} readOnly=${true} title=${t("ระบบสร้างให้อัตโนมัติ · แก้ไม่ได้", "Generated automatically · not editable")}/>
-        <div class="ld-hint">${t("ระบบสร้างให้อัตโนมัติ · แก้ไม่ได้ · เชื่อมกับ Lead ID เดิม (ตรวจย้อนกลับได้)", "Generated automatically · not editable · linked to the original Lead ID for traceability")}</div></div>
+        <input class="ld-in" value=${lead.id} readOnly=${true} title=${t("ใช้รหัสเดิม · แก้ไม่ได้", "Keeps the original ID · not editable")}/>
+        <div class="ld-hint">${t("ใช้รหัส Lead เดิม (ถ้ายังไม่มีรหัสลูกค้า) · ตรวจย้อนกลับได้", "Keeps the original Lead ID (when no customer ID exists yet) · traceable")}</div></div>
       <div class="ld-conv-f"><label>${t("ผู้ดูแลลูกค้า", "Customer owner")}</label>
-        <${Dropdown} value=${owner} onChange=${setOwner} options=${OWNERS.map(o=>[o,o])}/></div>
+        ${owners===null ? html`<div class="ld-dim">${t("กำลังโหลดรายชื่อ…", "Loading names…")}</div>`
+          : owners.length ? html`<${Dropdown} value=${owner} onChange=${setOwner} options=${owners.map(u=>[String(u.id),u.name])}/>`
+          : html`<div class="ld-dim">${t("ไม่มีผู้ประสานงานการค้าในระบบ · คงผู้ดูแลเดิม", "No Trade Coordinators found · the current owner is kept")}</div>`}</div>
       <div class="ld-conv-f"><label>${t("หมวดธุรกิจ", "Business category")}</label>
-        <${Dropdown} value=${seg} onChange=${setSeg} options=${SEGMENTS.map(s=>[s,segTH(s)])}/></div>
+        <${Dropdown} value=${seg} onChange=${setSeg} options=${segOpts}/></div>
       <div class="ld-conv-f"><label>${t("ประเภทลูกค้า", "Customer type")}</label>
-        <${Dropdown} value=${ctype} onChange=${setCtype} options=${CUST_TYPES.map(t=>[t,t])}/></div>
-      <div class="ld-alert"><${Icon} name="gap" size=${14}/> ${t("เมื่อยืนยัน: คงรหัส Lead เดิมเชื่อมกับ", "On confirm: the original Lead ID stays linked to")} ${cid} ${t("· อัปเดตแผนที่และยอดรวม · เขียนบันทึกการตรวจสอบ 2 รายการ · แจ้งเตือน", "· the map and totals update · two audit entries are written · a notification is sent to")} ${lead.submitter.name}</div>
+        <${Dropdown} value=${ctype} onChange=${setCtype} options=${CUST_TYPES.map(c=>[c,c])}/></div>
+      <div class="ld-alert"><${Icon} name="gap" size=${14}/> ${t("เมื่อยืนยัน: เปลี่ยนเป็นลูกค้าทันที · แผนที่และยอดรวมอัปเดต · บันทึกลงบันทึกการตรวจสอบ · ผู้ส่งเห็นผลในแผงร้าน", "On confirm: converted right away · the map and totals update · recorded in the audit log · the sender sees the result on the place panel")}</div>
       <div class="ld-conv-foot"><${Btn} variant="ghost" onClick=${onClose}>${t("ยกเลิก", "Cancel")}</${Btn}>
-        <${Btn} variant="primary" icon="check" onClick=${()=>onDone(owner,seg,ctype)}>${t("ยืนยัน", "Confirm")}</${Btn}></div>
+        <${Btn} variant="primary" icon="check" disabled=${busy || owners===null} onClick=${async ()=>{ if(busy) return; setBusy(true); await onDone(owner,seg,ctype); setBusy(false); }}>${t("ยืนยัน", "Confirm")}</${Btn}></div>
     </div>
   </${Modal}>`;
 }

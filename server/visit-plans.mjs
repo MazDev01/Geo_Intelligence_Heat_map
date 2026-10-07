@@ -1,5 +1,7 @@
 import {randomBytes} from 'node:crypto';
 import {withTransaction} from './db/pool.mjs';
+import {writeAudit} from './audit.mjs';
+import {readScoring} from './settings.mjs';
 
 const fail = (status, message) => Object.assign(new Error(message), {status});
 
@@ -12,7 +14,6 @@ const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 export const SCOPE_SQL = `select province from users where id = $1 and province is not null
   union select split_part(key, '/', 1) from territory_assign where user_id = $1`;
 
-const gapLevelOf = s => s >= 67 ? 'High' : s >= 34 ? 'Medium' : 'Low';
 
 export const checkPlanId = id => {
   if (typeof id !== 'string' || !ID_RE.test(id)) throw fail(400, 'รหัสแผนไม่ถูกต้อง');
@@ -67,12 +68,14 @@ async function checkPlaces(tx, userId, placeIds) {
   return byId;
 }
 
-async function gapSnapshot(tx, province) {
+export async function gapSnapshot(tx, province) {
   const rows = (await tx.query(
     `select segment, greatest(0, count(*) filter (where type = 'Prospect') - count(*) filter (where type = 'Existing'))::int as gap
      from places where province = $1 and deleted_at is null and segment is not null group by segment`, [province])).rows;
   const gap = Object.fromEntries(rows.map(r => [r.segment, r.gap]));
   const max = Math.max(1, ...rows.map(r => r.gap));
+  const {cut} = await readScoring(tx);
+  const gapLevelOf = s => s >= cut.high ? 'High' : s >= cut.medium ? 'Medium' : 'Low';
   return segment => {
     const g = gap[segment] || 0;
     return {gap: g, level: gapLevelOf(Math.round(g / max * 100))};
@@ -124,7 +127,7 @@ export async function listPlans(pool, user) {
   return {ok: true, owner: user.email, province: user.province, plans: (await pool.query(PLAN_SQL, [user.id, null])).rows.map(toPlan)};
 }
 
-export async function createPlan(pool, user, body) {
+export async function createPlan(pool, user, body, ctx) {
   const plan = readPlan(body);
   return withTransaction(pool, async tx => {
     await tx.query('select pg_advisory_xact_lock(hashtext($1), $2)', ['visit_plans', user.id]);
@@ -136,11 +139,12 @@ export async function createPlan(pool, user, body) {
        values ($1, $2, $3, $4, $5, case when $5 then now() end, $6::jsonb, $7)`,
       [id, plan.name, user.id, plan.visitDate, plan.saved, plan.route, user.province || null]);
     await writeItems(tx, id, user.id, plan, new Map());
+    await writeAudit(tx, ctx, 'plan_create', id, {saved: plan.saved, places: plan.placeIds.length});
     return {ok: true, plan: await readOne(tx, user.id, id)};
   });
 }
 
-export async function updatePlan(pool, user, planId, body) {
+export async function updatePlan(pool, user, planId, body, ctx) {
   checkPlanId(planId);
   const plan = readPlan(body);
   return withTransaction(pool, async tx => {
@@ -157,13 +161,17 @@ export async function updatePlan(pool, user, planId, body) {
        where plan_id = $1 and owner_id = $2`,
       [planId, user.id, plan.name, plan.visitDate, plan.saved, plan.route]);
     await writeItems(tx, planId, user.id, plan, keep);
+    if (plan.saved && !cur.saved) await writeAudit(tx, ctx, 'plan_save', planId, {places: plan.placeIds.length});
     return {ok: true, plan: await readOne(tx, user.id, planId)};
   });
 }
 
-export async function deletePlan(pool, user, planId) {
+export async function deletePlan(pool, user, planId, ctx) {
   checkPlanId(planId);
-  const r = await pool.query('delete from visit_plans where plan_id = $1 and owner_id = $2', [planId, user.id]);
-  if (!r.rowCount) throw fail(404, 'ไม่พบแผนนี้');
-  return {ok: true};
+  return withTransaction(pool, async tx => {
+    const r = await tx.query('delete from visit_plans where plan_id = $1 and owner_id = $2', [planId, user.id]);
+    if (!r.rowCount) throw fail(404, 'ไม่พบแผนนี้');
+    await writeAudit(tx, ctx, 'plan_delete', planId, {});
+    return {ok: true};
+  });
 }

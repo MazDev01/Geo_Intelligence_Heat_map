@@ -1,5 +1,7 @@
 import {randomBytes} from 'node:crypto';
 import {withTransaction} from './db/pool.mjs';
+import {writeAudit} from './audit.mjs';
+import {isActive} from './master-data.mjs';
 
 const FULL_ACCESS = new Set(['Administrator', 'Management']);
 
@@ -8,9 +10,13 @@ select p.id, p.type, p.account_no, p.business_name, p.category, p.segment, p.cou
   p.address, p.latitude::float8 as latitude, p.longitude::float8 as longitude, p.phone, p.email, p.website,
   p.facebook, to_char(p.date_join, 'YYYY-MM-DD') as date_join,
   to_char(p.created_at at time zone 'Asia/Bangkok', 'YYYY-MM-DD') as created_at,
-  o.name as tc_owner, p.visit_status, v.rounds
+  o.name as tc_owner, p.visit_status, v.rounds,
+  d.status as deal_status, d.payload->>'visitDate' as deal_visit_date, d.reject_reason as deal_reject_reason, d.reject_note as deal_reject_note,
+  to_char(d.submitted_at at time zone 'Asia/Bangkok', 'YYYY-MM-DD') as deal_submitted, ds.name as deal_visitor
 from places p
 left join users o on o.id = p.tc_owner_id
+left join lateral (select status, payload, submitted_at, submitted_by, reject_reason, reject_note from lead_requests lr where lr.place_id = p.id order by lr.id desc limit 1) d on true
+left join users ds on ds.id = d.submitted_by
 left join (
   select pv.place_id, json_agg(json_build_object(
     'round', pv.round, 'status', pv.status,
@@ -34,6 +40,20 @@ order by p.id`;
 
 const putIf = (obj, key, value) => { if (value !== null && value !== undefined) obj[key] = value; };
 
+const DEAL_OUT = {pending: 'pending', rejected: 'rejected', converted: 'approved'};
+
+const putDeal = (out, r) => {
+  if (!r.deal_status) return;
+  out.dealStatus = DEAL_OUT[r.deal_status];
+  putIf(out, 'dealVisitDate', r.deal_visit_date);
+  putIf(out, 'dealSubmittedDate', r.deal_submitted);
+  putIf(out, 'dealVisitor', r.deal_visitor);
+  if (r.deal_status === 'rejected') {
+    putIf(out, 'dealRejectReason', r.deal_reject_reason);
+    putIf(out, 'dealRejectNote', r.deal_reject_note);
+  }
+};
+
 const toRound = v => {
   const out = {round: v.round, status: v.status};
   for (const k of ['apptDate', 'doneDate', 'tc', 'interest', 'outcome', 'cancelReason', 'note', 'at']) putIf(out, k, v[k]);
@@ -51,6 +71,7 @@ const toCustomer = r => {
   putIf(out, 'email', r.email);
   putIf(out, 'visit_status', r.visit_status);
   if (r.rounds) out.visitRounds = r.rounds.map(toRound);
+  putDeal(out, r);
   return out;
 };
 
@@ -65,6 +86,7 @@ const toLead = r => {
   putIf(out, 'website', r.website);
   putIf(out, 'facebook', r.facebook);
   putIf(out, 'dateJoin', r.date_join);
+  putDeal(out, r);
   return out;
 };
 
@@ -75,7 +97,7 @@ const KINDS = {
 
 export async function listPlaces(pool, kind, user, country) {
   const k = KINDS[kind];
-  const full = FULL_ACCESS.has(user.role);
+  const full = (user.scope || (FULL_ACCESS.has(user.role) ? 'national' : 'own_area')) === 'national';
   if (!full && !Number.isInteger(user.id)) return [];
   const scopeUserId = full ? null : user.id;
   const r = await pool.query(SQL, [k.type, country || null, scopeUserId, null]);
@@ -159,6 +181,11 @@ async function checkProvince(db, f) {
   if (!r.rowCount) throw bad('ไม่รู้จักจังหวัดนี้: ' + f.province);
 }
 
+async function checkSegment(db, f) {
+  if (f.segment === undefined) return;
+  if (!(await isActive(db, 'segments', f.segment))) throw bad('ไม่รู้จักหมวดธุรกิจนี้ หรือหมวดถูกปิดใช้งาน: ' + f.segment);
+}
+
 async function fetchByIds(db, ids) {
   const out = [];
   for (const k of Object.values(KINDS)) {
@@ -173,7 +200,7 @@ export const readPlace = async (db, id) => (await fetchByIds(db, [id]))[0] || nu
 
 const newId = type => (type === 'Existing' ? 'CUSU' : 'PROU') + randomBytes(6).toString('hex').toUpperCase();
 
-export async function createPlaces(pool, records) {
+export async function createPlaces(pool, records, ctx) {
   if (!Array.isArray(records) || !records.length) throw bad('ต้องมีรายการอย่างน้อย 1 รายการ');
   if (records.length > MAX_BATCH) throw bad('เพิ่มได้ครั้งละไม่เกิน ' + MAX_BATCH + ' รายการ');
   return withTransaction(pool, async tx => {
@@ -185,6 +212,7 @@ export async function createPlaces(pool, records) {
         if (f.type === 'Existing' && !f.account_no) throw bad('ต้องกรอกรหัสลูกค้า');
         await resolveOwner(tx, body, f);
         await checkProvince(tx, f);
+        await checkSegment(tx, f);
       } catch (e) {
         if (e.status === 400 && records.length > 1) e.message = 'รายการที่ ' + (i + 1) + ': ' + e.message;
         throw e;
@@ -196,18 +224,20 @@ export async function createPlaces(pool, records) {
       await tx.query('insert into places (' + cols.join(', ') + ') values (' + cols.map((_, n) => '$' + (n + 1)).join(', ') + ')',
         cols.map(c => f[c]));
       ids.push(f.id);
+      await writeAudit(tx, ctx, 'place_create', f.id, {type: f.type, businessName: f.business_name, province: f.province});
     }
     return fetchByIds(tx, ids);
   });
 }
 
-export async function updatePlace(pool, id, body) {
+export async function updatePlace(pool, id, body, ctx) {
   return withTransaction(pool, async tx => {
     const cur = await tx.query('select type, account_no from places where id = $1 and deleted_at is null for update', [id]);
     if (!cur.rowCount) return null;
     const f = readFields(body, true);
     await resolveOwner(tx, body, f);
     await checkProvince(tx, f);
+    await checkSegment(tx, f);
     const type = f.type || cur.rows[0].type;
     const account = has(f, 'account_no') ? f.account_no : cur.rows[0].account_no;
     if (type === 'Existing' && !account) throw bad('ต้องกรอกรหัสลูกค้า');
@@ -217,12 +247,16 @@ export async function updatePlace(pool, id, body) {
       if (type === 'Existing' && cur.rows[0].type === 'Prospect') sets.push('converted_at = now()');
       if (type === 'Prospect' && cur.rows[0].type === 'Existing') sets.push("visit_status = coalesce(visit_status, 'ยังไม่เข้าพบ')");
       await tx.query('update places set ' + sets.join(', ') + ' where id = $1', [id, ...cols.map(c => f[c])]);
+      await writeAudit(tx, ctx, 'place_update', id, {fields: cols});
     }
     return (await fetchByIds(tx, [id]))[0];
   });
 }
 
-export async function deletePlace(pool, id) {
-  const r = await pool.query('update places set deleted_at = now() where id = $1 and deleted_at is null', [id]);
-  return r.rowCount > 0;
+export async function deletePlace(pool, id, ctx) {
+  return withTransaction(pool, async tx => {
+    const r = await tx.query('update places set deleted_at = now() where id = $1 and deleted_at is null', [id]);
+    if (r.rowCount > 0) await writeAudit(tx, ctx, 'place_delete', id, {});
+    return r.rowCount > 0;
+  });
 }

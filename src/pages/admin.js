@@ -1,17 +1,18 @@
-import {html, useState, useEffect, useMemo, useApp, Icon, num, pct, roleTH, provinceTH, segTH, STATUS_COLOR, thDate, thDateTime, thMonth, gapTH} from "../lib.js";
-import {SEGMENTS, SEG_COLOR, OTHER_COLOR, DISTRICT_TH, GAP_REF, demandGap, gapBySegment} from "../mock/geoData.js";
+import {html, useState, useEffect, useMemo, useApp, Icon, num, pct, roleTH, provinceTH, PROVINCE_TH, segTH, STATUS_COLOR, thDate, thDateTime, thMonth, gapTH} from "../lib.js";
+import {SEGMENTS, SEG_COLOR, OTHER_COLOR, DISTRICT_TH, GAP_REF, demandGap, gapBySegment, SCORING_DEFAULT, getScoring, setScoring} from "../mock/geoData.js";
 import {LeafletMap} from "../lmap.js";   // แผนที่ความร้อนระดับประเทศ (ใช้ตัวเดียวกับหน้าอื่น)
-import {getAudit, subscribeAudit, pushAudit} from "../audit.js";
+import {pushAudit} from "../audit.js";
+import {fetchAudit, AUDIT_GROUPS, eventLabel, eventIcon, eventTone, detailText} from "../audit-api.js";
 import {Card, Kpi, Btn, Badge, Toggle, Field, Table, Tabs, Modal, Meter, DateField, toast} from "../ui.js";
 import {Dropdown} from "../select.js";
-import {genLeads} from "./lead-management.js";   // ไปป์ไลน์ "จัดการ Lead" — โชว์จำนวนคงค้างในงานที่รอดำเนินการ
 import {LineChart, BarChart, Donut, Sparkline} from "../charts.js";
 import {calcView, RANGES} from "../timefilter.js";   // thDate มาจาก lib.js โดยตรงแล้ว
-import {ExportDialog, defaultReportName, downloadXLS} from "./reports.js";   // ป็อปอัพส่งออก (ใช้ร่วมกับหน้ารายงาน)
-import {downloadCSV, areaCoverage} from "../data.js";
-import {canExport, EXPORT_ROLES, EXPORT_FORMATS, getExportPerms, setExportPerms} from "../export-perms.js";
+import {ExportDialog, runExport, exportName} from "./reports.js";   // ป็อปอัพส่งออก (ใช้ร่วมกับหน้ารายงาน)
+import {areaCoverage, leadRequestsApi} from "../data.js";
+import {canExportSource, exportFromServer, beStamp} from "../export-api.js";
 import * as auth from "../auth.js";   // บัญชีจริง + รหัสผ่าน (api/auth.js · auth-store.cjs)
 import {NOTIF_EVENTS, PRIORITY_TH, getSysNotif, setSysNotif} from "../notifications.js";
+import {saveSystemNotif, saveScoring} from "../settings-api.js";
 import {getLayerOpacity, setLayerOpacity} from "../layer-opacity.js";
 import {tcColorOf, setTcColor} from "../tc-colors.js";   // สีประจำตัว TC — ย้ายมาจากแท็บข้อมูลหลัก   // ความทึบของแผนที่ — ตั้งที่นี่ที่เดียว
 import {ROLES, SCOPES, DEFAULT_SCOPE, PERM_MODULES, PERM_INDEX, PERM_COUNT, GUARD_KEY,
@@ -66,7 +67,8 @@ export function Users(){
   };
 
   const save=async u=>{
-    const r = u.id ? await auth.updateUser(u.email, {name:u.name, role:u.role, province:u.province})
+    const r = u.id ? await auth.updateUser(u.origEmail||u.email, {name:u.name, role:u.role, province:u.province, status:u.status,
+                       ...((u.origEmail && u.email.trim().toLowerCase()!==u.origEmail.toLowerCase()) ? {email:u.email} : {})})
                    : await auth.createUser({name:u.name, email:u.email, role:u.role, province:u.province, password:u.password||undefined});
     if(!r.ok) return toast(r.error||t("บันทึกไม่สำเร็จ","Could not save"),"bad");
     setEdit(null); await refresh();
@@ -80,8 +82,10 @@ export function Users(){
     await refresh(); toast(t("ลบผู้ใช้แล้ว", "User deleted"),"bad");
   };
   // บันทึกสิทธิ์: เขียน log ทีละรายการตามกติกา G5 (เปลี่ยนของใคร จากอะไรเป็นอะไร)
-  const savePerm=(target, next, changes)=>{
-    setUsers(list=>list.map(x=> x.id===target.id ? {...x, role:next.role, scope:next.scope, permOverrides:next.overrides} : x));
+  const savePerm=async (target, next, changes)=>{
+    const r = await auth.updateUser(target.email, {role:next.role, scope:next.scope, overrides:next.overrides});
+    if(!r.ok) return toast(r.error||t("บันทึกสิทธิ์ไม่สำเร็จ","Could not save the permissions"),"bad");
+    await refresh();
     for(const c of changes) pushAudit({action:t("แก้ไขสิทธิ์ผู้ใช้", "Edited user permissions"), category:"แก้ไข",
       detail:`${target.name} · ${c.key} : ${c.from} → ${c.to}`});
     setPerm(null);
@@ -125,7 +129,8 @@ export function Users(){
         {h:t("ผู้ใช้", "User"), render:u=>html`<div class="um-user">
           <span class=${"um-av "+roleCls(u.role)}>${initials(u.name)}</span>
           <div style=${{minWidth:0}}>
-            <div class="um-nm">${u.name}${u.hasPassword===false ? html`<span class="um-nopw">${t("ยังไม่ได้ตั้งรหัส","No password yet")}</span>`
+            <div class="um-nm">${u.name}${u.status==="Suspended" ? html`<span class="um-nopw">${t("ถูกระงับ","Suspended")}</span>`
+              : u.hasPassword===false ? html`<span class="um-nopw">${t("ยังไม่ได้ตั้งรหัส","No password yet")}</span>`
               : u.mustChange ? html`<span class="um-tmppw">${t("ใช้รหัสชั่วคราว","Temporary password")}</span>` : ""}</div>
             <div class="um-em">${u.email}</div></div></div>`},
         {h:t("บทบาท", "Role"), w:"210px", render:u=>html`<span class=${"um-role "+roleCls(u.role)}>${roleTH(u.role)}</span>`},
@@ -161,36 +166,7 @@ export function Users(){
       </div>
     </${Modal}>`}
 
-    ${edit && html`<${Modal} title=${edit.id?t("แก้ไขผู้ใช้", "Edit user"):t("เพิ่มผู้ใช้", "Add user")} onClose=${()=>setEdit(null)}
-      footer=${html`<${Btn} variant="ghost" onClick=${()=>setEdit(null)}>${t("ยกเลิก", "Cancel")}</${Btn}>
-        <${Btn} variant="outline" icon="check" onClick=${()=>{const f=window.__uf;
-          // สีประจำตัวเก็บแยกที่ tc-colors.js (ผูกด้วย id ของบัญชี) ไม่ปนกับข้อมูลบัญชี
-          if(f.tccolor && f.role.value==="Trade Coordinator") setTcColor(edit.id, f.tccolor.value);
-          save({...edit,name:f.name.value,email:f.email.value,role:f.role.value,
-                password:(f.password&&f.password.value)||""});}}>${t("บันทึก", "Save")}</${Btn}>`}>
-      <form ref=${el=>window.__uf=el}>
-        <${Field} label=${t("ชื่อ-นามสกุล", "Full name")}><input class="input" name="name" defaultValue=${edit.name}/></${Field}>
-        <${Field} label=${t("อีเมล", "Email")}><input class="input" name="email" defaultValue=${edit.email}/></${Field}>
-        ${!edit.id && html`<${Field} label=${t("รหัสผ่านตั้งต้น", "Initial password")}>
-          <input class="input" name="password" type="text" autocomplete="off" placeholder=${t("เว้นว่าง = ระบบสุ่มให้","Leave empty and the system generates one")}/>
-          <div class="dim" style=${{fontSize:"11.5px",marginTop:"5px",lineHeight:1.5}}>${t("อย่างน้อย 8 ตัว มีทั้งตัวอักษรและตัวเลข · ผู้ใช้จะถูกบังคับตั้งรหัสของตัวเองตอนเข้าครั้งแรก",
-            "At least 8 characters with letters and digits · the user must choose their own at first sign-in")}</div>
-        </${Field}>`}
-        <${Field} label=${t("บทบาท", "Role")}><select class="input" name="role" defaultValue=${edit.role}>
-          <option value="Administrator">${t("ผู้ดูแลระบบ", "System Administrator")}</option><option value="Management">${t("ผู้บริหาร", "Management")}</option>
-          <option value="Trade Coordinator">${t("ผู้ประสานงานการค้า (TC)", "Trade Coordinator (TC)")}</option></select></${Field}>
-        <!-- สีประจำตัว TC ย้ายมาจากแท็บ "ผู้ประสานงานการค้า" ในข้อมูลหลัก — ชื่อคนจะมีแหล่งเดียวคือบัญชีนี้
-             แสดงเฉพาะบัญชีที่มีอยู่แล้ว (ต้องมี id) และเป็น TC — สีนี้ใช้ระบายพื้นที่ในหน้าจัดการขอบเขต -->
-        ${edit.id && edit.role==="Trade Coordinator" && html`
-          <${Field} label=${t("สีประจำตัว (ใช้ระบายพื้นที่ในแผนที่ขอบเขต)", "Personal colour (shades their territory on the map)")}>
-            <div class="row" style=${{gap:"9px",alignItems:"center"}}>
-              <input type="color" name="tccolor" defaultValue=${tcColorOf(edit.id, users.filter(u=>u.role==="Trade Coordinator").findIndex(u=>u.id===edit.id))}
-                style=${{width:"46px",height:"32px",padding:0,border:"1px solid var(--stroke2)",borderRadius:"7px",background:"none",cursor:"pointer"}}/>
-              <span class="dim" style=${{fontSize:"11.5px"}}>${t("ไม่ตั้งก็ใช้สีจากจานสีตามลำดับบัญชี", "Leave it and the palette assigns one by account order")}</span>
-            </div>
-          </${Field}>`}
-      </form>
-    </${Modal}>`}
+    ${edit && html`<${UserEditModal} edit=${edit} users=${users} me=${me} onClose=${()=>setEdit(null)} onSave=${save}/>`}
 
     ${delUser && html`<${Modal} title=${t("ยืนยันการลบบัญชี", "Confirm account deletion")} small=${true} onClose=${()=>setDelUser(null)}
       footer=${html`<${Btn} variant="ghost" onClick=${()=>setDelUser(null)}>${t("ยกเลิก", "Cancel")}</${Btn}>
@@ -204,6 +180,63 @@ export function Users(){
   </div>`;
 }
 
+function UserEditModal({edit, users, me, onClose, onSave}){
+  const isNew = !edit.id;
+  const isSelf = !!(me && edit.email && me.email===edit.email);
+  const [name,setName] = useState(edit.name||"");
+  const [email,setEmail] = useState(edit.email||"");
+  const [role,setRole] = useState(edit.role||"Trade Coordinator");
+  const [province,setProvince] = useState(edit.province||"");
+  const [password,setPassword] = useState("");
+  const [active,setActive] = useState(edit.status!=="Suspended");
+  const [color,setColor] = useState(()=> isNew ? "" : tcColorOf(edit.id, users.filter(u=>u.role==="Trade Coordinator").findIndex(u=>u.id===edit.id)));
+  const isTC = role==="Trade Coordinator";
+  const provOpts = [["", t("ยังไม่กำหนด", "Not assigned")], ...Object.keys(PROVINCE_TH).map(k=>[k, provinceTH(k)])];
+  const submit = ()=>{
+    if(!isNew && isTC && color) setTcColor(edit.id, color);
+    onSave({...edit, origEmail: edit.email, name, email, role, province: isTC ? (province||null) : null, password,
+      status: isNew ? undefined : (active ? "Active" : "Suspended")});
+  };
+  return html`<${Modal} title=${isNew?t("เพิ่มผู้ใช้", "Add user"):t("แก้ไขผู้ใช้", "Edit user")} onClose=${onClose}
+    footer=${html`<${Btn} variant="ghost" onClick=${onClose}>${t("ยกเลิก", "Cancel")}</${Btn}>
+      <${Btn} variant="outline" icon="check" onClick=${submit}>${t("บันทึก", "Save")}</${Btn}>`}>
+    <div>
+      <${Field} label=${t("ชื่อ-นามสกุล", "Full name")}><input class="input" value=${name} onInput=${e=>setName(e.target.value)}/></${Field}>
+      <${Field} label=${t("อีเมล", "Email")}><input class="input" value=${email} readOnly=${isSelf} onInput=${e=>setEmail(e.target.value)}/>
+        ${!isNew && html`<div class="dim" style=${{fontSize:"11.5px",marginTop:"5px",lineHeight:1.5}}>${isSelf
+          ? t("เปลี่ยนอีเมลของตัวเองไม่ได้", "You cannot change your own email")
+          : t("เปลี่ยนแล้วเจ้าของบัญชีต้องเข้าสู่ระบบใหม่ด้วยอีเมลใหม่", "After a change the account owner must sign in again with the new email")}</div>`}
+      </${Field}>
+      ${isNew && html`<${Field} label=${t("รหัสผ่านตั้งต้น", "Initial password")}>
+        <input class="input" type="text" autocomplete="off" value=${password} onInput=${e=>setPassword(e.target.value)}
+          placeholder=${t("เว้นว่าง = ระบบสุ่มให้","Leave empty and the system generates one")}/>
+        <div class="dim" style=${{fontSize:"11.5px",marginTop:"5px",lineHeight:1.5}}>${t("อย่างน้อย 8 ตัว มีทั้งตัวอักษรและตัวเลข · ผู้ใช้จะถูกบังคับตั้งรหัสของตัวเองตอนเข้าครั้งแรก",
+          "At least 8 characters with letters and digits · the user must choose their own at first sign-in")}</div>
+      </${Field}>`}
+      <${Field} label=${t("บทบาท", "Role")}>
+        <${Dropdown} value=${role} onChange=${setRole} disabled=${isSelf}
+          options=${[["Administrator",t("ผู้ดูแลระบบ", "System Administrator")],["Management",t("ผู้บริหาร", "Management")],["Trade Coordinator",t("ผู้ประสานงานการค้า (TC)", "Trade Coordinator (TC)")]]}/>
+      </${Field}>
+      ${isTC && html`<${Field} label=${t("จังหวัดที่รับผิดชอบ", "Assigned province")}>
+        <${Dropdown} value=${province} onChange=${setProvince} options=${provOpts}/>
+        <div class="dim" style=${{fontSize:"11.5px",marginTop:"5px",lineHeight:1.5}}>${t("TC เห็นข้อมูลเฉพาะจังหวัดนี้ (และโซนที่ได้รับมอบหมาย) ถ้าไม่กำหนดจะไม่เห็นข้อมูลเลย", "A TC only sees this province (and any zones assigned). Left empty, they see no data at all")}</div>
+      </${Field}>`}
+      ${!isNew && html`<${Field} label=${t("เปิดใช้งานบัญชี", "Account active")}>
+        <div class="row" style=${{gap:"10px",alignItems:"center"}}>
+          <${Toggle} on=${active} onChange=${()=>{ if(isSelf) return toast(t("ระงับบัญชีตัวเองไม่ได้", "You cannot suspend your own account"),"warn"); setActive(v=>!v); }}/>
+          <span class="dim" style=${{fontSize:"11.5px"}}>${active ? t("ใช้งานได้ปกติ", "Can sign in") : t("ระงับ — เข้าสู่ระบบไม่ได้", "Suspended — cannot sign in")}</span>
+        </div>
+      </${Field}>`}
+      ${!isNew && isTC && html`<${Field} label=${t("สีประจำตัว (ใช้ระบายพื้นที่ในแผนที่ขอบเขต)", "Personal colour (shades their territory on the map)")}>
+        <div class="row" style=${{gap:"9px",alignItems:"center"}}>
+          <input type="color" value=${color||"#888888"} onInput=${e=>setColor(e.target.value)}
+            style=${{width:"46px",height:"32px",padding:0,border:"1px solid var(--stroke2)",borderRadius:"7px",background:"none",cursor:"pointer"}}/>
+          <span class="dim" style=${{fontSize:"11.5px"}}>${t("ไม่ตั้งก็ใช้สีจากจานสีตามลำดับบัญชี", "Leave it and the palette assigns one by account order")}</span>
+        </div>
+      </${Field}>`}
+    </div>
+  </${Modal}>`;
+}
 
 /* ═══════════════════════════════════════════════════════════════════════════
    ป็อปอัพจัดการสิทธิ์รายบุคคล — 3 ชั้นตามเอกสารแบบจำลองสิทธิ์
@@ -512,36 +545,78 @@ export function Config(){
   // รายการเหตุการณ์มาจาก notifications.js ที่เดียว — หน้าโปรไฟล์และกระดิ่งใช้ชุดเดียวกันนี้
   const DEF_NOTIF = NOTIF_EVENTS.map(e=>({...e, ...getSysNotif()[e.key]}));
   const [notif,setNotif]=useState(DEF_NOTIF);
-  const setN=(i,patch)=>setNotif(ns=>{
-    const next = ns.map((n,j)=>j===i?{...n,...patch}:n);
-    setSysNotif(Object.fromEntries(next.map(x=>[x.key,{on:x.on, priority:x.priority}])));   // มีผลทันทีทั้งระบบ
-    return next; });
+  const setN=(i,patch)=>setNotif(ns=>ns.map((n,j)=>j===i?{...n,...patch}:n));
 
 
-  // 3) สิทธิ์การส่งออกตามบทบาท (§5.2) — บันทึกทันทีลง localStorage (แยกจากแถบบันทึกรวมของอีก 4 การ์ด)
-  //    TODO(server): นี่เป็นเพียงการกำหนดค่านโยบายที่ฝั่ง client ใช้ "กรอง/ซ่อน" ตัวเลือกบนหน้าจอเท่านั้น
-  //    การบังคับสิทธิ์จริงต้องทำที่เซิร์ฟเวอร์ (ตรวจ role จาก session ตอนเรียก API ส่งออกแล้วปฏิเสธถ้าไม่มีสิทธิ์)
-  const [xperms,setXperms]=useState(()=>{ const p=getExportPerms(); return EXPORT_ROLES.reduce((a,r)=>{a[r.key]={...p[r.key]};return a;},{}); });
-  const toggleXp=(role,fmt)=>setXperms(prev=>{ const next={...prev,[role]:{...prev[role],[fmt]:!prev[role][fmt]}};
-    setExportPerms(next);
-    pushAudit({action:t("แก้ไขสิทธิ์การส่งออกตามบทบาท", "Edited export permissions by role"), category:"ตั้งค่า",
-      detail:`${(EXPORT_ROLES.find(r=>r.key===role)||{}).label} · ${fmt.toUpperCase()} → ${!prev[role][fmt]?t("อนุญาต", "allowed"):t("ปิด", "Close")}`});
-    toast(t("อัปเดตสิทธิ์การส่งออกแล้ว", "Export permissions updated"),"good"); return next; });
+  const XP_ROLES = [["Administrator",t("ผู้ดูแลระบบ","Administrator")],["Management",t("ผู้บริหาร","Management")],["Trade Coordinator",t("ผู้ประสานงานการค้า","Trade Coordinator")]];
+  const XP_KEYS = [["report.export_summary",t("รายงานสรุป / PDF","Summary / PDF")],["report.export_raw_pii",t("รายชื่อ + ติดต่อ","Lists + contacts")],["audit.export",t("บันทึกตรวจสอบ","Audit log")]];
+  const XP_MARK = {y:[t("เปิด","On"),"on"], o:[t("รายคน","Per user"),"opt"], n:["—",""]};
 
   const [confirmReset,setConfirmReset]=useState(null);
   // ── ติดตามการแก้ไขรวมทุกการ์ด: เก็บ "ค่าที่บันทึกล่าสุด" ไว้เทียบ เพื่อรู้ว่ามีอะไรค้างยังไม่บันทึก ──
   //    แถบล่างจะโผล่ก็ต่อเมื่อมีค่าต่างจากที่บันทึกไว้ และกดครั้งเดียวมีผลกับทั้งเลเยอร์และการแจ้งเตือนพร้อมกัน
-  const snapshot=(ll,nn)=>JSON.stringify({เลเยอร์:ll,แจ้งเตือน:nn});
-  const [savedSnap,setSavedSnap]=useState(()=>snapshot(DEF_LAYERS,DEF_NOTIF));
-  const currentSnap=snapshot(layers,notif);
+  const SC_GROUPS = [
+    ["weights", t("น้ำหนักองค์ประกอบ (รวม 100)", "Component weights (total 100)"), "%",
+      [["depth",t("ลึก","Depth")],["breadth",t("กว้าง","Breadth")],["volume",t("ปริมาณ","Volume")]]],
+    ["ref", t("ค่าอ้างอิงปริมาณ", "Volume reference"), t("ราย","businesses"),
+      [["country",t("ประเทศ","Country")],["province",t("จังหวัด","Province")],["cluster",t("กลุ่มพื้นที่","Area cluster")],["district",t("อำเภอ","District")]]],
+    ["cut", t("จุดตัดระดับ (ดัชนี 0–100)", "Level cut-offs (index 0–100)"), "",
+      [["medium",t("ปานกลางตั้งแต่","Medium from")],["high",t("สูงตั้งแต่","High from")]]],
+  ];
+  const [sc,setSc]=useState(()=>getScoring());
+  const setScVal=(g,k,raw)=>setSc(s=>({...s,[g]:{...s[g],[k]:raw===""?"":Math.trunc(Number(raw))}}));
+  const scSum = ["depth","breadth","volume"].reduce((a,k)=>a+(Number(sc.weights[k])||0),0);
+  const scError = ()=>{
+    const int=(v,min,max)=>Number.isInteger(v)&&v>=min&&v<=max;
+    if(!Object.values(sc.weights).every(v=>int(v,0,100))) return t("น้ำหนักต้องเป็นจำนวนเต็ม 0–100", "Weights must be whole numbers 0–100");
+    if(scSum!==100) return t("น้ำหนักต้องรวมได้ 100", "Weights must total 100");
+    if(!Object.values(sc.ref).every(v=>int(v,1,1000000))) return t("ค่าอ้างอิงต้องเป็นจำนวนเต็มตั้งแต่ 1", "References must be whole numbers from 1");
+    if(!Object.values(sc.cut).every(v=>int(v,1,100))) return t("จุดตัดต้องเป็นจำนวนเต็ม 1–100", "Cut-offs must be whole numbers 1–100");
+    if(sc.cut.medium>=sc.cut.high) return t("จุดตัดปานกลางต้องต่ำกว่าจุดตัดสูง", "The medium cut-off must be below the high cut-off");
+    return null; };
+  const scDefault = ()=>({weights:{...SCORING_DEFAULT.weights},ref:{...SCORING_DEFAULT.ref},cut:{...SCORING_DEFAULT.cut}});
+  const scIsDefault = JSON.stringify(sc)===JSON.stringify(scDefault());
+
+  const snapshot=(ll,nn,ss)=>JSON.stringify({เลเยอร์:ll,แจ้งเตือน:nn,เกณฑ์:ss});
+  const [savedSnap,setSavedSnap]=useState(()=>snapshot(DEF_LAYERS,DEF_NOTIF,getScoring()));
+  const currentSnap=snapshot(layers,notif,sc);
   const dirty=currentSnap!==savedSnap;
-  const saveAll=()=>{
+  const [saving,setSaving]=useState(false);
+  const {settingsVer, scoringChanged, user} = useApp();
+  const me = (auth.readSaved()||{}).user;
+  const canScoring = !!user && effectivePerms(user.role, me && me.role===user.role ? (me.permOverrides||{}) : {}).has("settings.manage_scoring");
+  useEffect(()=>{
+    if(dirty) return;
+    const fresh = NOTIF_EVENTS.map(e=>({...e, ...getSysNotif()[e.key]}));
+    const freshSc = getScoring();
+    setNotif(fresh); setSc(freshSc); setSavedSnap(snapshot(layers, fresh, freshSc));
+  },[settingsVer]);
+  const saveAll=async ()=>{
+    if(saving) return;
+    const scDirty = JSON.stringify(JSON.parse(savedSnap).เกณฑ์)!==JSON.stringify(sc);
+    if(scDirty){ const err=scError(); if(err){ toast(err,"bad"); return; } }
+    const sysOf = list => Object.fromEntries(list.map(x=>[x.key,{on:x.on, priority:x.priority}]));
+    const sys = sysOf(notif);
+    if(JSON.stringify(sysOf(JSON.parse(savedSnap).แจ้งเตือน))!==JSON.stringify(sys)){
+      setSaving(true);
+      const r = await saveSystemNotif(sys);
+      setSaving(false);
+      if(!r.ok){ toast(r.error,"bad"); return; }
+      setSysNotif(sys);
+    }
+    if(scDirty){
+      setSaving(true);
+      const r = await saveScoring(sc);
+      setSaving(false);
+      if(!r.ok){ toast(r.error,"bad"); return; }
+      setScoring(sc); scoringChanged();
+    }
     // ความทึบมีผลกับแผนที่ของทุกบทบาททันที (TC/ผู้บริหารปรับเองไม่ได้แล้ว)
     const op = Object.fromEntries(layers.filter(l=>["existing","prospect","heat"].includes(l.id)).map(l=>[l.id, l.opacity]));
     setLayerOpacity(op);
     setSavedSnap(currentSnap); toast(t("บันทึกการตั้งค่าทั้งหมดแล้ว", "All settings saved"),"good"); };
   const cancelAll=()=>{ const s=JSON.parse(savedSnap);
-    setLayers(s.เลเยอร์.map(l=>({...l}))); setNotif(s.แจ้งเตือน.map(n=>({...n})));
+    setLayers(s.เลเยอร์.map(l=>({...l}))); setNotif(s.แจ้งเตือน.map(n=>({...n}))); setSc(s.เกณฑ์);
     setConfirmReset(null); toast(t("ยกเลิกการเปลี่ยนแปลงทั้งหมดแล้ว", "All changes discarded"),"info"); };
 
 
@@ -595,22 +670,40 @@ export function Config(){
       html`<${Badge} tone="info">${notif.filter(n=>n.on).length} ${t("เปิด", "On")}</${Badge}>`)}
 
 
+    ${canScoring && Section("scoring","target",t("เกณฑ์ช่องว่าง", "Gap criteria"),t("สูตรดัชนี Lead ที่ใช้ทั้งระบบ", "The Lead index formula used across the system"),
+      html`<div class="cfg-sc">
+        ${SC_GROUPS.map(([g,title,unit,fields])=>html`<div key=${g} class="cfg-sc-grp">
+          <div class="cfg-sc-h"><span>${title}</span>
+            ${g==="weights" && html`<${Badge} tone=${scSum===100?"good":"bad"}>${t("รวม", "Total")} ${scSum}</${Badge}>`}</div>
+          <div class="cfg-sc-row">
+            ${fields.map(([k,label])=>html`<label key=${k} class="cfg-sc-f"><span>${label}</span>
+              <span class="cfg-sc-in"><input class="input" type="number" inputmode="numeric" step="1" min=${g==="weights"?0:1} max=${g==="ref"?1000000:100}
+                data-sc=${g+"."+k} value=${sc[g][k]} onInput=${e=>setScVal(g,k,e.target.value)}/>${unit && html`<em>${unit}</em>`}</span></label>`)}
+          </div></div>`)}
+        <div class="row" style=${{justifyContent:"flex-end"}}>
+          <${Btn} variant="ghost" icon="refresh" disabled=${scIsDefault} onClick=${()=>setSc(scDefault())}>${t("คืนค่าเริ่มต้น", "Reset to defaults")}</${Btn}></div>
+        <style>${`
+          .cfg-sc-grp{padding:12px 0;border-top:1px solid var(--stroke)}
+          .cfg-sc-grp:first-child{border-top:none;padding-top:0}
+          .cfg-sc-h{display:flex;align-items:center;gap:10px;font-size:13px;font-weight:600;color:var(--txt);margin-bottom:10px}
+          .cfg-sc-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}
+          .cfg-sc-f{display:flex;flex-direction:column;gap:5px;font-size:12px;color:var(--muted)}
+          .cfg-sc-in{display:flex;align-items:center;gap:7px}
+          .cfg-sc-in em{font-style:normal;font-size:12px;color:var(--muted);flex:none}
+        `}</style>
+      </div>`,
+      html`<${Badge} tone=${scIsDefault?"neutral":"info"}>${scIsDefault?t("ค่าเริ่มต้น", "Defaults"):t("ปรับแล้ว", "Customised")}</${Badge}>`)}
+
     <!-- SECTION 3 · สิทธิ์การส่งออกตามบทบาท -->
-    ${Section("perms","download",t("สิทธิ์การส่งออกตามบทบาท", "Export permissions by role"),t("กำหนดว่าบทบาทใดส่งออกไฟล์ประเภทใดได้ (บันทึกทันที)", "Decide which roles can export which file types (saved immediately)"),
+    ${Section("perms","download",t("สิทธิ์การส่งออกตามบทบาท", "Export permissions by role"),t("ตั้งรายคนที่หน้าผู้ใช้ · เซิร์ฟเวอร์ตรวจทุกครั้ง", "Set per user on the Users page · checked by the server every time"),
       html`<div>
-        <div class="muted" style=${{fontSize:"12px",lineHeight:1.7,marginBottom:"12px"}}>
-          ${t("CSV ใช้ดึงข้อมูลทั้งชุดไปทำเหมืองต่อ — ค่าเริ่มต้นจึงเปิดเฉพาะผู้ดูแลระบบ ·", "CSV pulls the whole dataset out for further mining — so it defaults to administrators only ·")}
-          ${t("การกำหนดนี้ช่วย \"กรอง/ซ่อน\" ตัวเลือกบนหน้าจอ ส่วนการบังคับสิทธิ์จริงต้องทำที่เซิร์ฟเวอร์", "this only filters or hides options on screen — real enforcement must happen on the server")}</div>
         <div class="cfg-perm">
           <div class="cfg-perm-row cfg-perm-head"><span>${t("บทบาท", "Role")}</span>
-            ${EXPORT_FORMATS.map(f=>html`<span key=${f.key}>${f.label}</span>`)}</div>
-          ${EXPORT_ROLES.map(r=>html`<div key=${r.key} class="cfg-perm-row">
-            <span>${r.label}</span>
-            ${EXPORT_FORMATS.map(f=>html`<label key=${f.key} class="cfg-perm-cell" title=${r.label+" · "+f.label}>
-              <span class=${"cfg-pchk"+(xperms[r.key]&&xperms[r.key][f.key]?" on":"")}>
-                ${xperms[r.key]&&xperms[r.key][f.key]&&html`<${Icon} name="check" size=${12} color="#fff"/>`}</span>
-              <input type="checkbox" checked=${!!(xperms[r.key]&&xperms[r.key][f.key])} onChange=${()=>toggleXp(r.key,f.key)} style=${{display:"none"}}/>
-            </label>`)}
+            ${XP_KEYS.map(([k,l])=>html`<span key=${k}>${l}</span>`)}</div>
+          ${XP_ROLES.map(([r,rl])=>html`<div key=${r} class="cfg-perm-row">
+            <span>${rl}</span>
+            ${XP_KEYS.map(([k])=>{ const [lbl,cls]=XP_MARK[permByRole(k, r)]||XP_MARK.n;
+              return html`<span key=${k} class=${"cfg-pmark "+cls}>${lbl}</span>`; })}
           </div>`)}
         </div>
         <style>${`
@@ -619,12 +712,12 @@ export function Config(){
           .cfg-perm-row:last-child{border-bottom:none}
           .cfg-perm-row>span:not(:first-child){text-align:center}
           .cfg-perm-head{background:var(--surface2);font-weight:700;color:var(--muted);font-size:12px}
-          .cfg-perm-cell{display:flex;justify-content:center;cursor:pointer}
-          .cfg-pchk{width:20px;height:20px;border-radius:6px;border:1.5px solid var(--stroke2);display:grid;place-items:center;transition:.15s}
-          .cfg-pchk.on{background:var(--accent);border-color:var(--accent)}
+          .cfg-pmark{font-size:12px;color:var(--muted)}
+          .cfg-pmark.on{color:var(--accent);font-weight:700}
+          .cfg-pmark.opt{color:#b45309;font-weight:600}
         `}</style>
       </div>`,
-      html`<${Badge} tone="neutral">${t("CSV เฉพาะผู้ดูแล", "CSV for administrators only")}</${Badge}>`)}
+      html`<${Badge} tone="neutral">${t("อ่านอย่างเดียว", "Read-only")}</${Badge}>`)}
 
     <!-- แถบบันทึกลอยด้านล่าง — โผล่เฉพาะตอนมีการแก้ไขที่ยังไม่บันทึก และมีผลกับการ์ดเลเยอร์/แจ้งเตือนพร้อมกัน
          เว้นที่ว่างด้านล่างหน้าไว้เท่าความสูงแถบ (cfg-bar-space) เพื่อไม่ให้แถบบังเนื้อหาส่วนท้าย -->
@@ -632,7 +725,7 @@ export function Config(){
     ${dirty && html`<div class="cfg-bar">
       <span class="cfg-bar-note">${t("มีการเปลี่ยนแปลงที่ยังไม่ได้บันทึก", "You have unsaved changes")}</span>
       <${Btn} variant="ghost" icon="close" onClick=${()=>setConfirmReset("all")}>${t("ยกเลิกการเปลี่ยนแปลง", "Discard changes")}</${Btn}>
-      <${Btn} variant="outline" icon="check" onClick=${saveAll}>${t("บันทึกการตั้งค่าทั้งหมด", "Save all settings")}</${Btn}>
+      <${Btn} variant="outline" icon="check" disabled=${saving} onClick=${saveAll}>${t("บันทึกการตั้งค่าทั้งหมด", "Save all settings")}</${Btn}>
     </div>`}
 
     ${confirmReset && html`<${Modal} title=${t("ยืนยันการยกเลิก", "Confirm discard")} onClose=${()=>setConfirmReset(null)}
@@ -644,76 +737,65 @@ export function Config(){
 }
 
 /* ================= บันทึกการตรวจสอบ ================= */
-// getter — คีย์เป็นชนิดเหตุการณ์ (ค่าข้อมูล) ส่วนค่าที่คืนคือป้ายบนหน้าจอ
-// ต้องขี้เกียจประเมิน ไม่งั้นค้างเป็นภาษาแรกที่โหลดโมดูล
-const ACT_TH = {
-  get Login(){ return t("เข้าสู่ระบบ","Sign in"); },
-  get Logout(){ return t("ออกจากระบบ","Sign out"); },
-  get Export(){ return t("ส่งออก","Export"); },
-  get Sync(){ return t("ซิงค์ข้อมูล","Data sync"); },
-  get "User Activity"(){ return t("กิจกรรมผู้ใช้","User activity"); } };
-const AUDIT = (()=>{ const acts=[["Login","shield","info"],["Logout","logout","neutral"],["Export","download","warn"],["Sync","refresh","good"],["User Activity","user","info"]];
-  // อีเมลต้องตรงกับบัญชีจริงใน SEED_USERS ไม่งั้นเทียบบทบาทไม่ได้ · คละให้ครบทั้ง 3 บทบาท
-  const who=["admin@geointel.io","david@geointel.io","management@geointel.io","tc.bkk@geointel.io","tc.cm@geointel.io"];
-  // รายละเอียดของ log สาธิต — เป็นฟังก์ชัน เพราะแถวถูกสร้างตอนโหลดโมดูล (detail ต้องอ่านตอนเรนเดอร์)
-  const det={Login:()=>t("เข้าสู่ระบบจาก 10.4.2.x","Signed in from 10.4.2.x"), Logout:()=>t("สิ้นสุดเซสชัน","Session ended"),
-    Export:()=>t("ส่งออกรายงานโอกาส (PDF)","Exported the opportunity report (PDF)"), Sync:()=>t("ซิงค์ชุดข้อมูล ERP","Synced the ERP dataset"),
-    "User Activity":()=>t("เปิดดูแดชบอร์ดพื้นที่กรุงเทพ","Opened the Bangkok area dashboard")};
-  const rows=[]; for(let i=0;i<40;i++){ const a=acts[i%acts.length]; const h=String(9-(i%9)).padStart(2,"0");
-    rows.push({time:`2026-07-11 ${h}:${String((i*7)%60).padStart(2,"0")}`,type:a[0],icon:a[1],tone:a[2],user:who[i%who.length], get detail(){ return det[a[0]](); }}); }
-  return rows; })();
-/* อีเมล → บทบาท (จากบัญชีผู้ใช้ในระบบ) — ใช้ทั้งตัวกรองบทบาทและป้ายใต้ชื่อผู้ใช้ */
-const ROLE_OF_EMAIL = Object.fromEntries(SEED_USERS.map(u=>[u.email, u.role]));
-
 export function Audit(){
-  const [q,setQ]=useState(""); const [type,setType]=useState("All"); const [roleF,setRoleF]=useState("All");
+  const AU_PAGE=15;
+  const [q,setQ]=useState(""); const [qd,setQd]=useState("");
+  const [group,setGroup]=useState("All"); const [roleF,setRoleF]=useState("All");
   const [page,setPage]=useState(1);
-  const AU_PAGE=15;                           // แถวต่อหน้า — เกินกว่านี้ขึ้นหน้าใหม่ ไม่ต้องเลื่อนยาว
-  const [live,setLive]=useState(getAudit());   // รายการที่บันทึกสดจากหน้าจัดการข้อมูล ฯลฯ
-  useEffect(()=>subscribeAudit(l=>setLive([...l])),[]);
-  const CAT_TONE={"นำเข้า":"good","ลบ":"bad","แก้ไข":"info","conflict":"warn","ส่งออก":"warn","เพิ่ม":"good"};
-  // เก็บเวลาดิบไว้ · ให้คอลัมน์ "เวลา" เป็นคนแปลงที่เดียว (ถ้าแปลงสองรอบจะได้ "—")
-  const liveRows=live.map(e=>({time:e.ts,type:e.category,label:e.action,icon:"edit",tone:CAT_TONE[e.category]||"info",user:e.user,detail:e.detail}));
-  const all=[...liveRows, ...AUDIT];
-  const rows=all.filter(r=>(type==="All"||r.type===type)
-    && (roleF==="All" || ROLE_OF_EMAIL[r.user]===roleF)
-    && (!q||(r.user||"").toLowerCase().includes(q.toLowerCase())||(r.detail||"").toLowerCase().includes(q.toLowerCase())));
-  const pages=Math.max(1,Math.ceil(rows.length/AU_PAGE));
-  const pg=Math.min(page,pages);
-  const pageRows=rows.slice((pg-1)*AU_PAGE, pg*AU_PAGE);
-  const reset = fn => v => { setPage(1); fn(v); };   // เปลี่ยนตัวกรองแล้วกลับไปหน้าแรกเสมอ
+  const [res,setRes]=useState({loading:true});
+  useEffect(()=>{ const id=setTimeout(()=>{ setPage(1); setQd(q.trim()); },300); return ()=>clearTimeout(id); },[q]);
+  useEffect(()=>{
+    let dead=false;
+    setRes(r=>({...r,loading:true}));
+    fetchAudit({q:qd, event:group==="All"?"":AUDIT_GROUPS[group].events.join(","), role:roleF==="All"?"":roleF, page, limit:AU_PAGE})
+      .then(r=>{ if(!dead) setRes(r.ok ? r : {error:r.error}); });
+    return ()=>{ dead=true; };
+  },[qd,group,roleF,page]);
+  const reset = fn => v => { setPage(1); fn(v); };
+  const rows=res.rows||[]; const total=res.total||0;
+  const pages=Math.max(1,Math.ceil(total/AU_PAGE));
+  const {user} = useApp();
+  const canXp = canExportSource((user&&user.role)||"", "audit");
+  const [xp,setXp]=useState(false);
+  const doExport = async ()=>{
+    if(xp) return; setXp(true);
+    const r = await exportFromServer("audit", "excel", {q:qd, event:group==="All"?"":AUDIT_GROUPS[group].events.join(","), role:roleF==="All"?"":roleF},
+      t("บันทึกการตรวจสอบ_", "audit_log_")+beStamp());
+    setXp(false);
+    toast(r.ok ? t("ส่งออกไฟล์ Excel แล้ว", "Excel file exported") : r.error, r.ok ? "good" : "bad");
+  };
   return html`<div class="page fade-in">
-    <div class="page-head"><div><h1>${t("บันทึกการตรวจสอบ", "Audit log")}</h1></div></div>
+    <div class="page-head"><div><h1>${t("บันทึกการตรวจสอบ", "Audit log")}</h1></div>
+      ${canXp && !res.error && html`<div class="ph-right"><${Btn} size="sm" variant="outline" icon="download" disabled=${xp || !total} onClick=${doExport}>${t("ส่งออก Excel", "Export to Excel")}</${Btn}></div>`}</div>
     <div class="row wrap" style=${{gap:"10px",marginBottom:"16px"}}>
-      <div class="searchbox"><${Icon} name="search" size=${15}/><input placeholder=${t("ค้นหาผู้ใช้หรือการกระทำ…", "Search users or actions…")} value=${q} onInput=${e=>{setPage(1);setQ(e.target.value);}}/></div>
-      <div style=${{width:"190px",flex:"none"}}>
-        <${Dropdown} value=${type} onChange=${reset(setType)}
-          options=${[["All",t("ทุกการกระทำ", "All actions")], ...["Login","Logout","Export","Sync","User Activity"].map(t=>[t,ACT_TH[t]])]}/></div>
+      <div class="searchbox"><${Icon} name="search" size=${15}/><input placeholder=${t("ค้นหาผู้ใช้หรือเป้าหมาย…", "Search users or targets…")} value=${q} onInput=${e=>setQ(e.target.value)}/></div>
+      <div style=${{width:"210px",flex:"none"}}>
+        <${Dropdown} value=${group} onChange=${reset(setGroup)}
+          options=${[["All",t("ทุกการกระทำ", "All actions")], ...Object.entries(AUDIT_GROUPS).map(([k,g])=>[k,g.label()])]}/></div>
       <div style=${{width:"210px",flex:"none"}}>
         <${Dropdown} value=${roleF} onChange=${reset(setRoleF)}
           options=${[["All",t("ทุกบทบาท", "All roles")],["Administrator",t("ผู้ดูแลระบบ", "System Administrator")],["Management",t("ผู้บริหาร", "Management")],["Trade Coordinator",t("ผู้ประสานงานการค้า (TC)", "Trade Coordinator (TC)")]]}/></div>
-      <${Badge} tone="neutral">${rows.length} ${t("รายการ", "records")}</${Badge}>
+      ${!res.error && html`<${Badge} tone="neutral">${num(total)} ${t("รายการ", "records")}</${Badge}>`}
     </div>
+    ${res.error ? html`<div class="emptybox">${res.error}</div>` : html`
     <${Card} pad0=${true}>
       <${Table} cols=${[
-        {h:t("เวลา", "Time"), w:"190px", render:r=>html`<span style=${{fontSize:"12.5px",color:"var(--muted)"}}>${thDateTime(r.time)}</span>`},
-        {h:t("การกระทำ", "Action"), render:r=>html`<span class="row" style=${{gap:"8px"}}><${Icon} name=${r.icon} size=${15} color="var(--muted)"/>
-          <${Badge} tone=${r.tone}>${r.label||ACT_TH[r.type]||r.type}</${Badge}></span>`},
-        {h:t("ผู้ใช้", "User"), w:"250px", render:r=>html`<div><div>${r.user}</div>
-          <div class="dim" style=${{fontSize:"11.5px",marginTop:"1px"}}>${roleTH(ROLE_OF_EMAIL[r.user])||t("ระบบ","System")}</div></div>`},
-        {h:t("รายละเอียด", "Details"), render:r=>html`<span class="muted">${r.detail}</span>`},
-      ]} rows=${pageRows}/>
+        {h:t("เวลา", "Time"), w:"190px", render:r=>html`<span style=${{fontSize:"12.5px",color:"var(--muted)"}}>${thDateTime(r.at)}</span>`},
+        {h:t("การกระทำ", "Action"), render:r=>html`<span class="row" style=${{gap:"8px"}}><${Icon} name=${eventIcon(r.event)} size=${15} color="var(--muted)"/>
+          <${Badge} tone=${eventTone(r.event)}>${eventLabel(r.event)}</${Badge}></span>`},
+        {h:t("ผู้ใช้", "User"), w:"250px", render:r=>html`<div><div>${r.actor}</div>
+          <div class="dim" style=${{fontSize:"11.5px",marginTop:"1px"}}>${r.role?roleTH(r.role):(r.actorId?t("บัญชีที่ถูกลบ","Deleted account"):t("ยังไม่ยืนยันตัวตน","Not signed in"))}${r.ip?" · "+r.ip:""}</div></div>`},
+        {h:t("รายละเอียด", "Details"), render:r=>html`<span class="muted">${detailText(r)}</span>`},
+      ]} rows=${rows} empty=${res.loading ? "…" : t("ไม่พบบันทึกตามเงื่อนไขนี้", "No log entries match these filters")}/>
     </${Card}>
-
     ${pages>1 ? html`<div class="pager">
-      <span class="dim">${t("แสดง", "Showing")} ${(pg-1)*AU_PAGE+1}–${Math.min(pg*AU_PAGE, rows.length)} ${t("จาก", "of")} ${num(rows.length)} ${t("รายการ", "records")}</span>
+      <span class="dim">${t("แสดง", "Showing")} ${(page-1)*AU_PAGE+1}–${Math.min(page*AU_PAGE, total)} ${t("จาก", "of")} ${num(total)} ${t("รายการ", "records")}</span>
       <div class="row" style=${{gap:"6px"}}>
-        <button class="pager-b" disabled=${pg<=1} onClick=${()=>setPage(pg-1)}>‹</button>
-        ${Array.from({length:pages},(_,i)=>i+1).map(k=>html`<button key=${k}
-          class=${"pager-b"+(k===pg?" on":"")} onClick=${()=>setPage(k)}>${k}</button>`)}
-        <button class="pager-b" disabled=${pg>=pages} onClick=${()=>setPage(pg+1)}>›</button>
+        <button class="pager-b" disabled=${page<=1} onClick=${()=>setPage(page-1)}>‹</button>
+        <span class="dim">${page} / ${num(pages)}</span>
+        <button class="pager-b" disabled=${page>=pages} onClick=${()=>setPage(page+1)}>›</button>
       </div>
-    </div>` : ""}
+    </div>` : ""}`}
   </div>`;
 }
 
@@ -725,6 +807,15 @@ export function Monitoring({defaultTab}={}){
   const [range,setRange] = useState("all");
   const [exportOpen,setExportOpen] = useState(false);
   const [tab,setTab] = useState(()=> defaultTab || (_isMgmt?"business":"health"));
+  const [feed,setFeed] = useState([]);
+  const [dealPending,setDealPending] = useState(0);
+  useEffect(()=>{
+    if(_isMgmt) return;
+    let dead=false;
+    fetchAudit({limit:8}).then(r=>{ if(!dead && r.ok) setFeed(r.rows||[]); });
+    leadRequestsApi("GET", {query:{status:"pending", limit:1}}).then(r=>{ if(!dead && r.ok && r.counts) setDealPending(r.counts.pending||0); });
+    return ()=>{ dead=true; };
+  },[_isMgmt]);
   // ตัวกรองผู้บริหาร: จังหวัด · อำเภอจริงของจังหวัดนั้น · หมวดธุรกิจ · ช่วงวันที่เลือกเอง (ปฏิทิน)
   const [fProv,setFProv] = useState("all");
   const [fDist,setFDist] = useState("all");
@@ -746,8 +837,7 @@ export function Monitoring({defaultTab}={}){
     : [{value:"health",label:t("สภาพระบบ", "System health")}];
 
   // ── ส่งออกรายงานภาพรวมธุรกิจ (ใช้ป็อปอัพเดียวกับหน้ารายงาน · สิทธิ์ตามบทบาท) ──
-  const _role = (user&&user.role)||"Administrator", _uname=(user&&user.name)||t("ผู้ดูแลระบบ","System Administrator");
-  const _ROLE_TH={Administrator:t("ผู้ดูแลระบบ", "System Administrator"),Management:t("ผู้บริหาร", "Management"),"Trade Coordinator":t("ผู้ประสานงานการค้า", "Trade Coordinator")};
+  const _role = (user&&user.role)||"Administrator";
 
   // ═══════════ แดชบอร์ดผู้บริหาร (ออกแบบใหม่) — เน้นเปรียบเทียบระหว่างจังหวัด + สิ่งที่พบจากข้อมูล ═══════════
   const REF = v.ref, DAY=864e5;
@@ -797,7 +887,7 @@ export function Monitoring({defaultTab}={}){
   const exportScope = { areaName:_areaLabel, areaLabel:_areaLabel, segLabel:_segLabel,
     dateLabel:rangeText, counts:{existing:fCusts.length, prospect:fPros.length} };
   const buildExportRows = o=>{ const ds=o.dataSel||"both";
-    const rows=[[t("รายงานภาพรวมธุรกิจ (GeoIntel)", "Business overview report (GeoIntel)")],[t("จัดทำเมื่อ", "Prepared on"), beD(v.ref)],[]];
+    const rows=[[t("รายงานภาพรวมธุรกิจ (GeoIntel)", "Business overview report (GeoIntel)")],[t("จัดทำเมื่อ", "Prepared on"), v.ref ? beD(new Date(v.ref)) : "—"],[]];
     rows.push([t("ขอบเขตข้อมูลที่ส่งออก", "Scope of the export")]);
     rows.push([t("พื้นที่", "Area"), _areaLabel]);
     rows.push([t("หมวดธุรกิจ", "Business category"), _segLabel]);
@@ -832,17 +922,9 @@ export function Monitoring({defaultTab}={}){
     }
     return rows; };
   const doExport = ({format, filename, opts, dataSel, count, scope})=>{
-    const name=(filename||"").trim().replace(/[\\/:*?"<>|]+/g,"_")||defaultReportName(scope);
-    const fmtLabel={pdf:"PDF",excel:"Excel",csv:"CSV"}[format]||format;
-    const scopeStr=`${scope.areaLabel} · ${scope.segLabel} · ${scope.dateLabel}`;
-    if(!canExport(_role, format)){   // TODO(server): ต้องบังคับด่านนี้ที่เซิร์ฟเวอร์จริง — ฝั่ง client เป็นชั้นเสริม
-      pushAudit({user:_uname, action:t("ส่งออกรายงานถูกปฏิเสธ", "Report export refused"), category:"ส่งออก", detail:`${t("บทบาท", "Role")} ${_ROLE_TH[_role]||_role} ${t("ไม่มีสิทธิ์ส่งออก", "No export permission")} ${fmtLabel} · ${scopeStr} · ${num(count||0)} ${t("รายการ", "records")}`});
-      toast(`${t("บทบาทของคุณไม่มีสิทธิ์ส่งออกไฟล์", "Your role cannot export files")} ${fmtLabel}`,"bad"); setExportOpen(false); return; }
-    const rows=buildExportRows({...opts, dataSel}); setExportOpen(false);
-    if(format==="csv"){ downloadCSV(name+".csv", rows); toast(t("ส่งออกไฟล์ CSV แล้ว", "CSV file exported"),"good"); }
-    else if(format==="excel"){ downloadXLS(name+".xls", rows); toast(t("ส่งออกไฟล์ Excel แล้ว", "Excel file exported"),"good"); }
-    else { toast(t("กำลังเตรียมไฟล์ PDF…", "Preparing the PDF…"),"info"); setTimeout(()=>window.print(),350); }
-    pushAudit({user:_uname, action:t("ส่งออกรายงาน", "Export report"), category:"ส่งออก", detail:`${fmtLabel} · ${name} · ${scopeStr} · ${num(count||0)} ${t("รายการ", "records")}`});
+    const rows = format==="pdf" ? null : buildExportRows({...opts, dataSel});
+    setExportOpen(false);
+    runExport({kind:"dashboard", format, filename:exportName(filename, scope), rows, count, scope});
   };
 
   // แถว 1 ซ้าย · สัดส่วนที่เป็นลูกค้าแล้ว รายจังหวัด (เทียบค่าเฉลี่ย) — ไม่ใช้คำว่า Coverage
@@ -997,12 +1079,8 @@ export function Monitoring({defaultTab}={}){
   // งานที่รอดำเนินการ (ซ่อนแถวที่นับได้ 0)
   const nIncomplete = RECS.filter(r=>!isComplete(r)).length;
   const nBadCoord   = RECS.filter(r=>!okCoord(r)).length;
-  const _leads      = useMemo(()=>genLeads(), []);   // ไปป์ไลน์ "จัดการ Lead"
-  const nLeadReview = _leads.filter(l=>l.status==="review").length;
-  const nLeadDup    = _leads.filter(l=>l.status==="dup").length;
   const healthTasks = [
-    {icon:"target",label:t("Lead · รอตรวจสอบ", "Leads · awaiting review"),              count:nLeadReview, tone:"warn", goLeads:true},
-    {icon:"users", label:t("ข้อมูลซ้ำ · รอจัดการ", "Duplicates · awaiting action"),           count:nLeadDup,    tone:"bad",  goLeads:true},
+    {icon:"target",label:t("ดีล · รออนุมัติ", "Deals · awaiting approval"),              count:dealPending, tone:"warn", goLeads:true},
     {icon:"edit",  label:t("ข้อมูลไม่สมบูรณ์ · รอแก้ไข", "Incomplete records · awaiting fixes"),       count:nIncomplete, tone:"warn"},
     {icon:"pin",   label:t("พิกัดไม่ถูกต้อง · รอตรวจสอบ", "Bad coordinates · awaiting review"),       count:nBadCoord,   tone:"bad"},
   ].filter(t=>t.count>0);
@@ -1010,9 +1088,7 @@ export function Monitoring({defaultTab}={}){
   const hAll = allMon.slice(-6);
   const hLine = hAll.map(m=>(custMon[m]||0)+(prosMon[m]||0));
   const hTotal = hLine.reduce((a,b)=>a+b,0);
-  // กิจกรรมการเปลี่ยนแปลงล่าสุด (จาก audit log จริงของ session)
-  const auditRecent = getAudit().slice(0,8);
-  const catTone = c => /ลบ/.test(c)?"bad":/นำเข้า|เพิ่ม/.test(c)?"good":/ส่งออก/.test(c)?"info":"warn";
+  const auditRecent = feed;
 
   return html`<div class="page fade-in">
     <div class="page-head">
@@ -1021,7 +1097,7 @@ export function Monitoring({defaultTab}={}){
         ${dtab==="business" ? html`<${Btn} variant="outline" icon="download" onClick=${()=>setExportOpen(true)}>${t("ส่งออกรายงาน", "Export report")}</${Btn}>`:""}
       </div>
     </div>
-    ${exportOpen && html`<${ExportDialog} scope=${exportScope} role=${_role}
+    ${exportOpen && html`<${ExportDialog} scope=${exportScope} role=${_role} kind="dashboard"
       buildPreviewRows=${buildExportRows} onClose=${()=>setExportOpen(false)} onExport=${doExport}/>`}
 
     ${DASH_TABS.length>1 ? html`<${Tabs} tabs=${DASH_TABS} active=${dtab} onChange=${setTab}/>` : ""}
@@ -1182,16 +1258,16 @@ export function Monitoring({defaultTab}={}){
       <!-- แถว 1 · งานที่รอดำเนินการ | ภาพรวมระบบข้อมูล -->
       <div class="hzc hzc-tasks" style=${{gridColumn:"span 5"}}><${Card} title=${t("งานที่รอดำเนินการ", "Outstanding work")} sub=${t("สิ่งที่ผู้ดูแลระบบควรจัดการก่อน (ซ่อนรายการที่ไม่มีงานค้าง)", "What an administrator should handle first (items with nothing pending are hidden)")}>
         ${healthTasks.length ? html`<div class="hz-tasks">
-          ${healthTasks.map((t,i)=>html`<div key=${i} class="hz-task">
-            <div class="hz-task-n" style=${{background:actionTone(t.tone)}}>${num(t.count)}</div>
-            <div class="hz-task-l">${t.label}</div>
-            ${t.goLeads ? html`<button class="hz-task-btn" onClick=${()=>nav&&nav("data-management")}>${t("ไปจัดการ", "Handle it")}</button>` : ""}
+          ${healthTasks.map((task,i)=>html`<div key=${i} class="hz-task">
+            <div class="hz-task-n" style=${{background:actionTone(task.tone)}}>${num(task.count)}</div>
+            <div class="hz-task-l">${task.label}</div>
+            ${task.goLeads ? html`<button class="hz-task-btn" onClick=${()=>nav&&nav("data-leads")}>${t("ไปจัดการ", "Handle it")}</button>` : ""}
           </div>`)}
         </div>` : html`<div class="exd-empty"><${Icon} name="check" size=${24} color="#33d69f"/>
           <div><b>${t("ไม่มีงานค้าง", "Nothing outstanding")}</b><div class="dim" style=${{fontSize:"12px"}}>${t("ข้อมูลในระบบอยู่ในสภาพเรียบร้อย", "The data in the system is in good shape")}</div></div></div>`}
       </${Card}></div>
 
-      <div class="hzc hzc-sys" style=${{gridColumn:"span 7"}}><${Card} title=${t("ภาพรวมระบบข้อมูล", "Data system overview")} right=${html`<span class="hz-updated">${t("อัปเดตล่าสุด", "Last updated")} ${beD(v.ref)}</span>`}>
+      <div class="hzc hzc-sys" style=${{gridColumn:"span 7"}}><${Card} title=${t("ภาพรวมระบบข้อมูล", "Data system overview")} right=${html`<span class="hz-updated">${t("อัปเดตล่าสุด", "Last updated")} ${v.ref ? beD(new Date(v.ref)) : "—"}</span>`}>
         <div class="hz-sysov">
           <div class="hz-total"><span class="hz-total-l">Total</span><b class="hz-total-n">${num(totRec)}</b><span class="hz-total-u">${t("รายการ", "records")}</span></div>
           <div class="hz-stack">
@@ -1237,9 +1313,9 @@ export function Monitoring({defaultTab}={}){
       <div class="hzc hzc-act" style=${{gridColumn:"span 4"}}><${Card} title=${t("กิจกรรมการเปลี่ยนแปลงล่าสุด", "Recent change activity")} sub=${t("การกระทำที่มีผลกับข้อมูลในระบบ", "Actions that changed data in the system")} pad0=${true}>
         ${auditRecent.length ? html`<div class="hz-acts">
           ${auditRecent.slice(0,7).map(a=>html`<div key=${a.id} class="hz-act">
-            <div class="hz-act-d" style=${{background:actionTone(catTone(a.category||""))}}></div>
-            <div class="hz-act-m"><div class="hz-act-t">${a.action}</div>
-              <div class="hz-act-s">${a.user} · ${thDate(a.ts)}</div></div>
+            <div class="hz-act-d" style=${{background:actionTone(eventTone(a.event)==="neutral"?"info":eventTone(a.event))}}></div>
+            <div class="hz-act-m"><div class="hz-act-t">${eventLabel(a.event)}</div>
+              <div class="hz-act-s">${a.actor} · ${thDate(a.at)}</div></div>
           </div>`)}
         </div>` : html`<div class="hz-actempty">
           <div class="hz-actempty-ic"><${Icon} name="audit" size=${26} color="var(--muted)"/></div>

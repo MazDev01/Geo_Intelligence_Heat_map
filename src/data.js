@@ -47,6 +47,10 @@ async function fromApi(name, q, tk){
   return Array.isArray(body) ? body : null;
 }
 
+export const localData = () => _noPlacesApi;
+
+export function clearAggregates(){ _areas = null; _districts = null; _countries = null; }
+
 export function clearDetail(){
   for(const k of Object.keys(_detailCache)) delete _detailCache[k];
   _detailToken = "";
@@ -103,6 +107,28 @@ export async function placeVisitsApi(placeId, body){
     if(r.status===401) return {ok:false, status:401, error:t("เซสชันหมดอายุ กรุณาเข้าสู่ระบบใหม่", "Your session has expired. Please sign in again")};
     if(!r.ok) return {ok:false, status:r.status, error:(data && data.error) || t("บันทึกไม่สำเร็จ", "Could not save")+` (${r.status})`};
     clearDetail();
+    return {...(data||{}), ok:true};
+  }catch(e){
+    return {ok:false, error:t("ติดต่อเซิร์ฟเวอร์ไม่ได้", "Could not reach the server")};
+  }
+}
+
+let _noLeadReqApi = false;
+
+export async function leadRequestsApi(method="GET", {action, body, query}={}){
+  if(_noLeadReqApi || _noPlacesApi) return {ok:true, local:true};
+  const tk = token();
+  const params = {...(query||{}), ...(action ? {action} : {})};
+  const qs = Object.keys(params).length ? "?"+new URLSearchParams(Object.entries(params).filter(([,v])=>v!=null && v!=="")).toString() : "";
+  try{
+    const r = await fetch("/api/lead-requests"+qs, {method, cache:"no-store",
+      headers:{...(body ? {"Content-Type":"application/json"} : {}), ...(tk ? {Authorization:"Bearer "+tk} : {})},
+      body: body ? JSON.stringify(body) : undefined});
+    const data = await r.json().catch(()=>null);
+    if((r.status===404 || r.status===405) && !(data && data.error)){ _noLeadReqApi = true; return {ok:true, local:true}; }
+    if(r.status===401) return {ok:false, status:401, error:t("เซสชันหมดอายุ กรุณาเข้าสู่ระบบใหม่", "Your session has expired. Please sign in again")};
+    if(!r.ok) return {...(data||{}), ok:false, status:r.status, error:(data && data.error) || t("ทำรายการไม่สำเร็จ", "Could not complete the request")+` (${r.status})`};
+    if(method!=="GET") clearDetail();
     return {...(data||{}), ok:true};
   }catch(e){
     return {ok:false, error:t("ติดต่อเซิร์ฟเวอร์ไม่ได้", "Could not reach the server")};
@@ -386,7 +412,8 @@ export function buildClusters(db, province, f, opts={}){
 
 /* ---------------- CSV export helper ---------------- */
 export function downloadCSV(filename, rows){
-  const csv = rows.map(r=>r.map(c=>`"${String(c??"").replace(/"/g,'""')}"`).join(",")).join("\r\n");
+  const cell = c => typeof c==="number" ? String(c) : (/^[=+\-@\t\r]/.test(String(c??"")) ? "'" : "")+String(c??"");
+  const csv = rows.map(r=>r.map(c=>`"${cell(c).replace(/"/g,'""')}"`).join(",")).join("\r\n");
   const url = URL.createObjectURL(new Blob(["﻿"+csv],{type:"text/csv;charset=utf-8"}));
   const a=document.createElement("a"); a.href=url; a.download=filename; a.click(); URL.revokeObjectURL(url);
 }

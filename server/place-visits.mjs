@@ -1,4 +1,5 @@
 import {withTransaction} from './db/pool.mjs';
+import {writeAudit} from './audit.mjs';
 import {readPlace} from './places.mjs';
 import {SCOPE_SQL} from './visit-plans.mjs';
 
@@ -43,7 +44,7 @@ function readRound(body) {
   throw fail(400, 'สถานะรอบต้องเป็น เสร็จสิ้น หรือ ยกเลิก');
 }
 
-export async function addPlaceVisit(pool, user, placeId, body) {
+export async function addPlaceVisit(pool, user, placeId, body, ctx) {
   if (typeof placeId !== 'string' || !placeId || placeId.length > 40) throw fail(400, 'ต้องระบุรหัสร้าน');
   const round = readRound(body);
   return withTransaction(pool, async tx => {
@@ -61,6 +62,7 @@ export async function addPlaceVisit(pool, user, placeId, body) {
     await tx.query(
       `update places set visit_status = case when exists (select 1 from place_visits where place_id = $1 and status = 'เสร็จสิ้น')
          then 'ครอบคลุมแล้ว' else 'ยังไม่เข้าพบ' end where id = $1`, [placeId]);
+    await writeAudit(tx, ctx, 'visit_record', placeId, {round: next, status: round.status});
     return {ok: true, round: next, record: await readPlace(tx, placeId)};
   });
 }

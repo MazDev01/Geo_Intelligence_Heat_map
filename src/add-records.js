@@ -9,6 +9,7 @@ import {html, useState, useEffect, useRef, Icon, SegmentIcon, SEGMENTS, segTH, p
 import {basemap} from "./basemap.js";
 import {createPortal} from "react-dom";
 import {Dropdown} from "./select.js";
+import {token} from "./auth.js";
 import {assignTC, provinceOf, zoneOf, TC_TEAM, GAP_TH as GAP_LV_TH} from "./mock/geoData.js";
 import {DateField} from "./ui.js";   // ช่องเลือกวันที่แบบไทย
 
@@ -37,7 +38,7 @@ function deriveRow(r, db){
   const province = hasCoord ? provinceOf(la,ln) : null;
   const zone = hasCoord ? zoneOf(la,ln, db.districts) : null;
   const outOfService = hasCoord && !province;
-  const tc = r.tc==="auto" ? (hasCoord ? assignTC(la,ln) : "ยังไม่มอบหมาย") : r.tc;
+  const tc = r.tc==="auto" ? (hasCoord && !token() ? assignTC(la,ln) : "ยังไม่มอบหมาย") : r.tc;
   const zoneGap = zone && !zone.out ? zone.gap : null;
   return { hasCoord, province, zone, outOfService, tc, zoneGap };
 }

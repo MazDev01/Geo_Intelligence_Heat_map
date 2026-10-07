@@ -13,6 +13,7 @@
 import {permByRole, DEFAULT_SCOPE} from "./permissions.js";   // ตารางสิทธิ์/ขอบเขตชุดเดียวของระบบ
 import {provinceTH, segTH} from "./lib.js";
 import {t} from "./i18n.js";
+import {rejectReasons} from "./master-api.js";
 
 
 /* รายการเหตุการณ์ทั้งหมด — ตัดของที่อ้างถึงฟีเจอร์ที่ไม่มีแล้วออกหมด
@@ -28,6 +29,8 @@ export const NOTIF_EVENTS = [
   { key:"import_done", get label(){ return t("นำเข้าไฟล์สำเร็จ","File import finished"); },                     priority:"low",    perm:"data.import" },
   { key:"export_done", get label(){ return t("ส่งออกข้อมูลสำเร็จ","Data export finished"); },                   priority:"low",    perm:"report.export_summary" },
   { key:"weekly",      get label(){ return t("สรุปข่าวกรองประจำสัปดาห์","Weekly intelligence summary"); },       priority:"low",    perm:"report.view" },
+  { key:"deal_new",    get label(){ return t("มีดีลใหม่รออนุมัติ","New deal awaiting approval"); },             priority:"high",   roles:["Administrator"] },
+  { key:"deal_result", get label(){ return t("ผลการพิจารณาดีลที่ส่ง","Decision on a deal you submitted"); },     priority:"high",   roles:["Trade Coordinator"] },
 ];
 export const NOTIF_INDEX = Object.fromEntries(NOTIF_EVENTS.map(e=>[e.key,e]));
 export const PRIORITY_TH = {
@@ -45,6 +48,13 @@ let _USER_OFF = {};
 export const getUserOff = () => ({..._USER_OFF});
 export const setUserOff = next => { _USER_OFF = {...next}; };
 
+export function applyServerNotif(sys, off){
+  const base = Object.fromEntries(NOTIF_EVENTS.map(e=>[e.key, {on:true, priority:e.priority}]));
+  for(const [k,v] of Object.entries(sys||{})) if(base[k] && v && typeof v.on==="boolean") base[k] = {on:v.on, priority:v.priority||base[k].priority};
+  _SYS = base;
+  _USER_OFF = {...(off||{})};
+}
+
 /* เหตุการณ์นี้ผู้ใช้จะได้รับจริงไหม */
 export const notifOn = key => {
   const s = sysStore()[key];
@@ -57,7 +67,7 @@ export const activeEvents = () => NOTIF_EVENTS.filter(e => notifOn(e.key));
 
 /* ── ชั้นที่ 0 · บทบาท — เหตุการณ์ที่บทบาทนี้ "มีสิทธิ์ได้รับ" เลย ──
    ต่างจาก 2 ชั้นบน: ชั้นระบบ/ผู้ใช้ = เปิด-ปิดเอง · ชั้นนี้ = ไม่มีสิทธิ์ ปิดตายไม่มีให้เลือก */
-export const roleEvents = role => NOTIF_EVENTS.filter(e => !e.perm || permByRole(e.perm, role) === "y");
+export const roleEvents = role => NOTIF_EVENTS.filter(e => (!e.roles || e.roles.includes(role)) && (!e.perm || permByRole(e.perm, role) === "y"));
 /* เหตุการณ์ที่ผู้ใช้คนนี้ตั้งค่าได้จริง = ระบบเปิดไว้ AND บทบาทมีสิทธิ์ (โปรไฟล์ใช้ตัวนี้) */
 export const userSettableEvents = role => roleEvents(role).filter(e => sysStore()[e.key].on);
 
@@ -66,6 +76,15 @@ export const userSettableEvents = role => roleEvents(role).filter(e => sysStore(
    และผู้บริหารเห็น "นำเข้าไฟล์สำเร็จ" ซึ่งเป็นงานของแอดมิน
    ตอนนี้ TC (scope own_area) → นับเฉพาะจังหวัดที่รับผิดชอบ · แอดมิน/ผู้บริหาร (national) → ทั้งประเทศ */
 const NEW_WINDOW_DAYS = 7;
+export function agoText(ms, now=Date.now()){
+  const m = Math.max(0, Math.floor((now-ms)/6e4));
+  if(m < 1) return t("เมื่อสักครู่","just now");
+  if(m < 60) return t(`${m} นาทีที่แล้ว`, `${m} min ago`);
+  const h = Math.floor(m/60);
+  if(h < 24) return t(`${h} ชม.ที่แล้ว`, `${h} hr ago`);
+  const d = Math.floor(h/24);
+  return t(`${d} วันที่แล้ว`, `${d} days ago`);
+}
 export function buildNotifs(user, db){
   const role = (user && user.role) || "Administrator";
   // TC เห็นเฉพาะพื้นที่ตัวเอง · บทบาทอื่นขอบเขตทั้งประเทศ
@@ -77,9 +96,10 @@ export function buildNotifs(user, db){
   const where = prov ? t("ใน","in ")+provinceTH(prov) : t("ทั่วประเทศ","nationwide");
 
   // Lead ใหม่: นับเทียบกับ "วันล่าสุดที่มี Lead ในข้อมูล" ไม่ใช่วันนี้ (ชุดข้อมูลนิ่ง ไม่ใช่ realtime)
-  const ts = pros.map(o => Date.parse(o.created_at)).filter(Number.isFinite);
-  const newest = ts.length ? Math.max(...ts) : 0;
-  const newLeads = ts.filter(t => t >= newest - NEW_WINDOW_DAYS*864e5).length;
+  const now = Date.now();
+  const recent = pros.map(o => Date.parse(o.created_at)).filter(x => Number.isFinite(x) && x <= now && x >= now - NEW_WINDOW_DAYS*864e5);
+  const newLeads = recent.length;
+  const newest = newLeads ? Math.max(...recent) : 0;
 
   // หมวดที่ยังขาดมากที่สุดในขอบเขตนี้ = Lead มากกว่าลูกค้าเยอะสุด
   const bal = {};
@@ -90,20 +110,33 @@ export function buildNotifs(user, db){
   // ข้อความทั้งประโยคเขียนเป็น template สองภาษา ไม่ใช่ต่อคำทีละชิ้น —
   // ลำดับคำไทยกับอังกฤษไม่ตรงกัน ("หมวดX ยังขาดอีก N ราย" ↔ "X is short by N businesses")
   const all = [
-    {key:"lead_new",    icon:"target",   time:t("3 นาที","3 min"),
+    {key:"lead_new",    icon:"target",   time:newLeads ? agoText(newest, now) : "",
      t:t(`พบ Lead ใหม่ ${newLeads} ราย ${where} (${NEW_WINDOW_DAYS} วันล่าสุด)`,
          `${newLeads} new Leads ${where} (last ${NEW_WINDOW_DAYS} days)`), skip:!newLeads},
-    {key:"lead_gap",    icon:"gap",      time:t("1 ชม.","1 hr"),
+    {key:"lead_gap",    icon:"gap",      time:"",
      t:t(`หมวด${segTH(gapSeg)}${where} ยังขาดอีก ${gapN} ราย`,
          `${segTH(gapSeg)} ${where} is short by ${gapN} businesses`), skip:!gapSeg || gapN<=0},
-    {key:"import_done", icon:"upload",   time:t("3 ชม.","3 hr"),
-     t:t("นำเข้าไฟล์ ลูกค้า_กรุงเทพ_Q2.xlsx สำเร็จ 110 รายการ","Imported ลูกค้า_กรุงเทพ_Q2.xlsx — 110 records")},
-    {key:"export_done", icon:"download", time:t("4 ชม.","4 hr"),
-     t:t("ส่งออกรายงานโอกาส (PDF) เรียบร้อย","Opportunity report (PDF) exported")},
-    {key:"weekly",      icon:"reports",  time:t("5 ชม.","5 hr"),
-     t:t(`รายงานโอกาสประจำสัปดาห์${prov?" ("+provinceTH(prov)+")":""} พร้อมแล้ว`,
-         `Weekly opportunity report${prov?" ("+provinceTH(prov)+")":""} is ready`)},
   ];
   const allowed = new Set(roleEvents(role).map(e=>e.key));
   return all.filter(x => !x.skip && allowed.has(x.key) && notifOn(x.key));
+}
+
+const FORMAT_TH = {excel:"Excel", csv:"CSV", pdf:"PDF"};
+export function inboxView(n){
+  const p = n.payload || {};
+  const name = p.name || "";
+  if(n.key==="import_done") return {icon:"upload",
+    t:t(`นำเข้าไฟล์ ${p.filename||""} เข้าระบบ ${p.ok||0} รายการ${p.queued ? ` · ค้างรอแก้ ${p.queued}` : ""}`,
+        `Imported ${p.filename||""} — ${p.ok||0} records${p.queued ? `, ${p.queued} awaiting review` : ""}`)};
+  if(n.key==="export_done"){ const f = FORMAT_TH[p.format] || p.format || "";
+    return {icon:"download", t:t(`ส่งออก ${p.filename||""}${f ? ` (${f})` : ""} เรียบร้อย`, `Exported ${p.filename||""}${f ? ` (${f})` : ""}`)}; }
+  if(n.key==="deal_new") return {icon:"target", go:"data-leads",
+    t:t(`ดีลใหม่รออนุมัติ: ${name}${p.by ? ` · ส่งโดย ${p.by}` : ""}`, `New deal awaiting approval: ${name}${p.by ? ` · sent by ${p.by}` : ""}`)};
+  if(n.key==="deal_result"){
+    if(p.result==="approved") return {icon:"check", t:t(`ดีล ${name} ได้รับอนุมัติ เปลี่ยนเป็นลูกค้าแล้ว`, `Deal ${name} approved — now a customer`)};
+    if(p.result==="rejected"){ const why = (rejectReasons()||[]).find(r=>r.code===p.reason);
+      return {icon:"gap", t:t(`ดีล ${name} ถูกตีกลับ${why ? ` · ${why.label}` : ""}`, `Deal ${name} was sent back${why ? ` · ${why.label}` : ""}`)}; }
+    if(p.result==="reopened") return {icon:"refresh", t:t(`ดีล ${name} ถูกย้อนกลับไปรออนุมัติ`, `Deal ${name} was returned to awaiting approval`)};
+  }
+  return {icon:"bell", t:n.title || ""};
 }

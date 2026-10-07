@@ -63,8 +63,7 @@ export function nextAppointment(rounds){
 }
 
 // ── ความเร่งด่วนของวันนัด (เทียบวันอ้างอิงของระบบ) ──
-const ANCHOR = Date.parse("2026-07-13");
-export function urgencyOf(dateStr, now=ANCHOR){
+export function urgencyOf(dateStr, now=Date.parse(planTodayKey())){
   if(!dateStr) return null;
   const d = Math.round((Date.parse(dateStr) - now)/864e5);
   if(isNaN(d)) return null;
@@ -80,7 +79,6 @@ export function urgencyOf(dateStr, now=ANCHOR){
 //          จะหลุดจากแผน (ไม่มีสถานะ) แต่ "นัดแล้ว" ไม่หลุด — ถ้าเลยวันนัดจะขึ้นป้าย "เลยกำหนดนัด"
 // ใช้วันที่ตามโซนไทย (UTC+7) ตัดสินว่า "วันนั้นจบแล้ว"
 // ═══════════════════════════════════════════════════════════════════════════
-export const PLAN_TODAY = "2026-07-13";   // "วันนี้" ของเดโม (ผูกกับ ANCHOR เดียวกับ urgencyOf)
 export const REPLAN_WARN_THRESHOLD = 3;   // เตือนเมื่อวางแผนซ้ำแล้วพลาด ≥ 3 ครั้ง
 export const replanWarnMsg = () => t("วางแผนมาแล้ว 3 ครั้ง → พิจารณานัดหมายล่วงหน้าหรือติดต่อยืนยันก่อนเข้าพบ",
   "Planned 3 times already → consider booking an appointment or confirming before the visit.");
@@ -101,17 +99,17 @@ export function planResultOf(rounds, plan, until){
 }
 
 // นัดที่เลยกำหนด: รอบสถานะ "นัดแล้ว" ที่วันนัดผ่านไปแล้วแต่ยังไม่บันทึกผล → คงสถานะไว้ ไม่หลุด
-export function overdueAppt(rounds, today=PLAN_TODAY){
+export function overdueAppt(rounds, today=planTodayKey()){
   const a=(rounds||[]).filter(r=>r.status==="นัดแล้ว" && r.apptDate && String(r.apptDate)<today).map(r=>r.apptDate).sort();
   return a.length ? a[0] : null;
 }
 // สรุปประวัติ "เคยวางแผนไว้แต่ยังไม่ได้เข้า" จาก planHistory ของ record (เก็บร่องรอยไว้ ไม่ให้รายการหายเงียบ)
-export function plannedMissed(planHistory, today=PLAN_TODAY){
+export function plannedMissed(planHistory, today=planTodayKey()){
   const m=(planHistory||[]).filter(e=>!e.visited && String(e.date)<today).map(e=>e.date).sort();
   return { count:m.length, lastDate:m.length?m[m.length-1]:null };
 }
-export const inTodayPlan  = (planHistory, today=PLAN_TODAY)=> (planHistory||[]).some(e=>e.date===today && !e.visited);
-export const visitedToday = (planHistory, today=PLAN_TODAY)=> (planHistory||[]).filter(e=>e.date===today && e.visited).length;
+export const inTodayPlan  = (planHistory, today=planTodayKey())=> (planHistory||[]).some(e=>e.date===today && !e.visited);
+export const visitedToday = (planHistory, today=planTodayKey())=> (planHistory||[]).filter(e=>e.date===today && e.visited).length;
 
 // ── วันที่ พ.ศ. ──
 export const beDate = (iso, withTime) => withTime ? thDateTime(iso) : thDate(iso);   // ใช้ตัวแปลงกลาง

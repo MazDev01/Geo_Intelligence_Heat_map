@@ -1,3 +1,5 @@
+import {segmentList} from './master-data.mjs';
+
 const bad = message => Object.assign(new Error(message), {status: 400});
 
 export const FIELDS = [
@@ -96,7 +98,13 @@ export function makeRowChecker({cols, defaults}, provinces, segments) {
   for (const p of provinces)
     for (const name of [p.key, p.name_th, p.name_en]) if (name) provinceByName.set(squash(name), p.key);
   for (const [alias, key] of Object.entries(PROVINCE_ALIASES)) provinceByName.set(squash(alias), key);
-  const segmentByName = new Map(segments.map(s => [s.toLowerCase(), s]));
+  const segmentByName = new Map();
+  const closedSegments = new Set();
+  for (const s of segments) {
+    const code = typeof s === 'string' ? s : s.code;
+    if (typeof s !== 'string' && s.is_active === false) closedSegments.add(code);
+    for (const name of typeof s === 'string' ? [s] : [s.label_en, s.label_th, s.code]) if (name) segmentByName.set(name.trim().toLowerCase(), code);
+  }
   const cell = (cells, key) => (cols[key] === undefined ? '' : (cells[cols[key]] || ''));
 
   return cells => {
@@ -121,9 +129,9 @@ export function makeRowChecker({cols, defaults}, provinces, segments) {
     else { vals.type = ''; error('missing_required', 'type'); }
 
     const segmentText = cell(cells, 'segment') || defaults.segment || '';
-    vals.segment = segmentByName.get(segmentText.toLowerCase()) || segmentText;
+    vals.segment = segmentByName.get(segmentText.trim().toLowerCase()) || segmentText;
     if (!segmentText) error('missing_required', 'segment');
-    else tooLong('segment', segmentText);
+    else if (!tooLong('segment', segmentText) && closedSegments.has(vals.segment)) error('unknown_value', 'segment', 'หมวดนี้ถูกปิดใช้งานแล้ว');
 
     for (const key of TEXT_FIELDS) {
       const value = cell(cells, key);
@@ -200,8 +208,9 @@ export async function dupSettings(tx) {
 
 export async function classifyFile(tx, fileId, plan) {
   const provinces = (await tx.query('select key, name_th, name_en from provinces')).rows;
-  const segments = (await tx.query('select distinct segment from places where deleted_at is null')).rows.map(r => r.segment);
-  const check = makeRowChecker(plan, provinces, segments);
+  const segmentRows = await segmentList(tx);
+  const segments = segmentRows.map(s => s.code);
+  const check = makeRowChecker(plan, provinces, segmentRows);
   const dup = await dupSettings(tx);
 
   await tx.query(`create temp table import_check (

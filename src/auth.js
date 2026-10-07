@@ -33,6 +33,13 @@ export function clearAuth() {
   for (const s of [sessionStorage, localStorage]) { try { s.removeItem(KEY); } catch (e) {} }
 }
 
+export function replaceAuth(data) {
+  for (const s of [sessionStorage, localStorage]) {
+    try { if (s.getItem(KEY)) { s.setItem(KEY, JSON.stringify(data)); return; } } catch (e) {}
+  }
+  try { sessionStorage.setItem(KEY, JSON.stringify(data)); } catch (e) {}
+}
+
 export const token = () => (readSaved() || {}).token || "";
 
 /** เรียก API — แนบโทเคนให้อัตโนมัติ · คืน {ok:false,error} เสมอเมื่อพลาด ไม่โยน */
@@ -56,9 +63,12 @@ export async function call(action, body = {}) {
 }
 
 const door = () => { try { const m = /^\/(admin|management|tc)\/?$/.exec(location.pathname); return m ? m[1] : undefined; } catch (e) { return undefined; } };
+const DOOR_ROLE = { admin: "Administrator", management: "Management", tc: "Trade Coordinator" };
+export const doorOk = user => { const d = door(); return !d || !user || user.role === DOOR_ROLE[d]; };
 export const login          = (email, password) => call("login", { email, password, door: door() });
 export const changePassword = (oldPassword, newPassword) => call("change", { oldPassword, newPassword });
 export const me             = () => call("me");
+export const logout         = () => call("logout");
 export const listUsers      = () => call("users.list");
 export const createUser     = rec => call("users.create", rec);
 export const updateUser     = (email, patch) => call("users.update", { email, patch });

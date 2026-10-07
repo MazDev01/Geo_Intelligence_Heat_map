@@ -1,19 +1,46 @@
-import {html, useState, useApp, Icon, roleTH} from "../lib.js";
+import {html, useState, useEffect, useApp, Icon, roleTH} from "../lib.js";
 import {Card, Btn, Toggle, Field, Badge} from "../ui.js";
 import {toast} from "../ui.js";
 import {userSettableEvents, roleEvents, getUserOff, setUserOff} from "../notifications.js";
+import {saveMyNotifOff} from "../settings-api.js";
 import {t} from "../i18n.js";   // สลับภาษา TH/EN — ดู src/i18n.js
+import * as auth from "../auth.js";
 
 export function Profile(){
   const {user, logout, profileTab} = useApp();
   const [tab, setTab] = useState(profileTab || "info");
+  const [pw0, setPw0] = useState("");
+  const [pw1, setPw1] = useState("");
+  const [pw2, setPw2] = useState("");
+  const [pwBusy, setPwBusy] = useState(false);
+  const [pwErr, setPwErr] = useState("");
+  const submitPw = async ()=>{
+    if(pwBusy) return;
+    setPwErr("");
+    if(!pw0 || !pw1){ setPwErr(t("กรอกรหัสผ่านปัจจุบันและรหัสผ่านใหม่", "Enter your current and new password")); return; }
+    if(pw1 !== pw2){ setPwErr(t("รหัสผ่านใหม่ทั้งสองช่องไม่ตรงกัน", "The two new passwords do not match")); return; }
+    setPwBusy(true);
+    const r = await auth.changePassword(pw0, pw1);
+    setPwBusy(false);
+    if(!r.ok){ setPwErr(r.error || t("เปลี่ยนรหัสผ่านไม่สำเร็จ", "Could not change the password")); return; }
+    auth.replaceAuth({token:r.token, user:r.user});
+    setPw0(""); setPw1(""); setPw2("");
+    toast(t("เปลี่ยนรหัสผ่านแล้ว", "Password changed"),"good");
+  };
   // รายการเหตุการณ์มาจาก notifications.js — แสดงเฉพาะที่ผู้ดูแลระบบเปิดไว้
   // ผู้ใช้ "ปิด" ของตัวเองได้ แต่เปิดเกินที่ระบบอนุญาตไม่ได้ (ไม่มีรายการนั้นให้เห็นตั้งแต่แรก)
   const [off, setOff] = useState(getUserOff);
+  const {settingsVer} = useApp();
+  useEffect(()=>{ setOff(getUserOff()); },[settingsVer]);
   // เฉพาะเหตุการณ์ที่ "บทบาทนี้มีสิทธิ์ได้รับ" และ "ระบบเปิดไว้" — ผู้บริหารจึงไม่เห็นสวิตช์ของงานแอดมิน
   const roleAll  = roleEvents(user.role);
   const myEvents = userSettableEvents(user.role);
-  const N = k => setOff(m=>{ const next={...m, [k]: !m[k]}; setUserOff(next); return next; });
+  const N = async k => {
+    const prev = off, next = {...off, [k]: !off[k]};
+    setOff(next); setUserOff(next);
+    const r = await saveMyNotifOff(next);
+    if(!r.ok){ setOff(prev); setUserOff(prev); toast(r.error,"bad"); }
+  };
 
   return html`<div class="page fade-in">
     <div class="page-head"><div><div class="eyebrow">${t("บัญชี", "Account")}</div><h1>${t("โปรไฟล์และการตั้งค่า", "Profile and settings")}</h1>
@@ -52,14 +79,15 @@ export function Profile(){
         </${Card}>`}
 
         ${tab==="password" && html`<${Card} title=${t("เปลี่ยนรหัสผ่าน", "Change password")}>
-          <div style=${{maxWidth:"420px"}}>
-            <${Field} label=${t("รหัสผ่านปัจจุบัน", "Current password")}><input class="input" type="password" placeholder="••••••••"/></${Field}>
-            <${Field} label=${t("รหัสผ่านใหม่", "New password")}><input class="input" type="password" placeholder="••••••••"/></${Field}>
-            <${Field} label=${t("ยืนยันรหัสผ่านใหม่", "Confirm new password")}><input class="input" type="password" placeholder="••••••••"/></${Field}>
+          <form style=${{maxWidth:"420px"}} onSubmit=${e=>{ e.preventDefault(); submitPw(); }}>
+            <${Field} label=${t("รหัสผ่านปัจจุบัน", "Current password")}><input class="input" type="password" autocomplete="current-password" placeholder="••••••••" value=${pw0} onInput=${e=>{ setPw0(e.target.value); setPwErr(""); }}/></${Field}>
+            <${Field} label=${t("รหัสผ่านใหม่", "New password")}><input class="input" type="password" autocomplete="new-password" placeholder="••••••••" value=${pw1} onInput=${e=>{ setPw1(e.target.value); setPwErr(""); }}/></${Field}>
+            <${Field} label=${t("ยืนยันรหัสผ่านใหม่", "Confirm new password")}><input class="input" type="password" autocomplete="new-password" placeholder="••••••••" value=${pw2} onInput=${e=>{ setPw2(e.target.value); setPwErr(""); }}/></${Field}>
             <div class="muted" style=${{fontSize:"12px",lineHeight:1.7,marginBottom:"14px"}}>
-              ${t("รหัสผ่านต้องมีอย่างน้อย 10 ตัวอักษร ประกอบด้วยตัวพิมพ์ใหญ่ ตัวเลข และอักขระพิเศษ", "Passwords must be at least 10 characters and include an uppercase letter, a number and a special character")}</div>
-            <${Btn} variant="primary" icon="key" onClick=${()=>toast(t("เปลี่ยนรหัสผ่านแล้ว", "Password changed"),"good")}>${t("อัปเดตรหัสผ่าน", "Update password")}</${Btn}>
-          </div>
+              ${t("อย่างน้อย 8 ตัวอักษร และต้องมีทั้งตัวอักษรและตัวเลข", "At least 8 characters, with both letters and digits")}</div>
+            ${pwErr && html`<div role="alert" style=${{color:"#c81e1e",fontSize:"12.5px",marginBottom:"12px"}}>${pwErr}</div>`}
+            <${Btn} type="submit" variant="primary" icon="key" disabled=${pwBusy}>${pwBusy ? t("กำลังบันทึก…", "Saving…") : t("อัปเดตรหัสผ่าน", "Update password")}</${Btn}>
+          </form>
         </${Card}>`}
 
         ${tab==="notif" && html`<${Card} title=${t("ตั้งค่าการแจ้งเตือน", "Notification settings")}

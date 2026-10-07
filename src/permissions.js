@@ -93,7 +93,7 @@ export const PERM_MODULES = [
   ]},
   { key:"settings", name:()=>t("ตั้งค่าระบบ", "System settings"), perms:[
     ["settings.manage",           ()=>t("ตั้งค่า parameter ทั่วไป", "Configure general parameters"),             ["y","n","n"]],
-    ["settings.manage_scoring",   ()=>t("ตั้งค่าเกณฑ์การให้คะแนน (scoring)", "Configure scoring rules"),     ["o","y","n"]],
+    ["settings.manage_scoring",   ()=>t("ตั้งค่าเกณฑ์การให้คะแนน (scoring)", "Configure scoring rules"),     ["y","n","n"]],
     ["settings.manage_layer",     ()=>t("ตั้งค่าเลเยอร์และรอบอัปเดตข้อมูล", "Configure layers and refresh cycles"),       ["y","o","n"]],
     ["settings.manage_api_key",   ()=>t("จัดการ API key / integration token", "Manage API keys / integration tokens"),   ["y","n","n"]],
   ]},

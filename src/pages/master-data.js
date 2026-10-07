@@ -3,54 +3,36 @@ import {t} from "../i18n.js";   // สลับภาษา TH/EN — ดู src
 // หน้า "ข้อมูลหลัก" (Master Data) — เฉพาะผู้ดูแลระบบ (Administrator)
 // จัดการค่าตัวเลือกที่ใช้ทั้งระบบ (dropdown) แบบไม่ต้องแก้โค้ด: หมวดธุรกิจ · พื้นที่ · สถานะลูกค้า · สถานะ Lead · เหตุผลปฏิเสธ
 // ⚠ ไม่มีหมวด "ผู้ประสานงานการค้า (TC)" — ข้อมูลคนอยู่ที่หน้าจัดการผู้ใช้ที่เดียว (สีประจำตัวอยู่ในฟอร์มผู้ใช้)
-// สแตกจริง = buildless htm/React + ข้อมูลในหน่วยความจำ (ไม่ใช่ Next.js/Supabase ตามหัว prompt) · ข้อความไทยล้วน
 // กติกา: ไม่มีลบถาวร (ปิดใช้งานเท่านั้น) · แถว is_system ล็อก · code แก้ไม่ได้หลังสร้าง · ทุก action ลง Audit Log
 // ═══════════════════════════════════════════════════════════════════════════
 import {html, useState, useEffect, useApp, Icon, SegmentIcon, num} from "../lib.js";
 import {Card, Btn, Badge, Toggle, Tabs, Modal, Field, toast} from "../ui.js";
-import {SEGMENTS, SEG_TH, SEG_COLOR, SEG_ICON, PROVINCES} from "../mock/geoData.js";
-import {pushAudit} from "../audit.js";
+import {SEGMENTS, SEG_TH, SEG_COLOR, SEG_ICON_KEYS, SEG_ICON_SVG, PROVINCES} from "../mock/geoData.js";
+import {loadMaster, saveMaster, masterData} from "../master-api.js";
 
 // ── นิยาม 5 หมวดข้อมูลหลัก ──
 // label/egLabel/egCode เป็น getter — ค่าคงที่ระดับโมดูลถูกประเมินครั้งเดียวตอนโหลดไฟล์
 // ห่อ t() ตรง ๆ จะค้างเป็นภาษาแรกที่โหลด สลับภาษาแล้วไม่เปลี่ยน
 const TYPES = [
-  {value:"segments",         get label(){ return t("หมวดธุรกิจ","Business categories"); },        color:true,  icon:true,
-   get egLabel(){ return t("เช่น ร้านอาหารและเครื่องดื่ม","e.g. Food & Beverage"); }, get egCode(){ return t("เช่น food_beverage","e.g. food_beverage"); }},
-  {value:"areas",            get label(){ return t("พื้นที่ / จังหวัด","Areas / provinces"); },    color:false, icon:false,
-   get egLabel(){ return t("เช่น เชียงใหม่","e.g. Chiang Mai"); },                    get egCode(){ return t("เช่น chiang_mai","e.g. chiang_mai"); }},
-  {value:"customer-status",  get label(){ return t("สถานะลูกค้า","Customer status"); },            color:true,  icon:false,
-   get egLabel(){ return t("เช่น ลูกค้าประจำ","e.g. Regular customer"); },            get egCode(){ return t("เช่น active","e.g. active"); }},
-  {value:"prospect-status",  get label(){ return t("สถานะ Lead","Lead status"); },                 color:true,  icon:false,
-   get egLabel(){ return t("เช่น รอนัดหมาย","e.g. Awaiting appointment"); },          get egCode(){ return t("เช่น pending_visit","e.g. pending_visit"); }},
-  {value:"reject-reasons",   get label(){ return t("เหตุผลการปฏิเสธ","Rejection reasons"); },      color:false, icon:false,
+  {value:"segments",         get label(){ return t("หมวดธุรกิจ","Business categories"); },        color:true,  icon:true,  create:true,  toggle:true,
+   get egLabel(){ return t("เช่น ร้านอาหารและเครื่องดื่ม","e.g. Food & Beverage"); }, get egCode(){ return t("เช่น FoodBeverage","e.g. FoodBeverage"); }},
+  {value:"areas",            get label(){ return t("พื้นที่ / จังหวัด","Areas / provinces"); },    color:false, icon:false, create:false, toggle:false,
+   get egLabel(){ return t("เช่น เชียงใหม่","e.g. Chiang Mai"); },                    get egCode(){ return ""; }},
+  {value:"customer-status",  get label(){ return t("สถานะลูกค้า","Customer status"); },            color:true,  icon:false, readOnly:true},
+  {value:"prospect-status",  get label(){ return t("สถานะ Lead","Lead status"); },                 color:true,  icon:false, readOnly:true},
+  {value:"reject-reasons",   get label(){ return t("เหตุผลการปฏิเสธ","Rejection reasons"); },      color:false, icon:false, create:true,  toggle:true,
    get egLabel(){ return t("เช่น ไม่มีหลักฐาน","e.g. No evidence"); },                get egCode(){ return t("เช่น no_evidence","e.g. no_evidence"); }},
   // แท็บ "ผู้ประสานงานการค้า (TC)" ถอดออกแล้ว — เคยเก็บชื่อ TC ซ้ำกับบัญชีผู้ใช้
   // ชื่อ/อีเมล/บทบาท อยู่ที่หน้าจัดการผู้ใช้ที่เดียว · สีประจำตัวย้ายไปอยู่ในฟอร์มผู้ใช้ (ดู src/tc-colors.js)
 ];
 const typeCfg = t => TYPES.find(x=>x.value===t) || TYPES[0];
 
-/* แปลงข้อความเป็นรหัสอ้างอิง — ชื่อไทยจะได้ค่าว่าง (ตั้งใจ) ผู้เรียกค่อยไปใช้ nextCode ต่อ */
-const slugify = s => (s||"").trim().toLowerCase().replace(/[^a-z0-9]+/g,"_").replace(/^_+|_+$/g,"");
-/* รหัสอัตโนมัติเมื่อสร้างจากชื่อไม่ได้ — คำนำหน้าตามหมวด + เลขที่ว่างถัดไป เช่น reject_6 · segment_13 */
-const CODE_PREFIX = {segments:"segment", areas:"area", "customer-status":"cust_status",
-  "prospect-status":"lead_status", "reject-reasons":"reject"};
-function nextCode(type, rows){
-  const pre = CODE_PREFIX[type] || "item";
-  let i = rows.length + 1;
-  while(rows.some(r=>r.code===pre+"_"+i)) i++;
-  return pre+"_"+i;
-}
-
-// ── ค่าตั้งต้น (seed) จากค่าคงที่เดิมของระบบ ──
-const seed = ()=>({
-  "segments": SEGMENTS.map((s,i)=>({code:s, label_th:SEG_TH[s], color_hex:SEG_COLOR[s], icon:SEG_ICON[s], sort_order:i, is_active:true, is_system:false})),
-  "areas": PROVINCES.map((p,i)=>({code:p.key, label_th:p.th, color_hex:"", icon:"", sort_order:i, is_active:true, is_system:false})),
+const FIXED = ()=>({
   "customer-status": [
     {code:"active",  label_th:"ซื้อขายอยู่ (Active)",  color_hex:"#33d69f"},
     {code:"dormant", label_th:"หยุดนิ่ง (Dormant)",    color_hex:"#ffb02e"},
     {code:"churned", label_th:"เลิกซื้อขาย (Churned)", color_hex:"#ff5a3c"},
-  ].map((x,i)=>({...x, icon:"", sort_order:i, is_active:true, is_system:false})),
+  ].map((x,i)=>({...x, icon:"", sort_order:i, is_active:true, is_system:true})),
   "prospect-status": [
     {code:"new",                label_th:"ใหม่",                     color_hex:"#38bdf8"},
     {code:"pending_visit",      label_th:"รอเข้าพบ",                 color_hex:"#8a7bff"},
@@ -58,20 +40,13 @@ const seed = ()=>({
     {code:"visited",            label_th:"เข้าพบแล้ว",               color_hex:"#0d9488"},
     {code:"pending_conversion", label_th:"รออนุมัติเปลี่ยนเป็นลูกค้า", color_hex:"#ff3b5c"},
     {code:"rejected",           label_th:"ไม่สนใจ / ปิดโอกาส",       color_hex:"#78716c"},
-  ].map((x,i)=>({...x, icon:"", sort_order:i, is_active:true, is_system:false})),
-  "reject-reasons": [
-    {code:"no_evidence",     label_th:"หลักฐานไม่เพียงพอ"},
-    {code:"duplicate",       label_th:"ข้อมูลซ้ำกับที่มีอยู่"},
-    {code:"wrong_area",      label_th:"อยู่นอกพื้นที่รับผิดชอบ"},
-    {code:"incomplete_data", label_th:"ข้อมูลไม่ครบถ้วน"},
-    {code:"other",           label_th:"อื่น ๆ", is_system:true},
-  ].map((x,i)=>({...x, color_hex:"", icon:"", sort_order:i, is_active:true, is_system:!!x.is_system})),
+  ].map((x,i)=>({...x, icon:"", sort_order:i, is_active:true, is_system:true})),
 });
-
-/* สโตร์ข้อมูลหลัก — เก็บที่ระดับโมดูล ไม่ใช่ใน useState เพื่อให้
-   (1) แก้แล้วค่ายังอยู่เมื่อสลับหน้าไป-กลับ  (2) หน้าอื่นอ่านไปใช้ได้ */
-let _STORE = null;
-const store = () => (_STORE || (_STORE = seed()));
+const SAMPLE = ()=>({
+  "segments": SEGMENTS.map((s,i)=>({code:s, label_th:SEG_TH[s], label_en:"", color_hex:SEG_COLOR[s], icon:s, sort_order:i, is_active:true, is_system:false})),
+  "areas": PROVINCES.map((p,i)=>({code:p.key, label_th:p.th, label_en:p.key, color_hex:"", icon:"", sort_order:i, is_active:true, is_system:true})),
+  "reject-reasons": [],
+});
 
 // ── นับจำนวนที่ข้อมูลจริงใช้ค่านี้อยู่ (usage) — จาก db ในหน่วยความจำ ──
 function usageOf(type, code, db){
@@ -82,18 +57,26 @@ function usageOf(type, code, db){
   if(type==="customer-status") return 0;
   if(type==="prospect-status"){ const m=p=>{ const v=p.visit_status||"ยังไม่เข้าพบ"; if(v==="ครอบคลุมแล้ว")return "visited"; if((p.visitRounds||[]).some(r=>r.status==="นัดแล้ว"))return "appointed"; if(p.dealStatus==="pending")return "pending_conversion"; return "pending_visit"; };
     return ps.filter(p=>m(p)===code).length; }
-  return 0;   // reject-reasons: เดโมไม่ได้เก็บ mapping ต่อรหัส จึงแสดง 0
+  return 0;
 }
 
 export function MasterData(){
-  const {db, user} = useApp();
+  const {db, user, masterChanged} = useApp();
   const q = new URLSearchParams(location.search);
   const [tab, setTab] = useState(()=> TYPES.some(t=>t.value===q.get("type")) ? q.get("type") : "segments");
-  const [data, _setData] = useState(store);      // อ่านค่าจากสโตร์ระดับโมดูล
-  const setData = up => _setData(prev=>{ const next = typeof up==="function" ? up(prev) : up; _STORE = next; return next; });
+  const [server, setServer] = useState(()=>masterData());
+  const [local, setLocal] = useState(false);
+  const [busy, setBusy] = useState(false);
   const [edit, setEdit] = useState(null);        // {type, item, isNew}
   // สะท้อนหมวดที่เลือกลง URL (?type=...) สำหรับ deep-link (คงพารามิเตอร์ go เดิมของหน้าตั้งค่าระบบไว้)
   useEffect(()=>{ const u=new URL(location.href); u.searchParams.set("type",tab); history.replaceState(null,"",u); },[tab]);
+  const reload = async ()=>{
+    const r = await loadMaster();
+    if(r.local){ setLocal(true); return false; }
+    if(!r.ok){ toast(r.error,"bad"); return false; }
+    setServer(r.data); return true;
+  };
+  useEffect(()=>{ reload(); },[]);
 
   // สิทธิ์: เฉพาะ Administrator (กันกรณีถูกเรียกโดยตรง)
   if(!user || user.role!=="Administrator")
@@ -103,76 +86,77 @@ export function MasterData(){
       <div class="dim" style=${{fontSize:"13px",marginTop:"6px"}}>${t("เฉพาะผู้ดูแลระบบ (Administrator) เท่านั้นที่จัดการข้อมูลหลักได้", "Only an Administrator can manage master data")}</div></div></div>`;
 
   const cfg = typeCfg(tab);
+  const data = {...SAMPLE(), ...(server||{}), ...FIXED()};
   const rows = [...(data[tab]||[])].sort((a,b)=>a.sort_order-b.sort_order);
-  const audit = (action, detail)=> pushAudit({user:(user&&user.email)||"admin@geointel.io", action, category:"แก้ไข", detail:`${t("ข้อมูลหลัก ·", "Master data ·")} ${cfg.label} · ${detail}`});
+  const locked = !!cfg.readOnly || local || !server;
+  const useOf = it => (!cfg.readOnly && server && typeof it.usage==="number") ? it.usage : usageOf(tab, it.code, db);
 
-  const setRows = updater => setData(d=>({...d, [tab]: updater(d[tab]||[]) }));
+  const send = async (body, okText)=>{
+    if(busy) return false;
+    setBusy(true);
+    const r = await saveMaster({type:tab, ...body});
+    if(!r.ok){ setBusy(false); toast(r.error,"bad"); return false; }
+    await reload();
+    setBusy(false);
+    masterChanged(false);
+    if(okText) toast(okText,"good");
+    return true;
+  };
   const toggleActive = it=>{
     if(it.is_system){ toast(t("รายการระบบ ปิดใช้งานไม่ได้", "System entry — cannot be disabled"),"warn"); return; }
-    const use = usageOf(tab, it.code, db);
-    if(it.is_active && use>0 && !confirm(`${t("มีข้อมูล", "There are")} ${num(use)} ${t("รายการที่ยังใช้ \"", "records still using \"")}${it.label_th}${t("\" อยู่\\nปิดใช้งานแล้วจะไม่แสดงใน dropdown ของการเพิ่ม/แก้ไขต่อไป (เรคคอร์ดเดิมยังคงอยู่)\\n\\nยืนยันปิดใช้งาน?", "\".\\nOnce disabled it no longer appears in add/edit dropdowns (existing records are kept).\\n\\nDisable it?")}`)) return;
-    setRows(a=>a.map(x=>x.code===it.code?{...x,is_active:!x.is_active}:x));
-    audit(it.is_active?t("ปิดใช้งาน", "Disable"):t("เปิดใช้งาน", "Enable"), `"${it.label_th}"${it.is_active&&use>0?` ${t("(มีใช้อยู่", "(in use by")} ${use} ${t("รายการ)", "records)")}`:""}`);
-    toast(it.is_active?`${t("ปิดใช้งาน \"", "Disabled \"")}${it.label_th}${t("\" แล้ว", "\"")}`:`${t("เปิดใช้งาน \"", "Enabled \"")}${it.label_th}${t("\" แล้ว", "\"")}`,"good");
+    const use = useOf(it);
+    if(it.is_active && use>0){ toast(`${t("ยังมีข้อมูล", "There are still")} ${num(use)} ${t("รายการใช้ค่านี้อยู่ จึงปิดใช้งานไม่ได้", "records using this value, so it cannot be disabled")}`,"warn"); return; }
+    send({action:"update", code:it.code, is_active:!it.is_active},
+      it.is_active?`${t("ปิดใช้งาน \"", "Disabled \"")}${it.label_th}${t("\" แล้ว", "\"")}`:`${t("เปิดใช้งาน \"", "Enabled \"")}${it.label_th}${t("\" แล้ว", "\"")}`);
   };
-  const save = form =>{
-    const isNew = edit.isNew;
+  const save = async form =>{
     if(!form.label_th.trim()){ toast(t("กรุณากรอกชื่อที่แสดงผล", "Enter a display name"),"warn"); return; }
-    if(isNew){
-      const code = slugify(form.code||form.label_th) || nextCode(tab, rows);
-      if(rows.some(x=>x.code===code)){ toast(t("รหัสอ้างอิงนี้มีอยู่แล้ว", "That reference code already exists"),"warn"); return; }
-      const item = {code, label_th:form.label_th.trim(), color_hex:cfg.color?(form.color_hex||"#8aa0be"):"", icon:cfg.icon?(form.icon||""):"",
-        sort_order:rows.length, is_active:form.is_active!==false, is_system:false};
-      setRows(a=>[...a, item]); audit(t("เพิ่มรายการ", "Add entry"), `"${item.label_th}" (${code})`); toast(`${t("เพิ่ม \"", "Added \"")}${item.label_th}${t("\" แล้ว", "\"")}`,"good");
-    } else {
-      const old = edit.item.code;
-      let code = slugify(form.code) || old;
-      if(code!==old){
-        if(edit.item.is_system){ toast(t("รายการของระบบ เปลี่ยนรหัสอ้างอิงไม่ได้", "System entry — its reference code cannot be changed"),"warn"); return; }
-        const use = usageOf(tab, old, db);
-        if(use>0){ toast(`${t("มีข้อมูล", "There are")} ${num(use)} ${t("รายการอ้างถึงรหัสนี้อยู่ — เปลี่ยนรหัสไม่ได้", "records reference this code — it cannot be changed")}`,"warn"); return; }
-        if(rows.some(x=>x.code===code)){ toast(t("รหัสอ้างอิงนี้มีอยู่แล้ว", "That reference code already exists"),"warn"); return; }
-      }
-      setRows(a=>a.map(x=>x.code===old ? {...x, code, label_th:form.label_th.trim(),
-        color_hex:cfg.color?form.color_hex:x.color_hex, icon:cfg.icon?form.icon:x.icon, is_active:form.is_active} : x));
-      if(code!==old) audit(t("เปลี่ยนรหัสอ้างอิง", "Reference code changed"), `"${form.label_th.trim()}" · ${old} → ${code}`);
-      audit(t("แก้ไขรายการ", "Edit record"), `"${form.label_th.trim()}" (${edit.item.code})`); toast(t("บันทึกการแก้ไขแล้ว", "Changes saved"),"good");
-    }
-    setEdit(null);
+    const body = {label_th:form.label_th.trim(), label_en:form.label_en.trim()};
+    if(cfg.color) body.color_hex = form.color_hex;
+    if(cfg.icon) body.icon = form.icon || "Other";
+    if(cfg.toggle && !edit.item.is_system) body.is_active = form.is_active;
+    const done = edit.isNew
+      ? await send({action:"create", ...body, ...(form.code.trim() ? {code:form.code.trim()} : {})}, `${t("เพิ่ม \"", "Added \"")}${body.label_th}${t("\" แล้ว", "\"")}`)
+      : await send({action:"update", code:edit.item.code, ...body}, t("บันทึกการแก้ไขแล้ว", "Changes saved"));
+    if(done) setEdit(null);
   };
 
   // หน้าเต็มของเมนูย่อย "ข้อมูลหลัก" (ใต้ ตั้งค่าระบบ) — เดิมเป็นแท็บอยู่ในหน้าตั้งค่าระบบ
   return html`<div class="page fade-in">
     <div class="page-head"><div><h1>${t("ข้อมูลหลัก", "Master data")}</h1></div>
       <div class="ph-right">
-        <${Btn} variant="outline" icon="plus" onClick=${()=>setEdit({type:tab, isNew:true, item:{label_th:"",code:"",color_hex:"#38bdf8",icon:"",is_active:true}})}>${t("เพิ่มรายการ", "Add entry")}</${Btn}>
+        ${cfg.create && !locked && html`<${Btn} variant="outline" icon="plus" onClick=${()=>setEdit({type:tab, isNew:true, item:{label_th:"",label_en:"",code:"",color_hex:"#38bdf8",icon:"Other",is_active:true}})}>${t("เพิ่มรายการ", "Add entry")}</${Btn}>`}
       </div></div>
 
     <${Tabs} tabs=${TYPES} active=${tab} onChange=${setTab}/>
 
+    ${cfg.readOnly && html`<div class="md-alert" style=${{marginTop:"14px",marginBottom:0}}><${Icon} name="shield" size=${16} color="var(--muted)"/>${t("สถานะผูกกับขั้นตอนของระบบ จึงแสดงให้ดูอย่างเดียว", "Statuses are tied to system workflow, so they are shown read-only")}</div>`}
+    ${local && !cfg.readOnly && html`<div class="md-alert" style=${{marginTop:"14px",marginBottom:0}}><${Icon} name="shield" size=${16} color="var(--muted)"/>${t("โหมดข้อมูลตัวอย่าง แก้ไขไม่ได้", "Sample-data mode — editing is unavailable")}</div>`}
+
     <${Card} pad0=${true} style=${{marginTop:"14px"}}>
-      <div class="md-table-wrap"><table class="md-table">
+      <div class="md-table-wrap"><table class="md-table" data-md=${tab}>
         <thead><tr><th style=${{width:"64px"}}>${t("ลำดับ", "Order")}</th><th>${t("ชื่อที่แสดงผล", "Display name")}</th><th>${t("รหัสอ้างอิง", "Reference code")}</th><th>${t("จำนวนที่ใช้อยู่", "In use")}</th><th>${t("สถานะ", "Status")}</th><th style=${{textAlign:"right"}}>${t("จัดการ", "Actions")}</th></tr></thead>
         <tbody>
-        ${rows.map((it,i)=>{ const use=usageOf(tab, it.code, db);
-          return html`<tr key=${it.code} style=${{opacity:it.is_active?1:.5}}>
+        ${rows.map((it,i)=>{ const use=useOf(it);
+          return html`<tr key=${it.code} data-code=${it.code} style=${{opacity:it.is_active?1:.5}}>
             <td><span class="md-seq">${i+1}</span></td>
             <td><div class="row" style=${{gap:"9px"}}>
               ${cfg.color && it.color_hex ? html`<span class="md-dot" style=${{background:it.color_hex}}></span>`:""}
-              ${tab==="segments" ? html`<${SegmentIcon} seg=${it.code} size=${17} color="var(--muted)"/>`
-                : (cfg.icon && it.icon ? html`<span style=${{fontSize:"15px"}}>${it.icon}</span>`:"")}
-              <b>${it.label_th}</b></div></td>
+              ${tab==="segments" ? html`<${IconGlyph} name=${it.icon} size=${17}/>` : ""}
+              <b>${it.label_th}</b>
+              ${it.unlisted && html`<${Badge} tone="warn">${t("ยังไม่ได้ตั้งค่า", "Not set up")}</${Badge}>`}</div></td>
             <td><span class="mono dim" style=${{fontSize:"12px"}}>${it.code}</span></td>
             <td>${use>0? html`<span>${num(use)} ${t("รายการ", "records")}</span>` : html`<span class="dim">—</span>`}</td>
             <td>${it.is_system
                 ? html`<${Badge} tone="neutral" icon="shield">${t("ระบบ", "System")}</${Badge}>`
                 : it.is_active ? html`<${Badge} tone="good">${t("ใช้งาน", "Active")}</${Badge}>` : html`<${Badge} tone="neutral">${t("เลิกใช้แล้ว", "Retired")}</${Badge}>`}</td>
-            <td style=${{textAlign:"right"}}><div class="row" style=${{gap:"6px",justifyContent:"flex-end"}}>
+            <td style=${{textAlign:"right"}}>${locked ? html`<span class="dim" style=${{fontSize:"11.5px",padding:"0 6px"}}>${t("ล็อก", "Locked")}</span>`
+              : html`<div class="row" style=${{gap:"6px",justifyContent:"flex-end"}}>
+              ${!it.unlisted && html`<button class="md-move" disabled=${busy||i===0} aria-label=${t("เลื่อนขึ้น", "Move up")} onClick=${()=>send({action:"move", code:it.code, dir:-1})}>▲</button>
+                <button class="md-move" disabled=${busy||i===rows.length-1||!!(rows[i+1]&&rows[i+1].unlisted)} aria-label=${t("เลื่อนลง", "Move down")} onClick=${()=>send({action:"move", code:it.code, dir:1})}>▼</button>`}
               <${Btn} size="sm" variant="ghost" icon="edit" onClick=${()=>setEdit({type:tab, isNew:false, item:it})}>${t("แก้ไข", "Edit")}</${Btn}>
-              ${it.is_system
-                ? html`<span class="dim" style=${{fontSize:"11.5px",padding:"0 6px"}}>${t("ล็อก", "Locked")}</span>`
-                : html`<${Toggle} on=${it.is_active} onChange=${()=>toggleActive(it)}/>`}
-            </div></td>
+              ${cfg.toggle && !it.is_system ? html`<${Toggle} on=${it.is_active} onChange=${()=>toggleActive(it)}/>` : ""}
+            </div>`}</td>
           </tr>`; })}
         </tbody>
       </table>
@@ -180,35 +164,39 @@ export function MasterData(){
       </div>
     </${Card}>
 
-    ${edit && html`<${MDModal} edit=${edit} cfg=${cfg} rows=${rows} onClose=${()=>setEdit(null)} onSave=${save}/>`}
+    ${edit && html`<${MDModal} edit=${edit} cfg=${cfg} busy=${busy} onClose=${()=>setEdit(null)} onSave=${save}/>`}
     <style>${MD_CSS}</style>
   </div>`;
 }
 
-function MDModal({edit, cfg, rows=[], onClose, onSave}){
+function IconGlyph({name, size=18, color="var(--muted)"}){
+  return html`<svg width=${size} height=${size} viewBox="0 0 24 24" fill="none" stroke=${color} stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+    aria-hidden="true" dangerouslySetInnerHTML=${{__html: SEG_ICON_SVG[name] || SEG_ICON_SVG.Other}}></svg>`;
+}
+
+function MDModal({edit, cfg, busy, onClose, onSave}){
   const it = edit.item;
-  // หมวด TC ถูกถอดออกจากหน้านี้แล้ว (ชื่อ TC มีแหล่งเดียวคือบัญชีผู้ใช้ · สีย้ายไปฟอร์มผู้ใช้)
-  // ฟอร์มนี้จึงเหลือรูปแบบเดียว: พิมพ์ชื่อ + รหัสอ้างอิงเอง
-  const locked = !!it.is_system;   // รายการของระบบเท่านั้นที่ล็อกรหัสอ้างอิง
-  const [f, setF] = useState({label_th:it.label_th||"", code:it.code||"", color_hex:it.color_hex||"#38bdf8", icon:it.icon||"", is_active:it.is_active!==false});
+  const [f, setF] = useState({label_th:it.label_th||"", label_en:it.label_en||"", code:it.code||"", color_hex:it.color_hex||"#38bdf8", icon:it.icon||"Other", is_active:it.is_active!==false});
   const set=(k,v)=>setF(p=>({...p,[k]:v}));
   return html`<${Modal} title=${edit.isNew?t("เพิ่มรายการใหม่ · ", "New entry · ")+cfg.label:t("แก้ไข · ", "Edit · ")+cfg.label} onClose=${onClose}
     footer=${html`<${Btn} variant="outline" onClick=${onClose}>${t("ยกเลิก", "Cancel")}</${Btn}>
-      <${Btn} variant="primary" icon="check" onClick=${()=>onSave(f)}>${t("บันทึก", "Save")}</${Btn}>`}>
-    ${html`<${Field} label=${t("ชื่อที่แสดงผล", "Display name")}><input class="input" value=${f.label_th} onInput=${e=>set("label_th",e.target.value)} placeholder=${cfg.egLabel||"เช่น รายการใหม่"}/></${Field}>
+      <${Btn} variant="primary" icon="check" disabled=${busy} onClick=${()=>onSave(f)}>${t("บันทึก", "Save")}</${Btn}>`}>
+    <${Field} label=${t("ชื่อที่แสดงผล", "Display name")}><input class="input" data-md-f="label_th" value=${f.label_th} maxLength=${80} onInput=${e=>set("label_th",e.target.value)} placeholder=${cfg.egLabel||""}/></${Field}>
+    <${Field} label=${t("ชื่อภาษาอังกฤษ", "English name")}><input class="input" data-md-f="label_en" value=${f.label_en} maxLength=${80} onInput=${e=>set("label_en",e.target.value)}/></${Field}>
     <${Field} label=${t("รหัสอ้างอิง (code)", "Reference code")}>
-      <input class="input" value=${f.code} disabled=${locked} onInput=${e=>set("code",e.target.value)}
-        placeholder=${cfg.egCode||"เช่น new_item"} style=${locked?{opacity:.6,cursor:"not-allowed"}:null}/>
+      <input class="input" data-md-f="code" value=${f.code} disabled=${!edit.isNew} maxLength=${40} onInput=${e=>set("code",e.target.value)}
+        placeholder=${cfg.egCode||""} style=${!edit.isNew?{opacity:.6,cursor:"not-allowed"}:null}/>
       <div class="dim" style=${{fontSize:"11.5px",marginTop:"4px"}}>${
-        locked ? t("รายการของระบบ เปลี่ยนรหัสอ้างอิงไม่ได้", "System entry — its reference code cannot be changed")
-        : edit.isNew ? t("ใช้ a–z, 0–9, _ เท่านั้น · เว้นว่างได้ ระบบจะสร้างให้ (ชื่อภาษาไทยสร้างรหัสไม่ได้ จะได้เป็นเลขลำดับแทน)", "Use a–z, 0–9, _ only · leave blank and one is generated (Thai names can't produce a code, so a sequence number is used)")
-        : t("แก้ได้ · ใช้ a–z, 0–9, _ เท่านั้น — เปลี่ยนไม่ได้ถ้ามีข้อมูลอ้างถึงรหัสนี้อยู่", "Editable · a–z, 0–9, _ only — cannot change while records reference this code")}</div>
-    </${Field}>`}
+        edit.isNew ? t("ใช้ a–z, 0–9, _ · เว้นว่างได้ ระบบจะสร้างให้ · สร้างแล้วแก้ไม่ได้", "Use a–z, 0–9, _ · leave blank and one is generated · cannot be changed later")
+        : t("รหัสอ้างอิงแก้ไม่ได้หลังสร้าง", "The reference code cannot be changed after creation")}</div>
+    </${Field}>
     ${cfg.color && html`<${Field} label=${t("สี", "Colour")}>
-      <div class="row" style=${{gap:"10px"}}><input type="color" value=${f.color_hex} onInput=${e=>set("color_hex",e.target.value)} style=${{width:"46px",height:"34px",padding:"2px",borderRadius:"8px",border:"1px solid var(--stroke2)",background:"var(--surface)",cursor:"pointer"}}/>
+      <div class="row" style=${{gap:"10px"}}><input type="color" data-md-f="color_hex" value=${f.color_hex} onInput=${e=>set("color_hex",e.target.value)} style=${{width:"46px",height:"34px",padding:"2px",borderRadius:"8px",border:"1px solid var(--stroke2)",background:"var(--surface)",cursor:"pointer"}}/>
         <span class="mono dim" style=${{fontSize:"12px"}}>${f.color_hex}</span></div></${Field}>`}
-    ${cfg.icon && html`<${Field} label=${t("ไอคอน (อีโมจิ)", "Icon (emoji)")}><input class="input" value=${f.icon} onInput=${e=>set("icon",e.target.value)} placeholder=${t("เช่น 🍽️", "e.g. 🍽️")} maxLength=${4} style=${{width:"120px"}}/></${Field}>`}
-    <${Field} label=${t("เปิดใช้งาน", "Enable")}><div><${Toggle} on=${f.is_active} onChange=${()=>set("is_active",!f.is_active)}/></div></${Field}>
+    ${cfg.icon && html`<${Field} label=${t("ไอคอน", "Icon")}>
+      <div class="md-icons">${SEG_ICON_KEYS.map(k=>html`<button key=${k} type="button" data-md-icon=${k} class=${"md-icon"+(f.icon===k?" on":"")} aria-pressed=${f.icon===k}
+        onClick=${()=>set("icon",k)}><${IconGlyph} name=${k} size=${18} color=${f.icon===k?"var(--accent)":"var(--muted)"}/></button>`)}</div></${Field}>`}
+    ${cfg.toggle && !it.is_system && html`<${Field} label=${t("เปิดใช้งาน", "Enable")}><div><${Toggle} on=${f.is_active} onChange=${()=>set("is_active",!f.is_active)}/></div></${Field}>`}
   </${Modal}>`;
 }
 
@@ -223,4 +211,11 @@ const MD_CSS = `
 .md-dot{width:13px;height:13px;border-radius:4px;flex:none;box-shadow:0 0 0 1px rgba(0,0,0,.08)}
 .md-seq{display:inline-grid;place-items:center;min-width:26px;height:26px;padding:0 6px;border-radius:8px;
   font-size:12.5px;font-weight:700;color:var(--muted);background:var(--surface2);font-variant-numeric:tabular-nums}
+.md-move{width:26px;height:26px;border-radius:8px;border:1px solid var(--stroke2);background:var(--surface);color:var(--muted);font-size:10px;cursor:pointer;line-height:1}
+.md-move:hover:not(:disabled){background:var(--surface2);color:var(--txt)}
+.md-move:disabled{opacity:.35;cursor:default}
+.md-icons{display:flex;flex-wrap:wrap;gap:7px}
+.md-icon{width:38px;height:38px;border-radius:10px;border:1px solid var(--stroke2);background:var(--surface);display:grid;place-items:center;cursor:pointer}
+.md-icon:hover{background:var(--surface2)}
+.md-icon.on{border-color:var(--accent);box-shadow:0 0 0 2px rgba(230,0,35,.15)}
 `;

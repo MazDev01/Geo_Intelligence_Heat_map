@@ -17,7 +17,7 @@ export const UNASSIGNED = "ยังไม่มอบหมาย";
 export const tcLabel = v => (v === UNASSIGNED && isEN()) ? "Unassigned" : (v || "");
 
 export const SEGMENTS = ["Manufacturing","HomeLiving","FoodBeverage","HealthBeauty","Retail","ProfessionalServices",
-  "AutoTransport","Hospitality","Technology","PetAnimal","ArtsCulture","RealEstate"];
+  "AutoTransport","Hospitality","Technology","PetAnimal","ArtsCulture","RealEstate","RestaurantCafe"];
 export const SEG_TH = {
   Retail:"ค้าปลีกและสินค้าอุปโภคบริโภค", FoodBeverage:"อาหารและเครื่องดื่ม",
   HomeLiving:"บ้าน อาคาร และของใช้ในบ้าน", AutoTransport:"ยานยนต์และขนส่ง",
@@ -35,7 +35,7 @@ export const SEG_EN = {
   Retail:"Retail & Consumer Goods", ProfessionalServices:"Professional & Marketing Services",
   AutoTransport:"Automotive & Transport", Hospitality:"Hospitality & Recreation",
   Technology:"Technology & Communications", PetAnimal:"Pets & Animals",
-  ArtsCulture:"Arts, Culture & Specialty Services", RealEstate:"Real Estate",
+  ArtsCulture:"Arts, Culture & Specialty Services", RealEstate:"Real Estate", RestaurantCafe:"Restaurants & Cafes",
   Other:"Uncategorised" };
 export const SEG_COLOR = {
   Manufacturing:"#33d69f", HomeLiving:"#c98500", FoodBeverage:"#ff5a3c", HealthBeauty:"#e87ba4",
@@ -66,6 +66,26 @@ export const SEG_SVG = {
   RestaurantCafe:'<path d="M10 2v2"/><path d="M14 2v2"/><path d="M16 8a1 1 0 0 1 1 1v8a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4V9a1 1 0 0 1 1-1h14a4 4 0 1 1 0 8h-1"/><path d="M6 2v2"/>',
   Other:'<path d="M8.3 10a.7.7 0 0 1-.626-1.079L11.4 3a.7.7 0 0 1 1.198-.043L16.3 8.9a.7.7 0 0 1-.572 1.1Z"/><rect x="3" y="14" width="7" height="7" rx="1"/><circle cx="17.5" cy="17.5" r="3.5"/>' };
 export const OTHER_COLOR = "#8aa0be";
+const SEG_BASE = {list:[...SEGMENTS], th:{...SEG_TH}, en:{...SEG_EN}, color:{...SEG_COLOR}, svg:{...SEG_SVG}};
+export const SEG_ICON_KEYS = Object.keys(SEG_BASE.svg);
+export const SEG_ICON_SVG = SEG_BASE.svg;
+export const segmentsKey = () => JSON.stringify(SEGMENTS.map(s=>[s, SEG_TH[s], SEG_EN[s], SEG_COLOR[s], SEG_SVG[s]===SEG_BASE.svg.Other ? "Other" : ""]));
+export function setSegments(rows){
+  const list = Array.isArray(rows) && rows.length ? rows : SEG_BASE.list.map(code=>({code, label_th:SEG_BASE.th[code], label_en:SEG_BASE.en[code], color_hex:SEG_BASE.color[code], icon:code}));
+  for(const o of [SEG_TH, SEG_EN, SEG_COLOR, SEG_SVG]) for(const k of Object.keys(o)) delete o[k];
+  Object.assign(SEG_TH, SEG_BASE.th); Object.assign(SEG_EN, SEG_BASE.en); Object.assign(SEG_COLOR, SEG_BASE.color); Object.assign(SEG_SVG, SEG_BASE.svg);
+  SEGMENTS.length = 0;
+  const seen = new Set();
+  for(const r of list){
+    if(!r || !r.code || r.code==="Other" || seen.has(r.code)) continue;
+    seen.add(r.code);
+    if(r.is_active!==false) SEGMENTS.push(r.code);
+    SEG_TH[r.code] = r.label_th || r.code;
+    SEG_EN[r.code] = r.label_en || r.label_th || r.code;
+    SEG_COLOR[r.code] = r.color_hex || OTHER_COLOR;
+    SEG_SVG[r.code] = SEG_BASE.svg[r.icon] || SEG_BASE.svg.Other;
+  }
+}
 // helper ปลอดจำนวนเซกเมนต์ (แทนการ hardcode {Hotel:...,Restaurant:...} 4 หมวดเดิม)
 export const segZero    = ()  => Object.fromEntries(SEGMENTS.map(s=>[s,0]));
 export const segAllTrue = ()  => Object.fromEntries(SEGMENTS.map(s=>[s,true]));
@@ -82,7 +102,19 @@ export const segOnly    = (s) => Object.fromEntries(SEGMENTS.map(x=>[x,x===s]));
 // ═══════════════════════════════════════════════════════════════════════════
 
 // ค่าอ้างอิงขนาดช่องว่าง (จำนวนราย) ที่ถือว่า "เต็มสเกล" ของแต่ละระดับพื้นที่
-export const GAP_REF = { country:900, province:300, cluster:120, district:60 };
+export const SCORING_DEFAULT = Object.freeze({
+  weights: Object.freeze({depth:45, breadth:25, volume:30}),
+  ref: Object.freeze({country:900, province:300, cluster:120, district:60}),
+  cut: Object.freeze({medium:34, high:67}) });
+const scoringOf = v => ({
+  weights:{...SCORING_DEFAULT.weights, ...((v && v.weights) || {})},
+  ref:{...SCORING_DEFAULT.ref, ...((v && v.ref) || {})},
+  cut:{...SCORING_DEFAULT.cut, ...((v && v.cut) || {})} });
+let _SCORING = scoringOf(null);
+export const GAP_REF = {..._SCORING.ref};
+export const getScoring = () => scoringOf(_SCORING);
+export const scoringKey = () => JSON.stringify(_SCORING);
+export function setScoring(v){ _SCORING = scoringOf(v); Object.assign(GAP_REF, _SCORING.ref); }
 export const GAP_TH  = { High:"สูง", Medium:"ปานกลาง", Low:"ต่ำ" };
 
 // ช่องว่างรายหมวดของพื้นที่หนึ่ง — เรียงจากหมวดที่ขาดมากสุด
@@ -90,20 +122,28 @@ export function gapBySegment(customers=[], prospects=[]){
   const demand = segZero(), supply = segZero();
   for(const p of prospects) if(demand[p.segment]!=null) demand[p.segment]++;
   for(const c of customers) if(supply[c.segment]!=null) supply[c.segment]++;
-  return SEGMENTS.map(seg=>({ seg, demand:demand[seg], supply:supply[seg],
-      gap: Math.max(0, demand[seg]-supply[seg]) }))
+  return segRows(demand, supply);
+}
+function segRows(demand, supply, segs=SEGMENTS){
+  return segs.map(seg=>({ seg, demand:demand[seg]||0, supply:supply[seg]||0,
+      gap: Math.max(0, (demand[seg]||0)-(supply[seg]||0)) }))
     .sort((a,b)=> b.gap-a.gap || b.demand-a.demand);
 }
 
 // ระดับช่องว่างจากดัชนี 0–100
-export const gapLevelOf = s => s>=67 ? "High" : s>=34 ? "Medium" : "Low";
+export const gapLevelOf = s => s>=_SCORING.cut.high ? "High" : s>=_SCORING.cut.medium ? "Medium" : "Low";
 
 /* ดัชนี Lead สูง 0–100 ของพื้นที่ ประกอบด้วย 3 องค์ประกอบ
      ลึก (depth 45%)     = สัดส่วนอุปสงค์ที่ยังไม่ถูกเติม  → พื้นที่ที่ Lead ล้นเทียบสมาชิกที่มี
      กว้าง (breadth 25%) = สัดส่วนหมวดที่ยังขาด            → ขาดหลายหมวด = เติมได้หลายทาง
      ปริมาณ (volume 30%) = ขนาดช่องว่างเทียบค่าอ้างอิง      → พื้นที่เล็กที่ขาดไม่กี่รายไม่ควรร้อนเท่าเมืองใหญ่ */
 export function demandGap(customers=[], prospects=[], ref=GAP_REF.district){
-  const segs = gapBySegment(customers, prospects);
+  return gapFromSegs(gapBySegment(customers, prospects), ref, _SCORING);
+}
+export function gapFromCounts(demand, supply, ref, scoring, segs){
+  return gapFromSegs(segRows(demand||{}, supply||{}, segs||SEGMENTS), ref, scoring ? scoringOf(scoring) : _SCORING);
+}
+function gapFromSegs(segs, ref, sc){
   const demandTotal = segs.reduce((a,x)=>a+x.demand, 0);
   const gapCount    = segs.reduce((a,x)=>a+x.gap, 0);
   const present     = segs.filter(x=>x.demand+x.supply>0).length;
@@ -111,8 +151,10 @@ export function demandGap(customers=[], prospects=[], ref=GAP_REF.district){
   const depth   = demandTotal ? gapCount/demandTotal : 0;
   const breadth = present ? missing/present : 0;
   const volume  = Math.min(1, gapCount/(ref||1));
-  const gapScore = Math.round(100*(0.45*depth + 0.25*breadth + 0.30*volume));
-  return { gapScore, gapLevel:gapLevelOf(gapScore), gapCount, demandTotal,
+  const w = sc.weights;
+  const gapScore = Math.round(100*((w.depth/100)*depth + (w.breadth/100)*breadth + (w.volume/100)*volume));
+  const gapLevel = gapScore>=sc.cut.high ? "High" : gapScore>=sc.cut.medium ? "Medium" : "Low";
+  return { gapScore, gapLevel, gapCount, demandTotal,
     gapDepth:+(depth*100).toFixed(0), gapBreadth:missing, segsPresent:present,
     gapSegs: segs.filter(x=>x.gap>0).slice(0,5),
     topGapSegment: (segs[0] && segs[0].gap>0) ? segs[0].seg : null };

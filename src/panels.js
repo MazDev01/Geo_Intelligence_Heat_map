@@ -6,6 +6,7 @@ import {Donut, BarChart, Gauge, rampRed} from "./charts.js";
 import {analyzeArea, downloadCSV} from "./data.js";
 import {demandGap, gapBySegment, GAP_REF} from "./mock/geoData.js";
 import {Dropdown} from "./select.js";
+import {REJ_TH_OF} from "./pages/lead-management.js";
 import {statusMeta, responsibleOf, nextAppointment, urgencyOf, beDate, INTEREST, OUTCOME, CANCEL_REASONS, roundLabel, planTodayKey}from "./visit-rounds.js";
 import {t} from "./i18n.js";   // สลับภาษา TH/EN — ดู src/i18n.js
 
@@ -287,6 +288,7 @@ export function CustomerPanel({db, customer, onClose, onOpenArea, setCustomer, o
           <div class="deal-row"><span class="muted">${t("วันที่นัดหมาย", "Appointment date")}</span><b>${dealPlan&&dealPlan.visitDate?beDate(dealPlan.visitDate):(c.dealVisitDate?beDate(c.dealVisitDate):"—")}</b></div>
           ${dealPlan&&dealPlan.planName? html`<div class="deal-row"><span class="muted">${t("จากแผน", "From plan")}</span><span>${dealPlan.planName}</span></div>`:""}
         </div>
+        ${!submitted && c.dealStatus==="rejected" ? html`<div class="deal-note warn" style=${{marginTop:"10px"}}><${Icon} name="info" size=${14} color="#f59e0b"/>${t("ดีลถูกตีกลับ", "Deal returned")}${c.dealRejectReason?" — "+REJ_TH_OF(c.dealRejectReason):""}${c.dealRejectNote?" ("+c.dealRejectNote+")":""}${t(" · แก้ไขแล้วส่งใหม่ได้", " · fix it and send again")}</div>`:""}
         ${submitted
           ? html`<div class="deal-note pending"><${Icon} name="clock" size=${15} color="#f59e0b"/>${t("ส่งดีลแล้ว — รอแอดมินตรวจสอบอนุมัติ", "Deal submitted — awaiting admin approval ")}${c.dealDoc?t(" · แนบ: ", " · attached: ")+c.dealDoc:""}</div>`
           : (isTC
@@ -353,7 +355,9 @@ export function CustomerPanel({db, customer, onClose, onOpenArea, setCustomer, o
             <div class="deal-modal-b">${t("ส่งดีลของ \"", "Send the deal for \"")}${c.businessName}${t("\" ให้แอดมินตรวจสอบเพื่ออนุมัติเปลี่ยนเป็นลูกค้า?", "\" to the admin for approval to convert to a customer?")}${dealDoc?"":t(" (ยังไม่ได้แนบเอกสาร)", " (no document attached)")}</div>
             <div class="row" style=${{gap:"8px",justifyContent:"flex-end",marginTop:"14px"}}>
               <${Btn} variant="ghost" size="sm" onClick=${()=>setConfirmSend(false)}>${t("ยกเลิก", "Cancel")}</${Btn}>
-              <${Btn} variant="primary" size="sm" onClick=${()=>{ onSubmitDeal&&onSubmitDeal(c, dealDoc); setConfirmSend(false); }}>${t("ยืนยันส่ง", "Confirm and send")}</${Btn}>
+              <${Btn} variant="primary" size="sm" disabled=${busy} onClick=${async ()=>{ if(busy || !onSubmitDeal) return;
+                setBusy(true); const done=await onSubmitDeal(c, dealDoc); setBusy(false);
+                if(done) setConfirmSend(false); }}>${t("ยืนยันส่ง", "Confirm and send")}</${Btn}>
             </div>
           </div>
         </div>`:""}`;

@@ -1,5 +1,7 @@
 import {Worker} from 'node:worker_threads';
 import {withTransaction} from './db/pool.mjs';
+import {writeAudit} from './audit.mjs';
+import {notify} from './notifications.mjs';
 import {headerSignature} from './import-parse.mjs';
 import {readMapping, classifyFile, previewFile, applyFile} from './import-validate.mjs';
 
@@ -35,7 +37,7 @@ function parseInWorker(bytes, filename) {
   });
 }
 
-export async function importUpload(pool, {bytes, filename, userId}) {
+export async function importUpload(pool, {bytes, filename, userId}, ctx) {
   if (parsing) throw fail(429, 'มีไฟล์อื่นกำลังถูกอ่านอยู่ รอสักครู่แล้วลองใหม่');
   parsing = true;
   let table;
@@ -59,6 +61,7 @@ export async function importUpload(pool, {bytes, filename, userId}) {
     const templates = (await tx.query(
       'select id, name, mapping from mapping_templates where header_signature = $1 order by created_at desc, id desc',
       [headerSignature(headers)])).rows;
+    await writeAudit(tx, ctx, 'import_upload', file.file_id, {filename, rows: rows.length, bytes: bytes.length});
     return {
       ok: true,
       file: {
@@ -73,7 +76,7 @@ export async function importUpload(pool, {bytes, filename, userId}) {
   });
 }
 
-export async function mapUpload(pool, body, userId) {
+export async function mapUpload(pool, body, userId, ctx) {
   if (!body || typeof body !== 'object' || Array.isArray(body)) throw fail(400, 'อ่านคำขอไม่ได้');
   const fileId = Number(body.fileId);
   if (!Number.isSafeInteger(fileId) || fileId < 1) throw fail(400, 'ต้องระบุไฟล์');
@@ -100,11 +103,12 @@ export async function mapUpload(pool, body, userId) {
     }
     await tx.query('update import_files set mapping = $2, template_id = coalesce($3, template_id) where file_id = $1',
       [fileId, JSON.stringify(plan.stored), templateId]);
+    await writeAudit(tx, ctx, 'import_mapping', fileId, {template: templateName});
     return {ok: true, fileId, mapping: plan.stored, templateId, ...preview};
   });
 }
 
-export async function confirmUpload(pool, body) {
+export async function confirmUpload(pool, body, ctx) {
   if (!body || typeof body !== 'object' || Array.isArray(body)) throw fail(400, 'อ่านคำขอไม่ได้');
   const fileId = Number(body.fileId);
   if (!Number.isSafeInteger(fileId) || fileId < 1) throw fail(400, 'ต้องระบุไฟล์');
@@ -123,6 +127,9 @@ export async function confirmUpload(pool, body) {
     await tx.query(
       'update import_files set status = $2, rows_total = $3, rows_ok = $4, rows_error = $5, rows_dup = $6 where file_id = $1',
       [fileId, status, counts.total, counts.ok, counts.incomplete + counts.badcoord, counts.dup]);
+    await writeAudit(tx, ctx, 'import_confirm', fileId, {filename: file.filename, status, counts});
+    await notify(tx, ctx.actor.id, 'import_done', 'นำเข้าไฟล์ ' + file.filename + ' เข้าระบบ ' + counts.ok + ' รายการ',
+      {fileId, filename: file.filename, ok: counts.ok, queued: problems, status});
     return {ok: true, file: {id: fileId, filename: file.filename, status}, counts, queued: problems};
   });
 }
@@ -189,7 +196,7 @@ export async function listFiles(pool, query) {
   };
 }
 
-export async function withdrawFile(pool, body, userId) {
+export async function withdrawFile(pool, body, userId, ctx) {
   if (!body || typeof body !== 'object' || Array.isArray(body)) throw fail(400, 'อ่านคำขอไม่ได้');
   const fileId = Number(body.fileId);
   if (!Number.isSafeInteger(fileId) || fileId < 1) throw fail(400, 'ต้องระบุไฟล์');
@@ -205,6 +212,7 @@ export async function withdrawFile(pool, body, userId) {
     const gone = await tx.query(
       `update places p set deleted_at = now() where p.import_file_id = $1 and p.deleted_at is null and not ${KEPT}`, [fileId]);
     await tx.query("update import_files set status = 'withdrawn', withdrawn_by = $2, withdrawn_at = now() where file_id = $1", [fileId, userId]);
+    await writeAudit(tx, ctx, 'import_withdraw', fileId, {filename: file.filename, withdrawn: gone.rowCount, kept: kept.rowCount});
     return {ok: true, file: {id: fileId, filename: file.filename, status: 'withdrawn'}, withdrawn: gone.rowCount, kept: kept.rowCount};
   });
 }

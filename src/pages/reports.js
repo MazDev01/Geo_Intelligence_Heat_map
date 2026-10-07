@@ -4,14 +4,14 @@ import {createPortal} from "react-dom";   // portal the Export dialog to <body> 
 import {Card, Kpi, Btn, Badge, Table, Toggle, Meter, DateField, TCReportNav} from "../ui.js";
 import {Donut, BarChart, Gauge, LineChart, ChartTip, useTip} from "../charts.js";
 import {segZero, segOnly, segAllTrue, OTHER_COLOR} from "../mock/geoData.js";
-import {globalKpis, rankAreas, rankDistricts, analyzeArea, buildClusters, topGapLeads, custPass, prosPass, defaultFilters, downloadCSV} from "../data.js";
+import {globalKpis, rankAreas, rankDistricts, analyzeArea, buildClusters, topGapLeads, custPass, prosPass, defaultFilters} from "../data.js";
 import {demandGap, gapBySegment, gapLevelOf, GAP_REF} from "../mock/geoData.js";
 import {LeafletMap} from "../lmap.js";   // ใช้แผนที่ Leaflet ตัวเดียวกับหน้าหลักซ้ำ (ไม่สร้าง instance ใหม่)
 import {toast} from "../ui.js";
 import {Dropdown} from "../select.js";   // dropdown กำหนดสไตล์เอง (โชว์ 6 ตัวเลือก+เลื่อน · hover แดงอ่อน · ที่เลือกพื้นขาวตัวอักษรแดงเข้ม)
 import {Monitoring} from "./admin.js";   // แดชบอร์ดผู้บริหาร (แดชบอร์ดภาพรวมธุรกิจ) — ใช้เป็นแดชบอร์ดของผู้บริหารในหน้ารายงาน
-import {canExport} from "../export-perms.js";   // สิทธิ์ส่งออกตามบทบาท (กรองประเภทไฟล์ + ด่านตรวจก่อนส่งออก)
-import {pushAudit} from "../audit.js";           // บันทึกการส่งออกลงประวัติการเข้าถึงระบบ (สำเร็จ/ล้มเหลว)
+import {canExportKind, exportReport} from "../export-api.js";
+import {planTodayKey} from "../visit-rounds.js";
 import {t} from "../i18n.js";   // สลับภาษา TH/EN — ดู src/i18n.js
 
 // name เป็น getter — ค่าคงที่ระดับโมดูลถูกประเมินครั้งเดียวตอนโหลด ห่อ t() ตรง ๆ จะค้างเป็นภาษาแรก
@@ -155,32 +155,19 @@ export function Reports(){
   // hook ทุกตัวถูกเรียกครบก่อนบรรทัดนี้แล้ว การ return ก่อนจึงไม่ทำให้ลำดับ hook เพี้ยน
   if(!isTC) return html`<${Monitoring} defaultTab="business"/>`;
   const f = filters;
-  const today = t("11 ก.ค. 2569", "11 Jul 2026");   // วันที่ พ.ศ. (ไม่ปน ค.ศ.)
+  const PLAN_TODAY = planTodayKey();
+  const today = thDate(PLAN_TODAY);
 
-  // ── ค่าที่ปุ่มส่งออกต้องใช้ (คงตรรกะเดิม ไม่แก้สูตร) ──
-  const k = globalKpis(db, f);
-  const rankOpp = rankAreas(db, f, "gapScore"), rankCov = rankAreas(db, f, "coverage"),
-        rankGap = rankAreas(db, f, "gapCount"), rankOppDist = rankDistricts(db, f, "gapScore"), rankGapDist = rankDistricts(db, f, "gapCount");
-  const ROLE_TH={Administrator:t("ผู้ดูแลระบบ", "System Administrator"),Management:t("ผู้บริหาร", "Management"),"Trade Coordinator":t("ผู้ประสานงานการค้า", "Trade Coordinator")};
+  const exportInputs = () => {
+    const ef = {...f, segments:segObj, province:tcProv};
+    return {today, filters:ef, district:distSel==="All" ? null : distSel, period:exportScope.dateLabel, k:globalKpis(vdb, ef),
+      rankOpp:rankAreas(vdb, ef, "gapScore"), rankCov:rankAreas(vdb, ef, "coverage"), rankGap:rankAreas(vdb, ef, "gapCount"),
+      rankOppDist:rankDistricts(vdb, ef, "gapScore"), rankGapDist:rankDistricts(vdb, ef, "gapCount")};
+  };
   const handleExport = ({format, filename, opts, dataSel, count, scope})=>{
-    const name = (filename||"").trim().replace(/[\\/:*?"<>|]+/g,"_") || defaultReportName(scope);
-    const fmtLabel = {pdf:"PDF",excel:"Excel",csv:"CSV"}[format]||format;
-    const scopeStr = scope ? `${scope.areaLabel||t("ทั้งประเทศ","Nationwide")} · ${scope.segLabel||t("ทั้งหมด","All")} · ${scope.dateLabel||t("ทั้งหมด","All")}` : "";
-    // §5 ด่านตรวจสิทธิ์ (นอกเหนือจากการซ่อนตัวเลือก) — บทบาทไม่มีสิทธิ์ = ปฏิเสธ + บันทึกความล้มเหลว
-    // TODO(server): ต้องบังคับด่านนี้ที่เซิร์ฟเวอร์จริงตอนเรียก API ส่งออก การตรวจฝั่ง client เป็นชั้นเสริมเท่านั้น
-    if(!canExport(user.role, format)){
-      pushAudit({user:user.name, action:t("ส่งออกรายงานถูกปฏิเสธ", "Report export refused"), category:"ส่งออก",
-        detail:`${t("บทบาท", "Role")} ${ROLE_TH[user.role]||user.role} ${t("ไม่มีสิทธิ์ส่งออก", "No export permission")} ${fmtLabel} · ${scopeStr} · ${num(count||0)} ${t("รายการ", "records")}`});
-      toast(`${t("บทบาทของคุณไม่มีสิทธิ์ส่งออกไฟล์", "Your role cannot export files")} ${fmtLabel}`,"bad"); setExportOpen(false); return;
-    }
-    const rows = buildReportRows("coverage", {today, k, rankOpp, rankCov, rankGap, rankOppDist, rankGapDist, filters:f}, {...opts, dataSel});
+    const rows = format==="pdf" ? null : buildReportRows("coverage", exportInputs(), {...opts, dataSel});
     setExportOpen(false);
-    if(format==="csv"){ downloadCSV(name+".csv", rows); toast(t("ส่งออกไฟล์ CSV แล้ว", "CSV file exported"),"good"); }
-    else if(format==="excel"){ downloadXLS(name+".xls", rows); toast(t("ส่งออกไฟล์ Excel แล้ว", "Excel file exported"),"good"); }
-    else { toast(t("กำลังเตรียมไฟล์ PDF…", "Preparing the PDF…"),"info"); setTimeout(()=>window.print(),350); }
-    // §6 บันทึกการส่งออกสำเร็จ: ผู้ส่งออก · ประเภท+ชื่อไฟล์ · ขอบเขต · จำนวนรายการ (เวลาเป็น พ.ศ. โดย audit log)
-    pushAudit({user:user.name, action:t("ส่งออกรายงาน", "Export report"), category:"ส่งออก",
-      detail:`${fmtLabel} · ${name} · ${scopeStr} · ${num(count||0)} ${t("รายการ", "records")}`});
+    runExport({kind:"report", format, filename:exportName(filename, scope), rows, count, scope});
   };
 
   // ขอบเขตวิเคราะห์: "ทั้งหมด" = 4 จังหวัดหลัก (ที่มีข้อมูลระดับเขต) · หรือจังหวัดเดียวที่เลือก
@@ -274,7 +261,7 @@ export function Reports(){
   const animSig = [prov,segSel,from,to,tcSel].join("|");
 
   // ── delta เทียบช่วงก่อนหน้า (30 วันล่าสุด vs 30 วันก่อนหน้า) จาก created_at ในขอบเขต+Segment ──
-  const DAY=864e5, T0=Date.parse("2026-07-13"), PLAN_TODAY="2026-07-13";   // วันอ้างอิง "วันนี้" ของข้อมูลสาธิต
+  const DAY=864e5, T0=Date.parse(PLAN_TODAY)+DAY;
   const inWin=(o,a,b)=>o.created_at && Date.parse(o.created_at)>T0-b*DAY && Date.parse(o.created_at)<=T0-a*DAY;
   const deltaOf = recs => recs.filter(o=>segOk(o)&&inWin(o,0,30)).length - recs.filter(o=>segOk(o)&&inWin(o,30,60)).length;
   const custDelta = deltaOf(vdb.customers), prosDelta = deltaOf(vdb.prospects);
@@ -352,8 +339,8 @@ export function Reports(){
 
   // ═══════════ TC Dashboard (ออกแบบใหม่) — ทุกตัวเลขมาจากข้อมูลจริงในเขตที่รับผิดชอบเท่านั้น ═══════════
   // แถว 1 · งานที่ต้องทำวันนี้ (ซ่อนแถวที่นับได้ 0 · ถ้าว่างทั้งหมดแสดง "ไม่มีงานค้าง")
-  const apptToday    = vdb.prospects.filter(p=>(p.visitRounds||[]).some(r=>r.status==="นัดแล้ว" && r.date===PLAN_TODAY)).length;
-  const apptOverdue  = vdb.prospects.filter(p=>(p.visitRounds||[]).some(r=>r.status==="นัดแล้ว" && r.date && r.date<PLAN_TODAY)).length;
+  const apptToday    = vdb.prospects.filter(p=>(p.visitRounds||[]).some(r=>r.status==="นัดแล้ว" && r.apptDate===PLAN_TODAY)).length;
+  const apptOverdue  = vdb.prospects.filter(p=>(p.visitRounds||[]).some(r=>r.status==="นัดแล้ว" && r.apptDate && r.apptDate<PLAN_TODAY)).length;
   const dealPending  = vdb.prospects.filter(p=>p.dealStatus==="pending").length;
   const gapNotVisit = vdb.prospects.filter(p=>segOk(p) && tcGapOf(p)>0 && (p.visit_status||"ยังไม่เข้าพบ")==="ยังไม่เข้าพบ").length;
   const scrollToTable = ()=>{ tableRef.current&&tableRef.current.scrollIntoView({behavior:"smooth",block:"start"}); };
@@ -500,7 +487,7 @@ export function Reports(){
     </div>
 
     ${exportOpen && html`<${ExportDialog} scope=${exportScope} role=${user.role}
-      buildPreviewRows=${opts=>buildReportRows("coverage", {today, k, rankOpp, rankCov, rankGap, rankOppDist, rankGapDist, filters:f}, opts)}
+      buildPreviewRows=${opts=>buildReportRows("coverage", exportInputs(), opts)}
       onClose=${()=>setExportOpen(false)} onExport=${handleExport}/>`}
 
     ${isTC ? html`
@@ -705,7 +692,7 @@ export function Reports(){
           <span class=${"sd-top-rank"+(i<3?" medal m"+(i+1):"")}>${i+1}</span>
           <div style=${{flex:1,minWidth:0}}><b style=${{fontSize:"13.5px"}}>${districtTH(d.district)}</b>
             <span class="dim" style=${{fontSize:"12px"}}> · ${provinceTH(d.province)}</span></div>
-          <${Badge} tone=${d.gapScore>=67?"bad":d.gapScore>=34?"warn":"info"}>${t("ดัชนี", "Index")} ${d.gapScore}</${Badge}>
+          <${Badge} tone=${({High:"bad",Medium:"warn"})[gapLevelOf(d.gapScore)]||"info"}>${t("ดัชนี", "Index")} ${d.gapScore}</${Badge}>
         </div>`;}) : html`<div class="dim" style=${{fontSize:"12px"}}>${t("ไม่มีข้อมูลพื้นที่ในขอบเขตที่เลือก", "No area data within the selected scope")}</div>`}
       </${Card}>
       <${Card} title=${t("เปรียบเทียบรายจังหวัด (ลูกค้า vs เป้าหมาย Coverage)", "Province comparison (customers vs. coverage target)")} sub=${t("เกณฑ์เทียบ 4 จังหวัดหลัก · เรียงครอบคลุมมาก→น้อย", "Benchmark across the 4 main provinces · sorted by coverage, highest first")+(prov!=="All"?t(" · ไฮไลต์ ", " · highlighting ")+provinceTH(prov):"")}>
@@ -730,7 +717,7 @@ export function Reports(){
           <div><b>${clusterName(c)}</b><div class="dim" style=${{fontSize:"11px"}}>${provinceTH(c.province)}</div></div></div>`},
         {h:t("ลูกค้า", "Customers"), render:c=>html`<b>${num(c.existing)}</b>`},
         {h:"Lead", render:c=>html`<b style=${{color:STATUS_COLOR.Prospect}}>${num(c.prospect)}</b>`},
-        {h:t("ดัชนีช่องว่าง", "Gap index"), render:c=>html`<${Badge} tone=${c.gapScore>=67?"bad":c.gapScore>=34?"warn":"good"}>${c.gapScore}</${Badge}>`},
+        {h:t("ดัชนีช่องว่าง", "Gap index"), render:c=>html`<${Badge} tone=${({High:"bad",Medium:"warn"})[gapLevelOf(c.gapScore)]||"good"}>${c.gapScore}</${Badge}>`},
         {h:t("ระดับช่องว่าง", "Gap level"), render:c=>html`<b style=${{fontSize:"13px",color:c.gapLv==="High"?"#c81e1e":c.gapLv==="Medium"?"#b45309":"#0f7a3d"}}>${gapTH(c.gapLv)}</b>`},
         {h:t("สถานะ Territory/Coverage", "Territory / coverage status"), render:c=>html`<div style=${{minWidth:"160px"}}>
           <div style=${{fontSize:"11.5px",marginBottom:"3px"}}>${c.domTC}</div>
@@ -2570,10 +2557,10 @@ export {defaultReportName};
 
 // Centered export dialog — the user chooses format + options, previews the exact rows that will
 // be exported, and only then confirms (issue #18: nothing downloads until the preview is confirmed).
-export function ExportDialog({scope={}, role, buildPreviewRows, onClose, onExport, formats, simple=false}){
+export function ExportDialog({scope={}, role, kind="report", buildPreviewRows, onClose, onExport, formats, simple=false}){
   // formats: override รายการประเภทไฟล์ (เช่น รายงานแผนเข้าพบระบุ PDF+Excel) · ปกติกรองตามสิทธิ์บทบาท
   // simple: ซ่อนตัวเลือกเฉพาะรายงานพื้นที่ (ข้อมูลลูกค้า/Lead + ภาพประกอบ heat/route) สำหรับรายงานที่ไม่เกี่ยวข้อง
-  const allowed = formats ? FORMATS.filter(f=>formats.includes(f.id)) : FORMATS.filter(f=>canExport(role, f.id));   // §5 กรองประเภทไฟล์ตามสิทธิ์ของบทบาท (ซ่อน ไม่ disable)
+  const allowed = (formats ? FORMATS.filter(f=>formats.includes(f.id)) : FORMATS).filter(f=>canExportKind(role, kind, f.id));
   const [step, setStep] = useState("options");   // "options" → "preview"
   const [format, setFormat] = useState((allowed[0]||{}).id||"pdf");
   const [filename, setFilename] = useState(()=>defaultReportName(scope));
@@ -2643,7 +2630,7 @@ export function ExportDialog({scope={}, role, buildPreviewRows, onClose, onExpor
       <div class="xp-body">
         ${ScopeBox()}
 
-        ${allowed.length===0 ? html`<div class="xp-scope-warn" style=${{marginTop:"14px"}}><${Icon} name="gap" size=${13}/> ${t("บทบาทของคุณไม่มีสิทธิ์ส่งออกไฟล์ประเภทใด — ติดต่อผู้ดูแลระบบ", "Your role cannot export any file type — contact an administrator")}</div>` : html`
+        ${allowed.length===0 ? html`<div class="xp-scope-warn" style=${{marginTop:"14px"}}><${Icon} name="gap" size=${13}/> ${t("บัญชีของคุณไม่มีสิทธิ์ส่งออกไฟล์ประเภทใด — ติดต่อผู้ดูแลระบบ", "Your account cannot export any file type — contact an administrator")}</div>` : html`
         <div class="xp-label" style=${{marginTop:"14px"}}>${t("ประเภทไฟล์", "File type")}</div>
         <div class="xp-formats">
           ${allowed.map(fmt=>html`<button key=${fmt.id} class=${"xp-fmt"+(format===fmt.id?" on":"")} onClick=${()=>setFormat(fmt.id)}>
@@ -2697,7 +2684,7 @@ export function ExportDialog({scope={}, role, buildPreviewRows, onClose, onExpor
 }
 
 // Build report rows honoring the chosen options (filters section + included-section note).
-function buildReportRows(active, {today, k, rankOpp, rankCov, rankGap, rankOppDist, rankGapDist, filters}, opts){
+function buildReportRows(active, {today, k, rankOpp, rankCov, rankGap, rankOppDist, rankGapDist, filters, district, period}, opts){
   // active อาจเป็นชนิดย่อยของ "รายงานสรุปข้อมูลรายพื้นที่" (geographic/coverage) ซึ่งไม่มีในเมนูแล้ว
   // จึงต้องมีชื่อสำรองไว้ ไม่งั้นการค้นหาในเมนูจะได้ undefined
   const SUBVIEW_NAME = {
@@ -2710,7 +2697,9 @@ function buildReportRows(active, {today, k, rankOpp, rankCov, rankGap, rankOppDi
   const dataSelTH = opts.dataSel==="existing"?t("ลูกค้าปัจจุบันอย่างเดียว", "Existing customers only"):opts.dataSel==="prospect"?t("Lead อย่างเดียว", "Leads only"):t("ทั้งลูกค้าและ Lead", "Both customers and Leads");
   rows.push([t("ขอบเขตข้อมูลที่ส่งออก", "Scope of the export")]);
   rows.push([t("จังหวัด", "Province"), filters.province==="All"?t("ทุกจังหวัด", "All provinces"):provinceTH(filters.province)]);
+  if(district) rows.push([t("อำเภอ/เขต", "District"), districtTH(district)]);
   rows.push([t("กลุ่มธุรกิจ", "Business segment"), SEGMENTS.filter(s=>filters.segments[s]).map(segTH).join(", ")]);
+  if(period) rows.push([t("ช่วงเวลา", "Period"), period]);
   rows.push([t("ข้อมูลที่ส่งออก", "Data exported"), dataSelTH]);
   rows.push([]);
   const inc = [opts.snapshot&&t("ภาพแผนที่", "Map image"), opts.heat&&t("แผนที่ความร้อน", "Heatmap"), opts.route&&t("เส้นทาง", "Routes")].filter(Boolean);
@@ -2765,14 +2754,17 @@ function buildReportRows(active, {today, k, rankOpp, rankCov, rankGap, rankOppDi
   return rows;
 }
 
-// Excel-openable spreadsheet (HTML table with the ms-excel MIME → opens natively in Excel).
-export function downloadXLS(filename, rows){
-  const esc = s => String(s??"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
-  const body = rows.map(r=>"<tr>"+(r.length?r.map(c=>`<td>${esc(c)}</td>`).join(""):"<td></td>")+"</tr>").join("");
-  const doc = `<html xmlns:x="urn:schemas-microsoft-com:office:excel"><head><meta charset="utf-8"></head>`+
-    `<body><table border="1">${body}</table></body></html>`;
-  const url = URL.createObjectURL(new Blob(["﻿"+doc], {type:"application/vnd.ms-excel"}));
-  const a = document.createElement("a"); a.href=url; a.download=filename; a.click(); URL.revokeObjectURL(url);
+export const exportName = (filename, scope) => (filename||"").trim().replace(/[\\/:*?"<>|]+/g,"_") || defaultReportName(scope);
+
+export async function runExport({kind, format, filename, rows, count, scope}){
+  const sc = scope||{};
+  const r = await exportReport({kind, format, filename, rows: format==="pdf" ? undefined : rows, records: count||0,
+    scope:{area:sc.areaLabel||sc.areaName||null, segment:sc.segLabel||null, period:sc.dateLabel||null}});
+  if(!r.ok){ toast(r.error,"bad"); return false; }
+  if(format==="pdf"){ toast(t("กำลังเตรียมไฟล์ PDF…", "Preparing the PDF…"),"info"); setTimeout(()=>window.print(),350); }
+  else if(r.local) toast(t("ส่งออกเป็นไฟล์ CSV แล้ว (โหมดข้อมูลตัวอย่าง)", "Exported as CSV (sample data mode)"),"good");
+  else toast(format==="csv" ? t("ส่งออกไฟล์ CSV แล้ว", "CSV file exported") : t("ส่งออกไฟล์ Excel แล้ว", "Excel file exported"),"good");
+  return true;
 }
 
 const EXPORT_CSS = `

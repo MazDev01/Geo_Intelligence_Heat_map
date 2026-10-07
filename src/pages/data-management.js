@@ -13,13 +13,14 @@ import {SEGMENTS, PROVINCE_KEYS, tcLabel, BKK, BKK_ZONES} from "../mock/geoData.
 import {loadZoneRegistry, zoneRegistry, zonesOf, zoneLabel, zoneColor, saveZoneRegistry, nextColor, ZONE_REST}
   from "../zone-registry.js";   // ทะเบียนโซน — แหล่งความจริงเดียวของ id/ชื่อ/สี/จังหวัด
 import {pushAudit} from "../audit.js";
-import {ExportDialog, defaultReportName, downloadXLS} from "./reports.js";   // ป็อปอัพส่งออกตัวเดียวกับหน้ารายงาน
+import {ExportDialog, runExport, exportName} from "./reports.js";   // ป็อปอัพส่งออกตัวเดียวกับหน้ารายงาน
+import {canExportKind} from "../export-api.js";
 import {downloadCSV, importsApi} from "../data.js";
-import {canExport} from "../export-perms.js";
 import {loadTerritory, saveTerritory} from "../territory-store.js";
+import {listUsers, token} from "../auth.js";
 import {AddRecordsForm} from "../add-records.js";
 import {createPortal} from "react-dom";
-import {LeadManagement, genLeads} from "./lead-management.js";
+import {LeadManagement} from "./lead-management.js";
 import {Dropdown} from "../select.js";
 import {loadProvincesGeo} from "../data.js";        // ขอบเขตจังหวัด (GeoJSON 77 จังหวัด) — ใช้วาดแผนที่ขอบเขตพื้นที่การขาย
 import {SEED_USERS} from "./admin.js";              // ผู้ใช้จำลอง — TC มาจากบทบาท "ผู้ประสานงานการค้า"
@@ -332,6 +333,7 @@ function EditRowDrawer({row, onClose, onSave, onSkip, onMerge, onNew}){
 /* ═══════════════════ แท็บ 1: นำเข้าไฟล์ Excel (Wizard 4 ขั้น) ═══════════════════ */
 // resumeFile: เมื่อกด "จัดการรายการค้าง" จากแท็บจัดการไฟล์ → เปิด wizard ที่ขั้นตอนที่ 3 ของไฟล์นั้น
 function ImportWizard({resumeFile, staging, setStaging, onExitResume, onImported}={}){
+  const {placesChanged}=useApp();
   const [step,setStep]=useState(1);
   const [file,setFile]=useState(null);
   const [fileErr,setFileErr]=useState("");
@@ -425,7 +427,7 @@ function ImportWizard({resumeFile, staging, setStaging, onExitResume, onImported
     const res=await importsApi("/confirm",{method:"POST", body:{fileId:up.file.id}});
     setBusy(""); setImporting(false);
     if(!res.ok){ toast(res.error,"bad"); return; }
-    setResult(res); setDone(true); onImported&&onImported();
+    setResult(res); setDone(true); onImported&&onImported(); placesChanged&&placesChanged();
     const okN=(res.counts&&res.counts.ok)||0;
     pushAudit({action:t("นำเข้าไฟล์ Excel", "Import an Excel file"), category:"นำเข้า", detail:`${file.name} ${t("· สำเร็จ", "· succeeded")} ${okN} ${t("รายการ", "records")}`});
     toast(`${t("นำเข้าข้อมูลสำเร็จ", "Import finished")} ${okN} ${t("รายการ", "records")}`,"good");
@@ -596,6 +598,7 @@ function ImportWizard({resumeFile, staging, setStaging, onExitResume, onImported
 
 /* ═══════════════════ แท็บ 2: จัดการไฟล์นำเข้า ═══════════════════ */
 function ImportFiles({staging, onManagePending, onSummary}){
+  const {placesChanged}=useApp();
   const [rows,setRows]=useState(IMPORTS);
   const [q,setQ]=useState(""); const [f,setF]=useState("all"); const [page,setPage]=useState(1);
   const [drawer,setDrawer]=useState(null); const [rollback,setRollback]=useState(null);
@@ -643,7 +646,7 @@ function ImportFiles({staging, onManagePending, onSummary}){
     const res=await importsApi("/withdraw",{method:"POST", body:{fileId:b.id}});
     setBusy(false);
     if(!res.ok){ toast(res.error,"bad"); return; }
-    setRollback(null); setDrawer(null); setTick(n=>n+1);
+    setRollback(null); setDrawer(null); setTick(n=>n+1); placesChanged&&placesChanged();
     pushAudit({action:t("ยกเลิกการนำเข้าทั้งชุด (Rollback)", "Rolled back a whole import batch"), category:"ลบ",
       detail:`${b.file} ${t("· ถอน", "· withdrew")} ${res.withdrawn} ${t("รายการ · คงไว้", "records · kept")} ${res.kept} ${t("รายการ", "records")}`});
     toast(`${t("ถอนการนำเข้า", "Withdrew the import")} ${b.file} ${t("แล้ว — คงไว้", "— kept")} ${res.kept} ${t("รายการ", "records")}`,"warn");
@@ -865,6 +868,7 @@ function ReviewDrawer({row, onImport, onSkip, onMerge, onClose, busy}){
 // นับ "รายการรอแก้ไข" จากแหล่งเดียว — ทั้ง badge บนแท็บ, chip และทุกที่อ้างถึงจำนวนนี้เสมอ
 const pendingRows = staging => staging.filter(r=>r.status==="pending");
 function TriageReview({staging, setStaging, fileId, liveFile, onLeft}){
+  const {placesChanged}=useApp();
   const [filter,setFilter]=useState("pending");   // pending | incomplete | dup | badcoord | skipped
   const [sel,setSel]=useState({});
   const [review,setReview]=useState(null);
@@ -910,6 +914,7 @@ function TriageReview({staging, setStaging, fileId, liveFile, onLeft}){
     setBusy(false);
     if(!res.ok){ if(res.status===409&&res.duplicate) return res; toast(res.error,"bad"); return null; }
     setTick(n=>n+1); setSel({});
+    if((body.action==="import"||body.action==="merge") && placesChanged) placesChanged();
     if(okMsg) toast(okMsg, tone||"good");
     return res;
   };
@@ -1045,7 +1050,8 @@ function TriageReview({staging, setStaging, fileId, liveFile, onLeft}){
 /* ═══════════════════ แท็บ 4: ข้อมูลที่ TC กรอกเข้ามา ═══════════════════ */
 let _adding=false;
 function TCData(){
-  const {db, adminAddRecords}=useApp();
+  const {db, user, adminAddRecords}=useApp();
+  const canXlsx = canExportKind((user&&user.role)||"Administrator", "tc_records", "excel");
   const [rows,setRows]=useState(genTC);
   const [q,setQ]=useState(""); const [prov,setProv]=useState("All"); const [check,setCheck]=useState("All");
   const [sel,setSel]=useState({}); const [page,setPage]=useState(1);
@@ -1068,7 +1074,17 @@ function TCData(){
       tc:"System Administrator", date:new Date().toISOString().slice(0,10), check:"ตรวจสอบแล้ว", source:"manual_admin"   /* check = ค่าข้อมูล ห้ามแปล */, incomplete:false, badCoord:false }));
     setRows(rs=>[...mapped,...rs]); setAddOpen(false);
     pushAudit({action:t("เพิ่มข้อมูลด้วยตนเอง (Admin)", "Added a record manually (admin)"), category:"เพิ่ม", detail:`${mapped.length} ${t("รายการ", "records")}`}); toast(`${t("เพิ่มข้อมูล", "Added")} ${mapped.length} ${t("รายการแล้ว", "records")}`,"good"); };
-  const exportXlsx=()=>{ pushAudit({action:t("ส่งออกข้อมูล TC (Excel)", "Exported TC records (Excel)"), category:"ส่งออก", detail:`${t("ตามตัวกรองปัจจุบัน ·", "Using the current filters ·")} ${filtered.length} ${t("รายการ", "records")}`}); toast(`${t("ส่งออก", "Exported")} ${filtered.length} ${t("รายการเป็น Excel แล้ว", "records to Excel")}`,"good"); };
+  const exportXlsx=()=>{
+    if(!filtered.length){ toast(t("ไม่มีรายการให้ส่งออก", "Nothing to export"),"warn"); return; }
+    const area = prov==="All" ? t("ทุกจังหวัด","All provinces") : provinceTH(prov);
+    const rowsOut = [[t("ข้อมูลที่ TC กรอกเข้ามา (GeoIntel)", "Records entered by TCs (GeoIntel)")], [t("จัดทำเมื่อ","Prepared on"), thDate(Date.now())], [],
+      [t("รหัส","ID"), t("ชื่อธุรกิจ","Business name"), t("ประเภท","Type"), t("หมวดธุรกิจ","Business category"), t("จังหวัด","Province"),
+       t("อำเภอ/เขต","District"), t("พิกัด","Coordinates"), t("อีเมล","Email"), "TC", t("วันที่","Date"), t("การตรวจสอบ","Review")],
+      ...filtered.map(r=>[r.id, r.name||"", r.type==="Existing"?t("ลูกค้า","Customer"):"Lead", segTH(r.segment)||"", provinceTH(r.province)||"",
+        districtTH(r.district)||r.district||"", (r.lat&&r.lng) ? r.lat+", "+r.lng : "", r.email||"", r.tc||"", r.date||"", r.check||""])];
+    runExport({kind:"tc_records", format:"excel", filename:exportName("", {areaName:area}), rows:rowsOut, count:filtered.length,
+      scope:{areaLabel:area, segLabel:check==="All"?t("ทุกสถานะ","All statuses"):check}});
+  };
   // แก้ไข: ใช้ฟอร์มร่วมกับฟอร์มเพิ่มข้อมูล (AddRecordsForm โหมด editRecord) — Admin แก้ได้ทุก field
   const toRecord = r => ({ id:r.id, status:r.type, businessName:r.name, address:"", email:r.email||"", latitude:r.lat, longitude:r.lng,
     segment:r.segment, tc_owner:r.tc });
@@ -1088,7 +1104,7 @@ function TCData(){
         <option value="All">${t("ทุกจังหวัด", "All provinces")}</option>${PROV_TH.map(p=>html`<option key=${p} value=${p}>${provinceTH(p)}</option>`)}</select>
       <select class="dm-sel" value=${check} onChange=${e=>{setCheck(e.target.value);setPage(1);}}>
         ${["All",t("รอตรวจสอบ", "Awaiting review"),t("ตรวจสอบแล้ว", "Reviewed"),t("ตีกลับ", "Returned")].map(s=>html`<option key=${s} value=${s}>${s==="All"?t("ทุกสถานะตรวจสอบ", "All review statuses"):s}</option>`)}</select>
-      <div style=${{marginLeft:"auto"}} class="row"><${Btn} size="sm" variant="ghost" icon="download" onClick=${exportXlsx}>${t("ส่งออก Excel", "Export to Excel")}</${Btn}>
+      <div style=${{marginLeft:"auto"}} class="row">${canXlsx && html`<${Btn} size="sm" variant="ghost" icon="download" onClick=${exportXlsx}>${t("ส่งออก Excel", "Export to Excel")}</${Btn}>`}
         <${Btn} size="sm" variant="outline" icon="plus" onClick=${()=>setAddOpen(true)}>${t("เพิ่มข้อมูลด้วยตนเอง", "Add a record manually")}</${Btn}></div>
     </div>
     ${selIds.length?html`<div class="dm-bulk"><b>${t("เลือก", "Selected")} ${selIds.length} ${t("รายการ", "records")}</b>
@@ -1143,323 +1159,6 @@ const BASE_TABS=[{value:"import", get label(){ return t("นำเข้าไ�
   {value:"files", get label(){ return t("จัดการไฟล์นำเข้า","Import files"); }},
   {value:"leads", get label(){ return t("จัดการ Lead","Lead management"); }}];
 
-/* ═══════════ คำขอเปลี่ยนเป็นลูกค้า (conversion_requests) — คิวที่ TC ส่งขออนุมัติ ═══════════
-   หลักการ: คงรหัส Lead เดิมหลังเป็นลูกค้า · Lead ของหมวด ณ วันส่งคำขอถูกแช่แข็งไว้ · เฉพาะผู้ดูแลอนุมัติ/ปฏิเสธ
-   (ชั้น client เป็นตัวช่วย — การบังคับสิทธิ์จริงต้องทำที่เซิร์ฟเวอร์) · ไม่ลบคำขอ ใช้เปลี่ยนสถานะเท่านั้น */
-
-const CV_TODAY=Date.parse("2026-08-03T00:00:00Z");
-const beDate2 = thDate;   // ใช้ตัวแปลงกลาง
-const daysAgo=iso=>Math.max(0, Math.floor((CV_TODAY-Date.parse(iso))/864e5));
-// เหตุผลปฏิเสธ (ข้อมูลหลัก) — เลือก "อื่น ๆ" ต้องกรอกหมายเหตุ
-const REJECT_REASONS=[["evidence",()=>t("หลักฐานไม่เพียงพอ/ไม่ชัดเจน","Evidence is missing or unclear")],
-  ["dup",()=>t("เป็นลูกค้าอยู่แล้ว หรือรายการซ้ำ","Already a customer, or a duplicate")],
-  ["notclosed",()=>t("ยังไม่ปิดการขายจริง","The sale is not actually closed")],
-  ["wrongdata",()=>t("พื้นที่/ข้อมูลธุรกิจไม่ถูกต้อง","Wrong area or business details")],
-  ["other",()=>t("อื่น ๆ (ระบุ)","Other (specify)")]];
-const _REJ=Object.fromEntries(REJECT_REASONS.map(([k,v])=>[k,v]));
-/* ป้ายเหตุผลตามภาษาปัจจุบัน — รับ "รหัส" คืนข้อความ */
-const REJ_TH_OF = code => (_REJ[code] ? _REJ[code]() : code);
-const GAP_C={High:"#c81e1e",Medium:"#b45309",Low:"#0f7a3d"};
-
-// mock: คำขอรออนุมัติ 12 (5 ค้าง>3วัน เก่าสุด 8 · 2 ไม่มีหลักฐาน · 1 ไม่มีประวัติเข้าพบ) + ประวัติ 20 (deterministic)
-export function genConvReqs(){
-  let s=20260808>>>0; const R=()=>{s=(s+0x6D2B79F5)>>>0;let t=Math.imul(s^s>>>15,1|s);t=(t+Math.imul(t^t>>>7,61|t))^t;return((t^t>>>14)>>>0)/4294967296;};
-  const pick=a=>a[Math.floor(R()*a.length)], rint=(a,b)=>a+Math.floor(R()*(b-a+1));
-  const PROV=[["Bangkok Metropolis","กรุงเทพมหานคร",["บางรัก","วัฒนา","ห้วยขวาง","จตุจักร","สาทร"],13.74,100.53],
-    ["Pattaya","ชลบุรี",["บางละมุง","ศรีราชา","เมืองพัทยา","หนองปรือ"],12.93,100.88],
-    ["Phuket","ภูเก็ต",["เมืองภูเก็ต","กะทู้","ถลาง","ป่าตอง"],7.88,98.39],
-    ["Chiang Mai","เชียงใหม่",["เมืองเชียงใหม่","สันทราย","หางดง","แม่ริม"],18.79,98.98]];
-  const SEGS=[["Hospitality","ที่พักและสันทนาการ",["Hotel","Resort","Suites","Residence"]],["FoodBeverage","อาหารและเครื่องดื่ม",["Restaurant","Cafe","Bistro","Kitchen"]],
-    ["HealthBeauty","สุขภาพ ความงาม และเวลเนส",["Clinic","Spa","Wellness","Beauty"]],["Retail","ค้าปลีกและสินค้าอุปโภคบริโภค",["Mart","Store","Retail","Shop"]],["Manufacturing","ผลิตและวัสดุอุตสาหกรรม",["Industry","Supplies","Works","Materials"]]];
-  const PFX=["ABC","Grand","Royal","Riverside","Sunset","Emerald","Golden","Siam","Baan","Andaman","Lanna","Nimman","Ocean","Central","Lotus","Sapphire"];
-  const TCN=["ศิริพร ตันติ","ณัฐพงษ์ วงศ์","กมลชนก ศรี","ธนวัฒน์ รัตน์","พิมพ์ชนก กิจ","อภิสิทธิ์ พรหม"];
-  const EVN=["ใบสั่งซื้อ","สัญญาบริการ","ใบเสร็จรับเงิน","หลักฐานการโอน","ภาพหน้าร้าน","บันทึกการประชุม"];
-  const NOTES=["ลูกค้าตกลงสั่งซื้อแล้ว แนบใบสั่งซื้อประกอบ","ปิดการขายรอบนี้ ยืนยันผ่านไลน์แล้ว","เริ่มใช้บริการภายในเดือนนี้","เซ็นสัญญา 1 ปีเรียบร้อย","ตกลงเงื่อนไขแล้ว รอเปิดบิลแรก"];
-  let seq=0;
-  const mk=(ageD,opt={})=>{ const i=++seq; const pr=pick(PROV), sg=pick(SEGS);
-    const gapLevel=pick(["High","High","High","Medium","Medium","Low"]),
-      gapCount= gapLevel==="High"?rint(9,24):gapLevel==="Medium"?rint(4,8):rint(0,3);
-    const reqAt=CV_TODAY-ageD*864e5;
-    const nVisit= opt.noVisit?0:rint(1,4), visits=[];
-    for(let k=0;k<nVisit;k++) visits.push({date:new Date(reqAt-(k*rint(5,18)+rint(2,8))*864e5).toISOString(), kind:pick(["เข้าพบที่ร้าน","โทรติดตาม","นำเสนอสินค้า"]), note:pick(["สนใจมาก ขอใบเสนอราคา","นัดคุยรอบถัดไป","ตัดสินใจใช้บริการ","ต่อรองเงื่อนไข"])});
-    const nEv= opt.noEvidence?0:rint(1,3), files=[];
-    for(let k=0;k<nEv;k++){ const nm=pick(EVN); files.push({name:nm+"-"+(1000+i)+"."+(/ภาพ|หน้าร้าน/.test(nm)?"jpg":"pdf"), kind:/ภาพ|หน้าร้าน/.test(nm)?"image":"pdf"}); }
-    return { id:"CVR"+String(1000+i), prospect_id:"PRO"+String(20000+i).slice(-5), businessName:pick(PFX)+" "+pick(sg[2]),
-      segment:sg[0], segTH:sg[1], province:pr[0], provTH:pr[1], district:pick(pr[2]), lat:pr[3], lng:pr[4],
-      requested_by:pick(TCN), requested_at:new Date(reqAt).toISOString(), note:pick(NOTES),
-      evidence_files:files, gap_snapshot:gapCount, gapLevel_snapshot:gapLevel, visits, status:opt.status||"pending",
-      reviewed_by:null, reviewed_at:null, reject_reason_code:null, reject_note:null }; };
-  const pending=[ mk(8), mk(6), mk(5), mk(4,{noEvidence:true}), mk(4), mk(2,{noEvidence:true}), mk(2,{noVisit:true}), mk(1), mk(1), mk(0), mk(0), mk(3) ];
-  const history=[];
-  for(let i=0;i<20;i++){ const r=mk(rint(2,45)); const appr=R()<0.6;
-    r.reviewed_by="ผู้ดูแลระบบ"; r.reviewed_at=new Date(Date.parse(r.requested_at)+rint(1,4)*864e5).toISOString();
-    if(appr){ r.status="approved"; } else { r.status="rejected"; const rr=pick(REJECT_REASONS); r.reject_reason_code=rr[0]; if(rr[0]==="other") r.reject_note="ข้อมูลไม่ครบถ้วน ให้ตรวจสอบและส่งใหม่"; }
-    history.push(r); }
-  history.sort((a,b)=>Date.parse(b.reviewed_at)-Date.parse(a.reviewed_at));
-  return [...pending, ...history];
-}
-
-function ConversionRequests({reqs, setReqs}){
-  const {user}=useApp();
-  const _admin=(user&&user.name)||t("ผู้ดูแลระบบ","System Administrator"), _email=(user&&user.email)||"admin@geointel.io";
-  const [sub,setSub]=useState("pending");          // pending | history
-  const [filter,setFilter]=useState("all");        // all | stale | noev | prov:<key>
-  const [drawer,setDrawer]=useState(null);         // คำขอที่กำลังดู
-  const [approveOf,setApproveOf]=useState(null);   // คำขอที่กำลังยืนยันอนุมัติ
-  const [sel,setSel]=useState({});                 // เลือกหลายรายการเพื่อปฏิเสธ
-  const [rejOf,setRejOf]=useState(null);           // {ids} กล่องปฏิเสธ
-  const [rejCode,setRejCode]=useState("evidence"); const [rejNote,setRejNote]=useState("");
-  const [preview,setPreview]=useState(null);       // ไฟล์หลักฐานที่เปิดดู
-  const [undoOf,setUndoOf]=useState(null); const [undoNote,setUndoNote]=useState("");
-
-  const pending=reqs.filter(r=>r.status==="pending");
-  const history=reqs.filter(r=>r.status!=="pending").sort((a,b)=>Date.parse(b.reviewed_at)-Date.parse(a.reviewed_at));
-  const staleN=pending.filter(r=>daysAgo(r.requested_at)>3).length;
-  const maxStale=pending.reduce((m,r)=>Math.max(m,daysAgo(r.requested_at)),0);
-  const provsInQ=[...new Set(pending.map(r=>r.province))];
-  const noEv=r=>!r.evidence_files||r.evidence_files.length===0;
-  const noVisit=r=>!r.visits||r.visits.length===0;
-
-  const shown = pending.filter(r=> filter==="all" ? true : filter==="stale" ? daysAgo(r.requested_at)>3
-    : filter==="noev" ? noEv(r) : filter.startsWith("prov:") ? r.province===filter.slice(5) : true)
-    .sort((a,b)=>Date.parse(a.requested_at)-Date.parse(b.requested_at));   // ค้างนานสุดอยู่บน
-
-  const _stamp=()=>new Date(CV_TODAY).toISOString();
-  const approve = req => {
-    setReqs(rs=>rs.map(x=>x.id===req.id?{...x,status:"approved",reviewed_by:_admin,reviewed_at:_stamp()}:x));
-    // อนุมัติ: เปลี่ยนเป็นลูกค้าโดยคงรหัสเดิม + ใช้คะแนน snapshot (ไม่คำนวณใหม่) · เขียน audit 2 รายการ + แจ้งผู้ส่ง
-    pushAudit({user:_email, action:t("อนุมัติคำขอเปลี่ยนเป็นลูกค้า", "Approved a conversion request"), category:"แก้ไข",
-      detail:`${req.businessName} · ${req.provTH} ${t("· คงรหัสเดิม", "· original ID kept")} ${req.prospect_id} ${t("· ช่องว่างของหมวด", "· the category gap")} ${req.gap_snapshot} ${t("ราย (", "are customers (")}${gapTH(req.gapLevel_snapshot)}${t(") แช่แข็งไว้", ") is frozen")}`});
-    pushAudit({user:_email, action:t("แจ้งเตือนผู้ส่งคำขอ", "Notified the requester"), category:"แจ้งเตือน",
-      detail:`${t("แจ้ง", "Notified")} ${req.requested_by}${t(": คำขอ \"", ": the request for \"")}${req.businessName}${t("\" ได้รับการอนุมัติเป็นลูกค้าแล้ว", "\" was approved and is now a customer")}`});
-    toast(`${t("อนุมัติแล้ว — \"", "Approved — \"")}${req.businessName}${t("\" เป็นลูกค้า (คงรหัส", "\" is now a customer (ID kept:")} ${req.prospect_id})`,"good");
-    setApproveOf(null); setDrawer(null);
-  };
-  const doReject = (ids, code, note) => {
-    const nm=id=>(reqs.find(x=>x.id===id)||{}).businessName;
-    setReqs(rs=>rs.map(x=> ids.includes(x.id) ? {...x,status:"rejected",reviewed_by:_admin,reviewed_at:_stamp(),reject_reason_code:code,reject_note:code==="other"?note:null} : x));
-    ids.forEach(id=>pushAudit({user:_email, action:t("ปฏิเสธคำขอเปลี่ยนเป็นลูกค้า", "Rejected a conversion request"), category:"แก้ไข", detail:`${nm(id)} ${t("· เหตุผล:", "· reason:")} ${REJ_TH_OF(code)}${code==="other"&&note?" — "+note:""} ${t("· Lead กลับสถานะเดิม ส่งใหม่ได้", "· the Lead returns to its previous status and can be resubmitted")}`}));
-    toast(`${t("ปฏิเสธ", "Rejected")} ${ids.length} ${t("คำขอ — ส่งกลับให้ผู้ประสานงาน", "requests — sent back to the coordinator")}`,"warn");
-    setRejOf(null); setRejNote(""); setSel({}); setDrawer(null);
-  };
-  const undo = (req, reason) => {
-    setReqs(rs=>rs.map(x=>x.id===req.id?{...x,status:"pending",reviewed_by:null,reviewed_at:null}:x));
-    pushAudit({user:_email, action:t("ย้อนการอนุมัติคำขอ", "Reversed an approval"), category:"แก้ไข", detail:`${req.businessName} ${t("· เหตุผล:", "· reason:")} ${reason} ${t("· กลับเข้าคิวรออนุมัติ", "· back in the approval queue")}`});
-    toast(t("ย้อนการอนุมัติแล้ว — กลับเข้าคิวรออนุมัติ", "Approval reversed — back in the approval queue"),"warn");
-    setUndoOf(null); setUndoNote("");
-  };
-
-  const selIds=Object.keys(sel).filter(k=>sel[k]);
-  const canUndo=r=> r.status==="approved" && (CV_TODAY-Date.parse(r.reviewed_at))<=864e5;   // ภายใน 24 ชม.
-
-  return html`<div class="cv-wrap">
-    <div class="cv-subtabs">
-      <button class=${"cv-st"+(sub==="pending"?" on":"")} onClick=${()=>setSub("pending")}>${t("รออนุมัติ", "Awaiting approval")} ${pending.length?html`<span class="cv-badge">${pending.length}</span>`:""}</button>
-      <button class=${"cv-st"+(sub==="history"?" on":"")} onClick=${()=>setSub("history")}>${t("ประวัติ", "History")}</button>
-    </div>
-
-    ${sub==="pending" ? html`<${Card} title=${t("คำขอเปลี่ยนเป็นลูกค้า", "Conversion requests")}
-      sub=${t("คำขอที่ผู้ประสานงานส่งมาให้อนุมัติเปลี่ยน Lead เป็นลูกค้า · อนุมัติแล้วจะคงรหัสเดิมและแช่แข็งคะแนน ณ วันส่งคำขอ", "Requests from coordinators to convert a Lead into a customer · on approval the original ID is kept and the score is frozen as at the request date")}>
-      <!-- 1) แถบสรุปบรรทัดเดียว -->
-      <div class="cv-summary">${t("รออนุมัติ", "Awaiting approval")} <b>${num(pending.length)}</b> ${t("รายการ · ค้างนานที่สุด", "requests · oldest pending")} <b>${maxStale}</b> ${t("วัน · จาก", "days · from")} <b>${provsInQ.length}</b> ${t("จังหวัด", "Province")}</div>
-      ${staleN>0 ? html`<div class="cv-warnbar"><${Icon} name="info" size=${15}/> ${t("มี", "There are")} <b>${staleN}</b> ${t("รายการค้างเกิน 3 วัน — ควรพิจารณาก่อน", "requests have been pending over 3 days — handle these first")}</div>`:""}
-      <!-- 2) ชิปกรอง -->
-      <div class="cv-chips">
-        <button class=${"cv-chip"+(filter==="all"?" on":"")} onClick=${()=>setFilter("all")}>${t("ทั้งหมด (", "All (")}${pending.length})</button>
-        <button class=${"cv-chip"+(filter==="stale"?" on":"")} onClick=${()=>setFilter("stale")}>${t("ค้างเกิน 3 วัน (", "Pending over 3 days (")}${staleN})</button>
-        <button class=${"cv-chip"+(filter==="noev"?" on":"")} onClick=${()=>setFilter("noev")}>${t("ไม่มีหลักฐานแนบ (", "No evidence attached (")}${pending.filter(noEv).length})</button>
-        ${provsInQ.map(pv=>{ const n=pending.filter(r=>r.province===pv).length; const pt=(pending.find(r=>r.province===pv)||{}).provTH;
-          return html`<button key=${pv} class=${"cv-chip"+(filter==="prov:"+pv?" on":"")} onClick=${()=>setFilter("prov:"+pv)}>${pt} (${n})</button>`; })}
-      </div>
-      ${selIds.length>0 ? html`<div class="cv-selbar"><span>${t("เลือกไว้", "selected")} <b>${selIds.length}</b> ${t("รายการ", "records")}</span>
-        <div style=${{display:"flex",gap:"8px"}}><${Btn} variant="ghost" size="sm" onClick=${()=>setSel({})}>${t("ยกเลิกเลือก", "Clear selection")}</${Btn}>
-        <${Btn} variant="outline" size="sm" onClick=${()=>{ setRejCode("evidence"); setRejNote(""); setRejOf({ids:selIds}); }}>${t("ปฏิเสธที่เลือก (", "Reject selected (")}${selIds.length})</${Btn}></div></div>`:""}
-      <!-- 3) รายการแบบการ์ด -->
-      ${shown.length===0 ? html`<div class="emptybox" style=${{padding:"26px",textAlign:"center"}}>${t("ไม่มีคำขอตามเงื่อนไขที่เลือก", "No requests match the current filters")}</div>`
-      : html`<div class="cv-cards">
-        ${shown.map(r=>{ const d=daysAgo(r.requested_at), stale=d>3, warn=noEv(r)||noVisit(r);
-          return html`<div key=${r.id} class=${"cv-card"+(stale?" stale":"")}>
-          <label class="cv-ck"><input type="checkbox" checked=${!!sel[r.id]} onChange=${e=>setSel(s=>({...s,[r.id]:e.target.checked}))}/></label>
-          <div class="cv-c-body">
-            <div class="cv-c-head">
-              <div class="cv-c-nm">${r.businessName} <span class="cv-gap" style=${{background:GAP_C[r.gapLevel_snapshot]}}>${t("ขาด", "Short")} ${r.gap_snapshot} ${t("ราย", "businesses")}</span></div>
-              <div class="cv-c-days ${stale?"stale":""}">${stale?"":""}${t("ค้าง", " pending")} ${d} ${t("วัน", "days")}</div>
-            </div>
-            <div class="cv-c-meta">${r.segTH} ${t("· อำเภอ", "· district ")}${r.district}</div>
-            <div class="cv-c-meta">${t("ส่งโดย", "Submitted by")} <b>${r.requested_by}</b> ${t("เมื่อ", "on")} ${beDate2(r.requested_at)}</div>
-            <div class="cv-c-meta">${t("เข้าพบ", "Visited")} ${r.visits.length} ${t("ครั้ง", "times ")}${r.visits.length?t(" · ครั้งล่าสุด ", " · most recently ")+beDate2(r.visits[0].date):""} ${t("· หลักฐานแนบ", "· evidence attached")} ${r.evidence_files.length} ${t("ไฟล์", "File")}</div>
-            ${warn ? html`<div class="cv-c-warn">${[noEv(r)?t("ไม่มีหลักฐานแนบ", "No evidence attached"):null, noVisit(r)?t("ไม่มีประวัติการเข้าพบ", "No visit history"):null].filter(Boolean).join(" · ")}</div>`:""}
-            <div class="cv-c-act">
-              <${Btn} variant="ghost" size="sm" onClick=${()=>setDrawer(r)}>${t("ดูรายละเอียด", "View details")}</${Btn}>
-              <${Btn} variant="outline" size="sm" onClick=${()=>{ setRejCode("evidence"); setRejNote(""); setRejOf({ids:[r.id]}); }}>${t("ปฏิเสธ", "Rejected")}</${Btn}>
-              <${Btn} variant="primary" size="sm" icon="check" onClick=${()=>setApproveOf(r)}>${t("อนุมัติ", "Approve")}</${Btn}>
-            </div>
-          </div>
-        </div>`; })}
-      </div>`}
-    </${Card}>`
-    : html`<${Card} title=${t("ประวัติคำขอที่จัดการแล้ว", "Handled requests")} sub=${t("คำขอที่อนุมัติหรือปฏิเสธแล้ว · รายการที่อนุมัติภายใน 24 ชม. ย้อนได้", "Requests already approved or rejected · approvals can be reversed within 24 hours")}>
-      ${history.length===0 ? html`<div class="emptybox" style=${{padding:"26px",textAlign:"center"}}>${t("ยังไม่มีประวัติ", "No history yet")}</div>`
-      : html`<div class="cv-cards">
-        ${history.map(r=>html`<div key=${r.id} class="cv-card hist">
-          <div class="cv-c-body">
-            <div class="cv-c-head">
-              <div class="cv-c-nm">${r.businessName} <span class="cv-gap" style=${{background:GAP_C[r.gapLevel_snapshot]}}>${t("ขาด", "Short")} ${r.gap_snapshot} ${t("ราย", "businesses")}</span></div>
-              <span class=${"cv-status "+r.status}>${r.status==="approved"?t("อนุมัติแล้ว", "Approved"):t("ปฏิเสธแล้ว", "Rejected")}</span>
-            </div>
-            <div class="cv-c-meta">${r.segTH} ${t("· อำเภอ", "· district ")}${r.district} ${t("· ส่งโดย", "· submitted by")} ${r.requested_by}</div>
-            <div class="cv-c-meta">${t("ตัดสินโดย", "Decided by")} <b>${r.reviewed_by}</b> ${t("เมื่อ", "on")} ${beDate2(r.reviewed_at)}${r.status==="rejected"?t(" · เหตุผล: ", " · reason: ")+REJ_TH_OF(r.reject_reason_code)+(r.reject_note?" ("+r.reject_note+")":""):""}</div>
-            ${canUndo(r) ? html`<div class="cv-c-act"><${Btn} variant="outline" size="sm" onClick=${()=>{ setUndoNote(""); setUndoOf(r); }}>${t("ย้อนการอนุมัติ", "Reverse the approval")}</${Btn}></div>`:""}
-          </div>
-        </div>`)}
-      </div>`}
-    </${Card}>`}
-
-    <!-- 4) แผงรายละเอียด (drawer จากขวา) -->
-    ${drawer ? createPortal(html`<div class="cv-drawer-back" onMouseDown=${e=>{ if(e.target.classList.contains("cv-drawer-back")) setDrawer(null); }}>
-      <div class="cv-drawer">
-        <div class="cv-dr-head"><div><div class="cv-dr-nm">${drawer.businessName}</div><div class="cv-c-meta">${t("รหัส", "ID")} ${drawer.prospect_id} · ${drawer.segTH} · ${drawer.provTH}</div></div>
-          <button class="cv-x" onClick=${()=>setDrawer(null)}><${Icon} name="close" size=${16}/></button></div>
-        <div class="cv-dr-body">
-          <!-- ส่วนที่ 1 · ข้อมูลธุรกิจ + แผนที่ + คะแนน -->
-          <div class="cv-sec-t">${t("ข้อมูลธุรกิจ", "Business details")}</div>
-          <div class="cv-kv"><span>${t("อำเภอ", "District")}</span><b>${drawer.district}</b></div>
-          <div class="cv-kv"><span>${t("หมวดธุรกิจ", "Business category")}</span><b>${drawer.segTH}</b></div>
-          <div class="cv-score">${t("Lead ของหมวดนี้", "Lead index for this category")} <b style=${{color:GAP_C[drawer.gapLevel_snapshot]}}>${gapTH(drawer.gapLevel_snapshot)}</b> ${t("· ยังขาด", "· short by")} <b>${drawer.gap_snapshot}</b> ${t("ราย —", "businesses —")} <span class="cv-frozen">${t("ค่านี้จะถูกบันทึกถาวรเมื่ออนุมัติ ไม่คำนวณใหม่", "this value is stored permanently on approval and never recalculated")}</span></div>
-          <${CvMiniMap} lat=${drawer.lat} lng=${drawer.lng}/>
-          <!-- ส่วนที่ 2 · ประวัติการเข้าพบ -->
-          <div class="cv-sec-t">${t("ประวัติการเข้าพบ (", "Visit history (")}${drawer.visits.length})</div>
-          ${drawer.visits.length? drawer.visits.map((v,i)=>html`<div key=${i} class="cv-visit"><div class="cv-visit-h"><b>${v.kind}</b><span>${beDate2(v.date)}</span></div><div class="cv-c-meta">${v.note}</div></div>`)
-            : html`<div class="cv-c-warn" style=${{margin:"4px 0"}}>${t("ไม่มีประวัติการเข้าพบ", "No visit history")}</div>`}
-          <!-- ส่วนที่ 3 · หลักฐานที่แนบ (ดูในหน้าเดียวกัน) -->
-          <div class="cv-sec-t">${t("หลักฐานที่แนบ (", "Attached evidence (")}${drawer.evidence_files.length})</div>
-          ${drawer.evidence_files.length? html`<div class="cv-files">${drawer.evidence_files.map((f,i)=>html`<button key=${i} class="cv-file" onClick=${()=>setPreview(f)}><${Icon} name=${f.kind==="image"?"image":"file"} size=${14}/> ${f.name}</button>`)}</div>`
-            : html`<div class="cv-c-warn" style=${{margin:"4px 0"}}>${t("ไม่มีหลักฐานแนบ", "No evidence attached")}</div>`}
-          <!-- ส่วนที่ 4 · หมายเหตุจากผู้ส่ง -->
-          <div class="cv-sec-t">${t("หมายเหตุจากผู้ส่งคำขอ", "Note from the requester")}</div>
-          <div class="cv-note">"${drawer.note}" — ${drawer.requested_by}, ${beDate2(drawer.requested_at)}</div>
-        </div>
-        <div class="cv-dr-foot">
-          <${Btn} variant="outline" onClick=${()=>{ setRejCode("evidence"); setRejNote(""); setRejOf({ids:[drawer.id]}); }}>${t("ปฏิเสธ", "Rejected")}</${Btn}>
-          <${Btn} variant="primary" icon="check" onClick=${()=>setApproveOf(drawer)}>${t("อนุมัติเปลี่ยนเป็นลูกค้า", "Approved conversion to customer")}</${Btn}>
-        </div>
-      </div>
-    </div>`, document.body):""}
-
-    <!-- ดูไฟล์หลักฐานในหน้าเดียวกัน -->
-    ${preview ? html`<${Modal} title=${preview.name} onClose=${()=>setPreview(null)}>
-      <div class="cv-preview">${preview.kind==="image"
-        ? html`<div class="cv-prev-img"><${Icon} name="image" size=${40} color="var(--muted)"/><div>${t("ภาพตัวอย่างหลักฐาน (ระบบสาธิต)", "Sample evidence image (demo)")}</div></div>`
-        : html`<div class="cv-prev-pdf"><${Icon} name="file" size=${40} color="var(--accent)"/><div>${t("เอกสาร PDF —", "PDF document —")} ${preview.name}</div><div class="cv-c-meta">${t("แสดงตัวอย่างในหน้าเดียวกันโดยไม่ต้องดาวน์โหลด (ระบบสาธิต)", "previewed inline without downloading (demo)")}</div></div>`}</div>
-    </${Modal}>`:""}
-
-    <!-- 5) ยืนยันอนุมัติ (ทีละรายการ) -->
-    ${approveOf ? html`<${Modal} title=${t("ยืนยันอนุมัติเปลี่ยนเป็นลูกค้า", "Confirm conversion to customer")} onClose=${()=>setApproveOf(null)}>
-      <div class="cv-confirm">${t("เมื่ออนุมัติ \"", "On approving \"")}<b>${approveOf.businessName}</b>${t("\" ระบบจะดำเนินการ:", "\" the system will:")}</div>
-      <ul class="cv-clist">
-        <li>${t("เปลี่ยนประเภทเป็น", "change the type to")} <b>${t("ลูกค้า", "Customers")}</b> ${t("โดย", "By")}<b>${t("คงรหัสเดิม", "keep the original ID")} ${approveOf.prospect_id}</b> ${t("(ไม่สร้างรหัสใหม่)", "(no new ID is created)")}</li>
-        <li>${t("บันทึก Lead ของหมวด", "store the category Lead index")} <b>${approveOf.gap_snapshot}</b> ${t("ราย (", "are customers (")}${gapTH(approveOf.gapLevel_snapshot)}${t(") จาก snapshot ถาวร (ไม่คำนวณใหม่)", ") from a permanent snapshot (never recalculated)")}</li>
-        <li>${t("อัปเดตแผนที่และตัวเลขสรุปทั้งระบบ", "update the map and every summary figure")}</li>
-        <li>${t("เขียนบันทึกการตรวจสอบ 2 รายการ และแจ้งเตือนผู้ส่งคำขอ", "write two audit entries and notify the requester")}</li>
-      </ul>
-      <div class="cv-modal-foot"><${Btn} variant="ghost" onClick=${()=>setApproveOf(null)}>${t("ยกเลิก", "Cancel")}</${Btn}><${Btn} variant="primary" icon="check" onClick=${()=>approve(approveOf)}>${t("ยืนยันอนุมัติ", "Confirm approval")}</${Btn}></div>
-    </${Modal}>`:""}
-
-    <!-- 6) ปฏิเสธ (เลือกได้หลายรายการ · ต้องเลือกเหตุผล) -->
-    ${rejOf ? html`<${Modal} title=${`${t("ปฏิเสธคำขอ", "Reject the request")} ${rejOf.ids.length} ${t("รายการ", "records")}`} onClose=${()=>setRejOf(null)}>
-      <div class="cv-confirm">${t("เลือกเหตุผลการปฏิเสธ (Lead จะกลับสถานะเดิม ส่งคำขอใหม่ได้ · คำขอเดิมเก็บในประวัติ):", "Pick a rejection reason (the Lead returns to its previous status and can be resubmitted · the original request is kept in the history):")}</div>
-      <div class="cv-reasons">${REJECT_REASONS.map(([k,v])=>html`<label key=${k} class=${"cv-reason"+(rejCode===k?" on":"")}>
-        <input type="radio" name="rej" checked=${rejCode===k} onChange=${()=>setRejCode(k)}/> ${v}</label>`)}</div>
-      ${rejCode==="other" ? html`<textarea class="cv-note-in" placeholder=${t("ระบุเหตุผล…", "Describe the reason…")} value=${rejNote} onInput=${e=>setRejNote(e.target.value)}></textarea>`:""}
-      <div class="cv-modal-foot"><${Btn} variant="ghost" onClick=${()=>setRejOf(null)}>${t("ยกเลิก", "Cancel")}</${Btn}>
-        <${Btn} variant="primary" onClick=${()=>{ if(rejCode==="other"&&!rejNote.trim()){ toast(t("กรุณากรอกหมายเหตุสำหรับ 'อื่น ๆ'", "Please add a note for 'Other'"),"warn"); return; } doReject(rejOf.ids, rejCode, rejNote.trim()); }}>${t("ยืนยันปฏิเสธ", "Confirm rejection")}</${Btn}></div>
-    </${Modal}>`:""}
-
-    <!-- ย้อนการอนุมัติ (ต้องกรอกเหตุผล) -->
-    ${undoOf ? html`<${Modal} title=${t("ย้อนการอนุมัติ", "Reverse the approval")} onClose=${()=>setUndoOf(null)}>
-      <div class="cv-confirm">${t("ย้อนการอนุมัติ \"", "Reverse the approval of \"")}<b>${undoOf.businessName}</b>${t("\" — รายการจะกลับเข้าคิวรออนุมัติ กรุณาระบุเหตุผล:", "\" — it goes back into the approval queue. Please give a reason:")}</div>
-      <textarea class="cv-note-in" placeholder=${t("เหตุผลการย้อน…", "Reason for reversing…")} value=${undoNote} onInput=${e=>setUndoNote(e.target.value)}></textarea>
-      <div class="cv-modal-foot"><${Btn} variant="ghost" onClick=${()=>setUndoOf(null)}>${t("ยกเลิก", "Cancel")}</${Btn}>
-        <${Btn} variant="primary" onClick=${()=>{ if(!undoNote.trim()){ toast(t("กรุณากรอกเหตุผล", "Please give a reason"),"warn"); return; } undo(undoOf, undoNote.trim()); }}>${t("ยืนยันย้อน", "Confirm reversal")}</${Btn}></div>
-    </${Modal}>`:""}
-    <style>${CV_CSS}</style>
-  </div>`;
-}
-
-// แผนที่ย่อในแผงรายละเอียด (Leaflet)
-function CvMiniMap({lat,lng}){
-  const ref=useRef(null);
-  const lang=useLang();   // สลับภาษา → สร้างแผนที่ย่อใหม่ (ป้ายชื่อสถานที่เปลี่ยนตาม)
-  useEffect(()=>{ const L=window.L; if(!L||!ref.current) return;
-    const m=L.map(ref.current,{zoomControl:false,attributionControl:false,scrollWheelZoom:false,dragging:false}).setView([lat,lng],12);
-    basemap(m);
-    L.marker([lat,lng]).addTo(m); setTimeout(()=>m.invalidateSize(),60); return ()=>m.remove();
-  },[lat,lng,lang]);
-  return html`<div class="cv-map" ref=${ref}></div>`;
-}
-const CV_CSS=`
-.cv-subtabs{display:flex;gap:8px;margin-bottom:14px}
-.cv-st{padding:9px 16px;border-radius:10px;border:1px solid var(--stroke2);background:var(--surface);cursor:pointer;font-family:var(--font);font-size:13px;font-weight:700;color:var(--muted);display:inline-flex;align-items:center;gap:7px}
-.cv-st.on{background:var(--accent);color:#fff;border-color:var(--accent)}
-.cv-badge{background:#fff;color:var(--accent-deep);border-radius:999px;font-size:11px;font-weight:800;padding:1px 8px}
-.cv-st.on .cv-badge{background:rgba(30,45,80,.10)}
-.cv-summary{font-size:13.5px;color:var(--txt);padding:11px 14px;border-radius:10px;background:var(--surface2);border:1px solid var(--stroke);margin-bottom:10px}
-.cv-summary b{color:var(--accent-deep)}
-.cv-warnbar{display:flex;align-items:center;gap:8px;font-size:12.5px;color:#b45309;background:rgba(255,176,46,.12);border:1px solid rgba(255,176,46,.3);border-radius:10px;padding:9px 13px;margin-bottom:12px}
-.cv-chips{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px}
-.cv-chip{padding:7px 13px;border-radius:999px;border:1px solid var(--stroke2);background:var(--surface);cursor:pointer;font-family:var(--font);font-size:12px;font-weight:600;color:var(--muted)}
-.cv-chip.on{background:var(--accent-soft);border-color:var(--accent);color:var(--accent-deep);font-weight:700}
-.cv-selbar{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;padding:9px 13px;border-radius:10px;background:var(--accent-soft);border:1px solid rgba(230, 0, 35,.25);margin-bottom:12px;font-size:12.5px}
-.cv-cards{display:flex;flex-direction:column;gap:11px}
-.cv-card{display:flex;gap:10px;padding:13px 15px;border-radius:12px;border:1px solid var(--stroke2);background:var(--surface)}
-.cv-card.stale{border-left:4px solid #b45309}
-.cv-card.hist{opacity:.96}
-.cv-ck{flex:none;padding-top:2px}
-.cv-c-body{flex:1;min-width:0}
-.cv-c-head{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;flex-wrap:wrap}
-.cv-c-nm{font-size:14px;font-weight:800;color:var(--txt)}
-.cv-gap{margin-left:7px;color:#fff;font-size:11.5px;font-weight:800;padding:2px 9px;border-radius:999px;vertical-align:1px}
-.cv-c-days{font-size:12px;font-weight:700;color:var(--muted);white-space:nowrap}
-.cv-c-days.stale{color:#b45309}
-.cv-c-meta{font-size:12.5px;color:var(--muted);margin-top:4px}
-.cv-c-warn{margin-top:7px;font-size:12px;font-weight:700;color:#b45309;background:rgba(255,176,46,.12);border:1px solid rgba(255,176,46,.3);border-radius:8px;padding:6px 10px}
-.cv-c-act{display:flex;gap:8px;flex-wrap:wrap;margin-top:11px}
-.cv-status{font-size:11.5px;font-weight:800;padding:3px 11px;border-radius:999px;white-space:nowrap}
-.cv-status.approved{background:rgba(51,214,159,.15);color:#0f7a3d}
-.cv-status.rejected{background:rgba(230, 0, 35,.1);color:#b30019}
-.cv-drawer-back{position:fixed;inset:0;z-index:1300;background:rgba(4,7,14,.5);backdrop-filter:blur(6px);display:grid;place-items:center;padding:24px}
-.cv-drawer{width:560px;max-width:100%;max-height:88vh;background:var(--panel);border:1px solid var(--stroke2);border-radius:16px;box-shadow:0 24px 70px rgba(0,0,0,.4);overflow:hidden;display:flex;flex-direction:column;animation:cv-pop .24s cubic-bezier(.2,.9,.25,1)}
-@keyframes cv-pop{from{transform:scale(.96);opacity:0}to{transform:none;opacity:1}}
-.cv-dr-head{flex:none;display:flex;justify-content:space-between;align-items:flex-start;gap:12px;padding:18px 20px 12px;border-bottom:1px solid var(--stroke)}
-.cv-dr-nm{font-size:16px;font-weight:800;color:var(--txt)}
-.cv-x{flex:none;width:32px;height:32px;border:none;border-radius:9px;cursor:pointer;background:var(--surface);color:var(--muted)}
-.cv-dr-body{flex:1;overflow-y:auto;padding:16px 20px}
-.cv-sec-t{font-size:12.5px;font-weight:800;color:var(--txt);text-transform:none;margin:16px 0 8px;padding-top:12px;border-top:1px dashed var(--stroke)}
-.cv-sec-t:first-child{margin-top:0;padding-top:0;border-top:none}
-.cv-kv{display:flex;justify-content:space-between;gap:10px;font-size:13px;padding:5px 0}
-.cv-kv span{color:var(--muted)}
-.cv-score{font-size:13px;margin:8px 0;line-height:1.6}
-.cv-frozen{color:#b45309;font-size:12px;font-weight:600}
-.cv-map{height:150px;border-radius:11px;overflow:hidden;margin:8px 0 2px;border:1px solid var(--stroke2)}
-.cv-visit{padding:9px 11px;border-radius:9px;background:var(--surface2);margin-bottom:7px}
-.cv-visit-h{display:flex;justify-content:space-between;font-size:12.5px;color:var(--txt)}
-.cv-files{display:flex;flex-direction:column;gap:7px}
-.cv-file{display:flex;align-items:center;gap:8px;padding:9px 12px;border-radius:9px;border:1px solid var(--stroke2);background:var(--surface);cursor:pointer;font-family:var(--font);font-size:12.5px;color:var(--accent-deep);font-weight:600;text-align:left}
-.cv-file:hover{background:var(--accent-soft)}
-.cv-note{font-size:13px;color:var(--txt);line-height:1.6;background:var(--surface2);border-radius:10px;padding:11px 13px}
-.cv-dr-foot{flex:none;display:flex;gap:10px;justify-content:flex-end;padding:14px 20px;border-top:1px solid var(--stroke);background:var(--surface)}
-.cv-confirm{font-size:13.5px;color:var(--txt);line-height:1.6;margin-bottom:10px}
-.cv-clist{margin:0 0 6px;padding-left:20px;font-size:13px;color:var(--txt);line-height:1.85}
-.cv-reasons{display:flex;flex-direction:column;gap:7px;margin-bottom:10px}
-.cv-reason{display:flex;align-items:center;gap:9px;padding:9px 12px;border-radius:9px;border:1px solid var(--stroke2);cursor:pointer;font-size:13px;color:var(--txt)}
-.cv-reason.on{border-color:var(--accent);background:var(--accent-soft);color:var(--accent-deep);font-weight:700}
-.cv-note-in{width:100%;min-height:70px;border-radius:9px;border:1px solid var(--stroke2);padding:9px 11px;font-family:var(--font);font-size:13px;resize:vertical}
-.cv-modal-foot{display:flex;gap:9px;justify-content:flex-end;margin-top:14px}
-.cv-preview{padding:8px}
-.cv-prev-img,.cv-prev-pdf{display:flex;flex-direction:column;align-items:center;gap:10px;padding:34px;text-align:center;color:var(--txt);font-size:13px;background:var(--surface2);border-radius:12px}
-@media(max-width:520px){.cv-drawer{width:100%;max-height:92vh}}
-`;
-
 /* ═══════════════════════════════════════════════════════════════════════════
    หน้า "จัดการข้อมูล" แยกเป็น 4 หน้าตามเมนูซ้าย (เดิมเป็นแท็บอยู่ในหน้าเดียว)
      จัดการข้อมูล      → ตารางข้อมูลลูกค้าและ Lead ที่มีอยู่ในระบบ  (DataRecords)
@@ -1469,7 +1168,7 @@ const CV_CSS=`
    staging/leads ถูกเก็บไว้ที่ระดับโมดูล เพราะการสลับเมนูทำให้คอมโพเนนต์ remount
    ถ้าเก็บใน useState เฉย ๆ สิ่งที่ผู้ใช้จัดการไปแล้วจะรีเซ็ตทุกครั้งที่เปลี่ยนหน้า
    ═══════════════════════════════════════════════════════════════════════════ */
-const SHARED = { staging:null, leads:null };
+const SHARED = { staging:null };
 function useShared(key, gen){
   const [v,setV] = useState(()=> SHARED[key] || (SHARED[key] = gen()));
   const set = up => setV(prev=>{ const next = typeof up==="function" ? up(prev) : up; SHARED[key]=next; return next; });
@@ -1504,7 +1203,7 @@ export function DataManagement(){
   const [exportOpen,setExportOpen]=useState(false);
 
   const custs=db.customers||[], pros=db.prospects||[];
-  const loading = !custs.length && !pros.length;
+  const loading = !custs.length && !pros.length && !db.dataReady;
   const rows = useMemo(()=>[
     ...custs.map(c=>({...c, _kind:"Existing"})),
     ...pros.map(p=>({...p, _kind:"Prospect"})),
@@ -1529,7 +1228,7 @@ export function DataManagement(){
   const reset = fn => (...a)=>{ setPage(1); fn(...a); };
 
   // ── ส่งออกข้อมูลตามตัวกรองบนหน้าจอ (สิทธิ์ตามบทบาท — ดูตาราง "สิทธิ์การส่งออกตามบทบาท" ในตั้งค่าระบบ) ──
-  const _role=(user&&user.role)||"Administrator", _uname=(user&&user.name)||t("ผู้ดูแลระบบ","System Administrator");
+  const _role=(user&&user.role)||"Administrator";
   const _areaLabel = prov==="All" ? t("ทุกจังหวัด","All provinces") : provinceTH(prov);
   const _segLabel  = seg==="All" ? t("ทุกหมวด","All categories") : segTH(seg);
   const exportScope = { areaName:_areaLabel, areaLabel:_areaLabel, segLabel:_segLabel,
@@ -1567,20 +1266,9 @@ export function DataManagement(){
     }
     return rows; };
   const doExport = ({format, filename, opts, dataSel, count, scope})=>{
-    const name=(filename||"").trim().replace(/[\/:*?"<>|]+/g,"_")||defaultReportName(scope);
-    const fmtLabel={pdf:"PDF",excel:"Excel",csv:"CSV"}[format]||format;
-    const scopeStr=scope.areaLabel+" · "+scope.segLabel;
-    // TODO(server): ด่านนี้เป็นชั้นเสริมฝั่งเบราว์เซอร์ ของจริงต้องบังคับที่ API ตอนดึงข้อมูล
-    if(!canExport(_role, format)){
-      pushAudit({user:_uname, action:t("ส่งออกรายงานถูกปฏิเสธ","Report export refused"), category:"ส่งออก",
-        detail:fmtLabel+" · "+scopeStr+" · "+num(count||0)+" "+t("รายการ","records")});
-      toast(t("บทบาทของคุณไม่มีสิทธิ์ส่งออกไฟล์","Your role cannot export files")+" "+fmtLabel,"bad"); setExportOpen(false); return; }
-    const rows=buildExportRows({...opts, dataSel}); setExportOpen(false);
-    if(format==="csv"){ downloadCSV(name+".csv", rows); toast(t("ส่งออกไฟล์ CSV แล้ว","CSV file exported"),"good"); }
-    else if(format==="excel"){ downloadXLS(name+".xls", rows); toast(t("ส่งออกไฟล์ Excel แล้ว","Excel file exported"),"good"); }
-    else { toast(t("กำลังเตรียมไฟล์ PDF…","Preparing the PDF…"),"info"); setTimeout(()=>window.print(),350); }
-    pushAudit({user:_uname, action:t("ส่งออกรายงาน","Export report"), category:"ส่งออก",
-      detail:fmtLabel+" · "+name+" · "+scopeStr+" · "+num(count||0)+" "+t("รายการ","records")});
+    const rows = format==="pdf" ? null : buildExportRows({...opts, dataSel});
+    setExportOpen(false);
+    runExport({kind:"places", format, filename:exportName(filename, scope), rows, count, scope});
   };
 
   const COLS=[
@@ -1609,7 +1297,7 @@ export function DataManagement(){
       caption=${`${t("ลูกค้า", "Customers")} ${num(custs.length)} ${t("ราย · Lead", "customers · Leads")} ${num(pros.length)} ${t("ราย · รวม", "· total")} ${num(rows.length)} ${t("รายการ", "records")}`}
       action=${html`<${Btn} variant="outline" icon="download" disabled=${!shown.length}
         onClick=${()=>setExportOpen(true)}>${t("ส่งออกข้อมูล", "Export data")}</${Btn}>`}/>
-    ${exportOpen && html`<${ExportDialog} scope=${exportScope} role=${_role}
+    ${exportOpen && html`<${ExportDialog} scope=${exportScope} role=${_role} kind="places"
       buildPreviewRows=${buildExportRows} onClose=${()=>setExportOpen(false)} onExport=${doExport}/>`}
 
     <div class="grid g4" style=${{marginBottom:"14px"}}>
@@ -1709,11 +1397,10 @@ export function DataFiles(){
 
 /* ───────── เมนูย่อย 3: จัดการ Lead ───────── */
 export function DataLeads(){
-  const [leads,setLeads]=useShared("leads", genLeads);
-  const todo=leads.filter(l=>l.status==="pending").length;
+  const [todo,setTodo]=useState(null);
   return html`<div class="page fade-in">
-    <${DmHead} title=${t("จัดการ Lead", "Lead management")} caption=${todo?`${t("มีรายการที่ต้องจัดการ", "records need attention")} ${num(todo)} ${t("รายการ", "records")}`:t("ไม่มีรายการค้างจัดการ", "No rows pending")}/>
-    <${LeadManagement} leads=${leads} setLeads=${setLeads}/>
+    <${DmHead} title=${t("จัดการ Lead", "Lead management")} caption=${todo==null?"":todo?`${t("มีรายการที่ต้องจัดการ", "records need attention")} ${num(todo)} ${t("รายการ", "records")}`:t("ไม่มีรายการค้างจัดการ", "No rows pending")}/>
+    <${LeadManagement} onCounts=${c=>setTodo(c.pending)}/>
     <style>${DM_CSS}</style>
   </div>`;
 }
@@ -1863,19 +1550,18 @@ const DM_CSS=`
    ไม่ใช้เกรด A/B/C หรือคะแนนศักยภาพ — คอลัมน์ "Lead" อ้าง high-demand gap ของจังหวัดที่มีข้อมูลจริง
    ═══════════════════════════════════════════════════════════════════════════ */
 
-const TC_USERS  = SEED_USERS.filter(u=>u.role==="Trade Coordinator");
-const TC_BY_ID  = Object.fromEntries(TC_USERS.map(u=>[u.id,u]));
+const tcOnly = list => (list||[]).filter(u=>u.role==="Trade Coordinator");
+const SEED_TC = tcOnly(SEED_USERS);
 // สีประจำ TC มาจาก "ข้อมูลหลัก › ผู้ประสานงานการค้า (TC)" — แก้ที่นั่นแล้วแผนที่นี้เปลี่ยนตาม
 // ถ้ายังไม่ได้ตั้งค่า จะถอยไปใช้จานสีตั้งต้นตามลำดับรายชื่อ
 // ลำดับบัญชีใช้เป็นตัวเลือกสีตั้งต้นเมื่อแอดมินยังไม่ได้ตั้งสีเอง
-const tcColor   = id => tcColorOf(id, TC_USERS.findIndex(u=>u.id===id));
 // จังหวัดข้างเคียงที่ TC แต่ละคนดูแลเพิ่มจาก "จังหวัดหลัก" ในโปรไฟล์ผู้ใช้ (ค่าตั้งต้นจำลอง)
 const TC_EXTRA_COVER = { 3:["Nonthaburi","Pathum Thani","Samut Prakan"], 4:["Rayong","Chachoengsao"],
   6:["Lamphun","Chiang Rai"], 7:["Phangnga","Krabi"] };
-const seedTerritory = () => { const m={};
+const seedTerritory = (tcUsers, extras) => { const m={};
   // จังหวัดหลักจากโปรไฟล์ + จังหวัดข้างเคียง — กรุงเทพฯ กระจายเป็น 3 โซน (เริ่มต้นเจ้าของเดียวกันทั้งหมด)
-  for(const u of TC_USERS){ if(u.province) for(const k of unitsOf(u.province)) m[k]=u.id;
-    for(const pv of (TC_EXTRA_COVER[u.id]||[])) for(const k of unitsOf(pv)) m[k]=u.id; }
+  for(const u of tcUsers){ if(u.province) for(const k of unitsOf(u.province)) m[k]=u.id;
+    for(const pv of ((extras&&TC_EXTRA_COVER[u.id])||[])) for(const k of unitsOf(pv)) m[k]=u.id; }
   return m; };
 /* ภูมิภาค 6 ภาค — ครบ 77 จังหวัด (เหนือ 9 · อีสาน 20 · กลาง 22 · ตะวันออก 7 · ตะวันตก 5 · ใต้ 14)
    ใช้คีย์ภาษาอังกฤษชุดเดียวกับ provincesGeo · "Pattaya" ในชุดข้อมูลนี้คือชลบุรี */
@@ -1986,7 +1672,7 @@ function buildZonePaths(zonesGeo, proj){
 }
 
 /* แผนที่ขอบเขต — ระบายสีตาม TC ที่ดูแล · จังหวัดไร้ผู้ดูแลใช้ลายทแยงแดง (เห็นชัดแม้พิมพ์ขาวดำ) */
-function TerritoryMap({paths, assign, focus, onFocus, zonePaths}){
+function TerritoryMap({paths, assign, focus, onFocus, zonePaths, tcById, tcColor}){
   const [hover,setHover]=useState(null);
   const [zoom,setZoom]=useState(false);   // ซูมไปที่กรุงเทพฯ เพื่อให้คลิกเลือกโซนได้ถนัด
   if(!paths) return html`<div class="tr-map-load">${t("กำลังโหลดขอบเขตจังหวัด…", "Loading province boundaries…")}</div>`;
@@ -1996,9 +1682,9 @@ function TerritoryMap({paths, assign, focus, onFocus, zonePaths}){
   const tcOf = pv => { const ks=unitsOf(pv), ids=[...new Set(ks.map(k=>assign[k]).filter(Boolean))];
     if(!ids.length) return null;
     if(ids.length>1) return "mixed";
-    return TC_BY_ID[ids[0]]||null; };
+    return tcById[ids[0]]||null; };
   // shown เป็นได้ทั้งชื่อจังหวัด ("Chiang Mai") และคีย์หน่วยระดับโซน ("Bangkok Metropolis/LP")
-  const ownerOf = key => key && key.includes("/") ? (TC_BY_ID[assign[key]]||null) : tcOf(key);
+  const ownerOf = key => key && key.includes("/") ? (tcById[assign[key]]||null) : tcOf(key);
   // ซูม: กรุงเทพฯ กินพื้นที่แค่ ~2% ของภาพทั้งประเทศ โซนย่อยจึงเล็กจนคลิกยาก
   // กดปุ่มแล้วเปลี่ยน viewBox ไปที่กรอบของกรุงเทพฯ (เผื่อขอบ 25%) — ไม่ต้องแตะรูปหรือสเกลใด ๆ
   const bb = paths.bboxByProv && paths.bboxByProv[BKK];
@@ -2029,7 +1715,7 @@ function TerritoryMap({paths, assign, focus, onFocus, zonePaths}){
         // กรุงเทพฯ ที่มีรูปโซนแล้ว: รูปจังหวัดกลายเป็นหน่วย "พื้นที่นอกโซน" (คลิกมอบหมายได้)
         // โซนถูกวาดทับทีหลัง จึงคลิกโซนได้อยู่ — ตรงที่ไม่มีโซนทับคือพื้นที่ที่เหลือ
         if(pv===BKK && zonePaths){
-          const rk=unitKey(BKK, ZONE_REST), rtc=TC_BY_ID[assign[rk]]||null, ron=shown===rk;
+          const rk=unitKey(BKK, ZONE_REST), rtc=tcById[assign[rk]]||null, ron=shown===rk;
           return html`<path key=${pv} d=${d} class=${"tr-path"+(ron?" on":"")}
             fill=${rtc ? tcColor(rtc.id)+"3d" : "url(#trNoMan)"}
             stroke=${ron ? "#161d2b" : rtc ? tcColor(rtc.id) : "#dc2626"}
@@ -2048,7 +1734,7 @@ function TerritoryMap({paths, assign, focus, onFocus, zonePaths}){
       })}
       <!-- โซนของกรุงเทพฯ ตามเส้นที่แอดมินลากไว้ — 1 รูป = 1 หน่วยที่มอบหมายได้ คลิกเลือกได้ทีละโซน -->
       ${zonePaths && zonesOf(BKK).map(z=>{ const d=zonePaths[z.zone_id]; if(!d) return null;
-        const key=unitKey(BKK,z.zone_id), tc=TC_BY_ID[assign[key]]||null, on=shown===key;
+        const key=unitKey(BKK,z.zone_id), tc=tcById[assign[key]]||null, on=shown===key;
         return html`<path key=${key} d=${d} class=${"tr-path"+(on?" on":"")}
           fill=${tc? tcColor(tc.id)+"55" : "url(#trNoMan)"}
           stroke=${on? "#161d2b" : tc? tcColor(tc.id) : "#dc2626"}
@@ -2068,7 +1754,10 @@ function TerritoryMap({paths, assign, focus, onFocus, zonePaths}){
 
 export function TerritoryManager(){
   const {db,startZoneEdit}=useApp();
-  const [assign,setAssign] = useState(seedTerritory);   // { ชื่อจังหวัด(อังกฤษ): id ของ TC }
+  const [assign,setAssign] = useState({});   // { ชื่อจังหวัด(อังกฤษ): id ของ TC }
+  const [tcUsers,setTcUsers] = useState([]);
+  const tcById = useMemo(()=>Object.fromEntries(tcUsers.map(u=>[u.id,u])),[tcUsers]);
+  const tcColor = id => tcColorOf(id, tcUsers.findIndex(u=>u.id===id));
   const [geo,setGeo]       = useState(()=>db.provincesGeo||null);
   const [focus,setFocus]   = useState(null);            // จังหวัดที่คลิกจากแผนที่ (null = ยังไม่ได้เลือก)
   const [legendAll,setLegendAll] = useState(false);     // กางคำอธิบายสีให้ครบทุกคน
@@ -2078,9 +1767,14 @@ export function TerritoryManager(){
   // loadedRef กันไม่ให้เซฟทับก่อนโหลดเสร็จ (ถ้าแอดมินกดมอบหมายเร็วมากตอนหน้ายังโหลดอยู่)
   const loadedRef = useRef(false);
   useEffect(()=>{ let alive=true;
-    loadTerritory().then(res=>{ if(!alive) return;
-      if(res) setAssign(res.assign);
-      loadedRef.current = true; });
+    Promise.all([listUsers().catch(()=>null), loadTerritory()]).then(([lu,res])=>{ if(!alive) return;
+      const real = !!(lu && lu.ok && Array.isArray(lu.users));
+      const demo = !real && !token();
+      const list = real ? tcOnly(lu.users) : demo ? SEED_TC : [];
+      if(!real && !demo) toast(t("โหลดรายชื่อผู้ประสานงานการค้าไม่สำเร็จ", "Could not load the trade coordinators"), "bad");
+      setTcUsers(list);
+      setAssign(res ? res.assign : seedTerritory(list, demo));
+      loadedRef.current = real || demo; });
     return ()=>{ alive=false; }; },[]);
 
   // ขอบเขตจังหวัด: ใช้ของที่แอปโหลดไว้แล้วถ้ามี — ไม่มีก็ดึงเอง (ไฟล์ถูกแคชอยู่ในชั้น data.js)
@@ -2101,15 +1795,15 @@ export function TerritoryManager(){
   const areaBy = db.areaByProvince||{};
   // 1 แถว = 1 หน่วย (กรุงเทพฯ ได้ 3 แถว ตามโซน) · ตัวเลข Lead ยังอ้างระดับจังหวัดตามเดิม
   const rows = useMemo(()=> unitsAll().map(key=>{
-    const tc = TC_BY_ID[assign[key]]||null;
+    const tc = tcById[assign[key]]||null;
     return { key, prov:unitProv(key), zone:unitZone(key), th:unitLabel(key), tc, covered:!!tc,
       area: areaBy[unitProv(key)]||null };
   // zonesGeo อยู่ใน deps เพราะจำนวน "หน่วย" เปลี่ยนตามทะเบียนโซน (เพิ่ม/รวม/ลบโซนแล้วตารางต้องเปลี่ยนตาม)
-  }),[assign, areaBy, getLang(), zonesGeo]);
+  }),[assign, areaBy, getLang(), zonesGeo, tcById]);
 
   const coveredN = rows.filter(r=>r.covered).length;
   const noManN   = rows.length-coveredN;
-  const idleTC   = TC_USERS.filter(u=>!Object.values(assign).includes(u.id));
+  const idleTC   = tcUsers.filter(u=>!Object.values(assign).includes(u.id));
   const provOf   = id => rows.filter(r=>r.tc&&r.tc.id===id).map(r=>r.th);
 
   // จังหวัดที่กำลังเลือกอยู่ + ผู้ดูแลปัจจุบันของจังหวัดนั้น
@@ -2127,7 +1821,7 @@ export function TerritoryManager(){
   /* มอบหมาย/ยกเลิกมอบหมาย — ทุกครั้งบันทึกลง Audit Log (เข้าถึงหน้านี้ได้เฉพาะผู้ดูแลระบบ) */
   const applyAssign=(provs, tcId)=>{
     if(!provs.length) return;
-    const tc = tcId? TC_BY_ID[Number(tcId)] : null;
+    const tc = tcId? tcById[Number(tcId)] : null;
     const next = {...assign};
     for(const pv of provs){ if(tc) next[pv]=tc.id; else delete next[pv]; }
     setAssign(next);
@@ -2147,7 +1841,7 @@ export function TerritoryManager(){
   const saveAssign = ()=>{ if(!focus) return; applyAssign([focus], pick||null); setFocus(null); };
 
   const tcOptions = [["",t("— ยังไม่มีคนดูแล —", "— no owner yet —")],
-    ...TC_USERS.map(u=>[String(u.id), u.name])];
+    ...tcUsers.map(u=>[String(u.id), u.name])];
 
 
   return html`<div class="page fade-in tr-wrap">
@@ -2194,11 +1888,11 @@ export function TerritoryManager(){
         </div>`
         : html`<div class="tr-as-hint">${t("คลิกจังหวัดบนแผนที่เพื่อกำหนดหรือเปลี่ยน TC ที่ดูแลพื้นที่นั้น", "Click a province on the map to set or change the TC who owns it")}</div>`}
 
-        <${TerritoryMap} paths=${paths} zonePaths=${zonePaths} assign=${assign}
+        <${TerritoryMap} paths=${paths} zonePaths=${zonePaths} assign=${assign} tcById=${tcById} tcColor=${tcColor}
           focus=${focus && (unitZone(focus) ? focus : unitProv(focus))} onFocus=${focusFromMap}/>
         <!-- คำอธิบายสี: เรียงจากคนที่ถือพื้นที่มากสุด แล้วตัดที่ LEGEND_MAX
              ถ้าไม่ตัด พอมี TC 20 คนคำอธิบายจะยาวกว่าตัวแผนที่เอง — กดดูครบได้ -->
-        ${(()=>{ const owners = TC_USERS.filter(u=>provOf(u.id).length)
+        ${(()=>{ const owners = tcUsers.filter(u=>provOf(u.id).length)
             .sort((a,b)=>provOf(b.id).length-provOf(a.id).length);
           const shownList = legendAll ? owners : owners.slice(0, LEGEND_MAX);
           const hidden = owners.length - shownList.length;
@@ -2214,9 +1908,9 @@ export function TerritoryManager(){
           </div>`; })()}
       </${Card}>
 
-      <${Card} title=${t("ความครอบคลุมรายบุคคล", "Coverage per person")} sub=${"TC "+TC_USERS.length+t(" คน · จังหวัดหลักมาจากโปรไฟล์ผู้ใช้", " people · the primary province comes from the user profile")}>
+      <${Card} title=${t("ความครอบคลุมรายบุคคล", "Coverage per person")} sub=${"TC "+tcUsers.length+t(" คน · จังหวัดหลักมาจากโปรไฟล์ผู้ใช้", " people · the primary province comes from the user profile")}>
         <div class="tr-tcs">
-          ${TC_USERS.map(u=>{ const list=provOf(u.id);
+          ${tcUsers.map(u=>{ const list=provOf(u.id);
             return html`<div key=${u.id} class=${"tr-tc"+(list.length?"":" idle")}>
               <span class="tr-sw" style=${{background:tcColor(u.id)+"3d",borderColor:tcColor(u.id)}}></span>
               <div class="tr-tc-main">

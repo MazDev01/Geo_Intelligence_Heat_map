@@ -59,7 +59,8 @@ const unb64 = s => Buffer.from(String(s).replace(/-/g, '+').replace(/_/g, '/'), 
 const sign  = (data, secret) => b64u(crypto.createHmac('sha256', secret).update(data).digest());
 
 function makeToken(user, secret, ttl) {
-  const body = b64u(JSON.stringify({ email: user.email, role: user.role, exp: Date.now() + (ttl || TOKEN_TTL) }));
+  const now = Date.now();
+  const body = b64u(JSON.stringify({ email: user.email, role: user.role, iat: now, exp: now + (ttl || TOKEN_TTL) }));
   return body + '.' + sign(body, secret);
 }
 function readToken(token, secret) {
@@ -78,6 +79,8 @@ function readToken(token, secret) {
 /* ── ร้านค้าข้อมูลผู้ใช้ ─────────────────────────────────────────────── */
 const publicUser = u => ({ id: u.id, name: u.name, email: u.email, role: u.role, province: u.province || null,
                            status: u.status || 'Active', mustChange: !!u.mustChange,
+                           scope: u.scope || (u.role === 'Trade Coordinator' ? 'own_area' : 'national'),
+                           permOverrides: u.overrides || {},
                            hasPassword: !!(u.pw && u.pw.hash), last: u.last || '—' });
 
 const findBy = (users, email) => users.find(u => String(u.email || '').toLowerCase() === String(email || '').toLowerCase());
@@ -127,6 +130,7 @@ function makeAuthStore(adapter, opts) {
   // โหมดเดโม: ตั้ง seedPassword แล้วบัญชีตั้งต้นทุกคนใช้รหัสนี้เข้าได้ทันที ไม่ต้องบังคับเปลี่ยน
   // ระบบจริงห้ามตั้งค่านี้ — ปล่อยว่างไว้ บัญชีจะยังไม่มีรหัสจนกว่าแอดมินจะตั้งให้ทีละคน
   const seedPw = o.seedPassword || '';
+  const P = o.perms || null;
 
   const db = typeof adapter.findByEmail === 'function' ? adapter : fileAdapter(adapter);
   const makeSeed = () => seed.map((u, i) => ({ ...u, id: u.id || i + 1, status: u.status || 'Active',
@@ -174,7 +178,7 @@ function makeAuthStore(adapter, opts) {
       if (!verifyPassword(oldPw, u.pw)) return { ok: false, code: 401, error: 'รหัสผ่านเดิมไม่ถูกต้อง' };
       const st = checkStrength(newPw); if (!st.ok) return { ok: false, code: 400, error: st.error };
       if (verifyPassword(newPw, u.pw)) return { ok: false, code: 400, error: 'รหัสใหม่ต้องไม่ซ้ำกับรหัสเดิม' };
-      await save(u, { pw: hashPassword(newPw), mustChange: false, fails: 0, lockUntil: 0 });
+      await save(u, { pw: hashPassword(newPw), mustChange: false, fails: 0, lockUntil: 0, tokensValidAfter: Date.now() });
       return { ok: true, token: makeToken(u, secret), user: publicUser(u) };
     },
 
@@ -184,8 +188,16 @@ function makeAuthStore(adapter, opts) {
       if (!u) return { ok: false, code: 404, error: 'ไม่พบบัญชี' };
       const pw = newPw || tempPassword();
       const st = checkStrength(pw); if (!st.ok) return { ok: false, code: 400, error: st.error };
-      await save(u, { pw: hashPassword(pw), mustChange: true, fails: 0, lockUntil: 0 });
+      await save(u, { pw: hashPassword(pw), mustChange: true, fails: 0, lockUntil: 0, tokensValidAfter: Date.now() });
       return { ok: true, password: pw, user: publicUser(u) };   // คืนรหัสให้แอดมินส่งต่อ (เห็นครั้งเดียว)
+    },
+
+    /** ยกเลิกโทเคนทุกใบที่ออกก่อนตอนนี้ — ใช้ตอนออกจากระบบ (มีผลกับทุกอุปกรณ์ของบัญชีนี้) */
+    async revokeTokens(email) {
+      const u = await find(email);
+      if (!u) return { ok: false, code: 404, error: 'ไม่พบบัญชี' };
+      await save(u, { tokensValidAfter: Date.now() });
+      return { ok: true };
     },
 
     async create(rec) {
@@ -221,9 +233,22 @@ function makeAuthStore(adapter, opts) {
       if (p.province !== undefined) next.province = p.province || null;
       if (p.status) next.status = p.status;
       const role = next.role || u.role, status = next.status || u.status || 'Active';
+      const isSelf = !!actorEmail && String(u.email).toLowerCase() === String(actorEmail).toLowerCase();
+      const wantsPerm = p.scope !== undefined || p.overrides !== undefined;
+      if (wantsPerm && !P) return { ok: false, code: 400, error: 'เซิร์ฟเวอร์นี้ไม่รองรับการตั้งสิทธิ์รายบุคคล' };
+      if (wantsPerm && isSelf) return { ok: false, code: 400, error: 'แก้สิทธิ์ของตัวเองไม่ได้' };
+      if (p.email !== undefined) {
+        const ne = String(p.email).trim().toLowerCase();
+        if (ne !== String(u.email).toLowerCase()) {
+          if (isSelf) return { ok: false, code: 400, error: 'เปลี่ยนอีเมลของตัวเองไม่ได้' };
+          if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(ne)) return { ok: false, code: 400, error: 'อีเมลไม่ถูกต้อง' };
+          const clash = await find(ne);
+          if (clash && clash.id !== u.id) return { ok: false, code: 409, error: 'อีเมลนี้มีบัญชีอยู่แล้ว' };
+          next.email = ne;
+        }
+      }
       if (role !== u.role || status !== (u.status || 'Active')) {
-        if (actorEmail && String(u.email).toLowerCase() === String(actorEmail).toLowerCase())
-          return { ok: false, code: 400, error: 'แก้บทบาทหรือสถานะของตัวเองไม่ได้' };
+        if (isSelf) return { ok: false, code: 400, error: 'แก้บทบาทหรือสถานะของตัวเองไม่ได้' };
         const wasAdmin = u.role === 'Administrator' && u.status !== 'Suspended';
         const staysAdmin = role === 'Administrator' && status !== 'Suspended';
         if (wasAdmin && !staysAdmin) {
@@ -231,7 +256,61 @@ function makeAuthStore(adapter, opts) {
           if (admins.length <= 1) return { ok: false, code: 400, error: 'ต้องเหลือผู้ดูแลระบบอย่างน้อย 1 คน' };
         }
       }
-      if (Object.keys(next).length) await save(u, next);
+      if (P) {
+        const bad = error => ({ ok: false, code: 400, error });
+        const curOv = u.overrides || {};
+        const curScope = u.scope || P.DEFAULT_SCOPE[u.role];
+        let nextScope = curScope, nextOv = curOv;
+        if (p.scope !== undefined) {
+          if (!P.SCOPES.some(s => s.key === p.scope)) return bad('ขอบเขตข้อมูลไม่ถูกต้อง');
+          nextScope = p.scope;
+        } else if (role !== u.role) nextScope = P.DEFAULT_SCOPE[role];
+        if (p.overrides !== undefined) {
+          if (!p.overrides || typeof p.overrides !== 'object' || Array.isArray(p.overrides)) return bad('สิทธิ์รายบุคคลต้องเป็นอ็อบเจ็กต์');
+          for (const [k, v] of Object.entries(p.overrides)) {
+            if (!Object.hasOwn(P.PERM_INDEX, k)) return bad('ไม่รู้จักสิทธิ์: ' + k.slice(0, 60));
+            if (typeof v !== 'boolean') return bad('ค่าสิทธิ์ต้องเป็นจริงหรือเท็จ: ' + k);
+            if (v && P.roleForbids(k, role)) return bad('บทบาทนี้ถือสิทธิ์นี้ไม่ได้: ' + k);
+          }
+          nextOv = P.realOverrides(role, p.overrides);
+        } else if (role !== u.role) nextOv = P.realOverrides(role, curOv);
+
+        const sameOv = (a, b) => Object.keys(a).length === Object.keys(b).length && Object.keys(a).every(k => a[k] === b[k]);
+        const roleChanged = role !== u.role, ovChanged = !sameOv(nextOv, curOv), scopeChanged = nextScope !== curScope;
+        const statusChanged = status !== (u.status || 'Active');
+        const infoChanged = (next.name !== undefined && next.name !== u.name) || (next.province !== undefined && next.province !== (u.province || null))
+          || next.email !== undefined;
+
+        const actor = actorEmail ? await find(actorEmail) : null;
+        if (actor) {
+          const ap = P.effectivePerms(actor.role, actor.overrides || {});
+          const need = [];
+          if (roleChanged || ovChanged) need.push(P.GUARD_KEY);
+          if (scopeChanged) need.push('user.assign_scope');
+          if (statusChanged) need.push('user.set_active');
+          if (infoChanged) need.push('user.manage');
+          const lacking = need.find(k => !ap.has(k));
+          if (lacking) return { ok: false, code: 403, error: 'ไม่มีสิทธิ์ทำรายการนี้ (' + lacking + ')' };
+          const over = Object.keys(nextOv).find(k => nextOv[k] === true && curOv[k] !== true && !ap.has(k));
+          if (over) return bad('ให้สิทธิ์เกินสิทธิ์ของตัวเองไม่ได้: ' + over);
+        }
+
+        if (roleChanged || ovChanged || statusChanged) {
+          const holds = (r, ov, s) => s !== 'Suspended' && P.effectivePerms(r, ov).has(P.GUARD_KEY);
+          if (holds(u.role, curOv, u.status || 'Active')) {
+            const all = await readAll();
+            const left = all.filter(x => x.id === u.id ? holds(role, nextOv, status) : holds(x.role, x.overrides || {}, x.status || 'Active'));
+            if (!left.length) return bad('ต้องเหลือผู้ให้สิทธิ์อย่างน้อย 1 คน');
+          }
+        }
+        if (scopeChanged) next.scope = nextScope;
+        if (ovChanged) next.overrides = nextOv;
+      }
+      if (next.email !== undefined || (next.status === 'Suspended' && (u.status || 'Active') !== 'Suspended')) next.tokensValidAfter = Date.now();
+      if (Object.keys(next).length) {
+        try { await save(u, next); }
+        catch (e) { if (e && e.code === '23505') return { ok: false, code: 409, error: 'อีเมลนี้มีบัญชีอยู่แล้ว' }; throw e; }
+      }
       return { ok: true, user: publicUser(u) };
     },
 
@@ -256,6 +335,8 @@ function makeAuthStore(adapter, opts) {
       if (!p) return { ok: false, code: 401, error: 'ต้องเข้าสู่ระบบก่อน' };
       const u = await find(p.email);
       if (!u || u.status === 'Suspended') return { ok: false, code: 401, error: 'บัญชีใช้งานไม่ได้แล้ว' };
+      if (u.tokensValidAfter && !(p.iat >= u.tokensValidAfter))
+        return { ok: false, code: 401, error: 'เซสชันนี้ถูกยกเลิกแล้ว กรุณาเข้าสู่ระบบใหม่' };
       // บทบาทอ่านจากฐานข้อมูล ไม่ใช่จากโทเคน — แอดมินถอดสิทธิ์แล้วต้องมีผลทันที
       if (needRole && u.role !== needRole) return { ok: false, code: 403, error: 'ไม่มีสิทธิ์ใช้คำสั่งนี้' };
       return { ok: true, user: publicUser(u) };

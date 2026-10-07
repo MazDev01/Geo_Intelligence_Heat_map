@@ -22,7 +22,8 @@ const V = "20260805";
 // ไฟล์แผนที่ฐานไฟล์เดียว (~174 MB · z0–15 · ครอบคลุมทั้งประเทศ + รายละเอียด 4 จังหวัด)
 // suffix สุ่มต่อท้ายมาจาก Vercel Blob (กัน cache ชนกันตอนอัปทับ) — เปลี่ยนทุกครั้งที่อัปไฟล์ใหม่
 const BLOB_SUFFIX = "-EKAM9SsfcYpRaHHMtFP8K8b9L73Wco";
-export const BASEMAP_URL = `${BASEMAP_BASE}/basemap-th-${V}${BLOB_SUFFIX}.pmtiles`;
+const RUNTIME = (typeof globalThis !== "undefined" && globalThis.__GEO_CONFIG) || {};
+export const BASEMAP_URL = RUNTIME.basemapUrl || `${BASEMAP_BASE}/basemap-th-${V}${BLOB_SUFFIX}.pmtiles`;
 
 // ต้นทางมีถึง z15 (รายละเอียด 4 จังหวัด) · z16+ = overzoom ฝั่ง client
 export const BASEMAP_MAXDATAZOOM = 15;

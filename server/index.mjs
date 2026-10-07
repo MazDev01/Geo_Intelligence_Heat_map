@@ -4,8 +4,10 @@ import {randomBytes} from 'node:crypto';
 import {fileURLToPath} from 'node:url';
 import {makePool} from './db/pool.mjs';
 import {makeAuthAdapter} from './db/auth-adapter.mjs';
+import {adminSeed} from './db/admin-seed.mjs';
 import {makeZoneAdapter} from './db/zone-adapter.mjs';
 import {makeApi} from './api.mjs';
+import * as perms from '../src/permissions.js';
 import {makeStatic} from './static.mjs';
 
 const require = createRequire(import.meta.url);
@@ -24,6 +26,9 @@ const secret = env.AUTH_SECRET || randomBytes(32).toString('hex');
 if (!env.AUTH_SECRET) console.warn('[server] AUTH_SECRET is not set: using a random key, every restart signs everyone out');
 
 const demoPassword = env.DEMO_PASSWORD || '';
+const basemapUrl = (env.BASEMAP_URL || '').trim();
+if (basemapUrl && !/^(\/basemap\/[A-Za-z0-9_.-]+|https:\/\/[A-Za-z0-9.-]+(:\d+)?\/[A-Za-z0-9_.~\/-]+)\.pmtiles$/.test(basemapUrl))
+  fail('BASEMAP_URL must be /basemap/<file>.pmtiles or an https:// address ending in .pmtiles');
 const port = Number(env.PORT || 3000);
 const host = env.HOST || '127.0.0.1';
 const root = fileURLToPath(new URL('../', import.meta.url));
@@ -42,10 +47,11 @@ try {
 const authStore = makeAuthStore(makeAuthAdapter(pool), {
   secret,
   seedPassword: demoPassword,
-  seed: [{id: 1, name: 'System Administrator', email: (env.ADMIN_EMAIL || 'admin@geointel.io').toLowerCase(), role: 'Administrator'}],
+  perms,
+  seed: adminSeed(env),
 });
 const zoneStore = makeZoneStore(makeZoneAdapter(pool));
-const api = makeApi({pool, authStore, zoneStore, demoPassword});
+const api = makeApi({pool, authStore, zoneStore, demoPassword, perms, webBootstrap: !production, runtime: basemapUrl ? {basemapUrl} : {}});
 const serveStatic = makeStatic(root);
 
 const server = createServer(async (req, res) => {

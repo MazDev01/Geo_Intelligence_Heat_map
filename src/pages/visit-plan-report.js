@@ -17,10 +17,9 @@ import {toast, DateField, TCReportNav} from "../ui.js";
 import {Dropdown} from "../select.js";
 import {gapBySegment, gapLevelOf} from "../mock/geoData.js";
 import {officeFor, haversine, fmtKm} from "../visit.js";
-import {pushAudit} from "../audit.js";
 import {visitPlansApi} from "../data.js";
 import {planResultOf, roundLabel, planTodayKey} from "../visit-rounds.js";
-import {ExportDialog, downloadXLS, defaultReportName} from "./reports.js";
+import {ExportDialog, runExport, exportName} from "./reports.js";
 
 /* ---------- วันที่ พ.ศ. ---------- */
 export const beDateVP = thDate;   // ใช้ตัวแปลงกลาง
@@ -265,13 +264,9 @@ export function VisitPlanReport(){
     });
     return rows; };
   const doExport = ({format, filename})=>{
-    const name = (filename||"").trim().replace(/[\\/:*?"<>|]+/g,"_") || defaultReportName(exportScope);
-    const rows = buildVpRows();
+    const rows = format==="pdf" ? null : buildVpRows();
     setExportOpen(false);
-    if(format==="excel"){ downloadXLS(name+".xls", rows); toast(t("ส่งออกไฟล์ Excel แล้ว", "Excel file exported"),"good"); }
-    else { toast(t("กำลังเตรียมไฟล์ PDF…", "Preparing the PDF…"),"info"); setTimeout(()=>window.print(),350); }
-    pushAudit({user:(user&&user.name)||"", action:t("ส่งออกรายงานแผนการเข้าพบ", "Exported the visit plan report"), category:"ส่งออก",
-      detail:`${format==="excel"?"Excel":"PDF"} · ${name} ${t("· จังหวัด", "· province ")}${provinceTH(province)} · ${rangeText} · ${fPlans.length} ${t("แผน", "plans")}`});
+    runExport({kind:"visit_plans", format, filename:exportName(filename, exportScope), rows, count:fPlans.length, scope:exportScope});
   };
 
   if(!isTC) return html`<div class="page"><div class="vp-denied"><${Icon} name="lock" size=${18} color="var(--accent)"/> ${t("หน้านี้สำหรับผู้ประสานงานการค้าเท่านั้น กำลังนำคุณออก…", "This page is for Trade Coordinators only — redirecting you…")}</div><style>${VP_CSS}</style></div>`;
@@ -372,7 +367,7 @@ export function VisitPlanReport(){
       </div>
     </div>`}
 
-    ${exportOpen && html`<${ExportDialog} scope=${exportScope} role=${user.role} simple=${true} formats=${["pdf","excel"]}
+    ${exportOpen && html`<${ExportDialog} scope=${exportScope} role=${user.role} kind="visit_plans" simple=${true} formats=${["pdf","excel"]}
       buildPreviewRows=${()=>buildVpRows()} onClose=${()=>setExportOpen(false)} onExport=${doExport}/>`}
     <style>${VP_CSS}</style>
   </div>`;
