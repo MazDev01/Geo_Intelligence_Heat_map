@@ -1294,7 +1294,7 @@ export function DataManagement(){
 
   return html`<div class="page fade-in">
     <${DmHead} title=${t("จัดการข้อมูล", "Data management")}
-      caption=${`${t("ลูกค้า", "Customers")} ${num(custs.length)} ${t("ราย · Lead", "customers · Leads")} ${num(pros.length)} ${t("ราย · รวม", "· total")} ${num(rows.length)} ${t("รายการ", "records")}`}
+      caption=${`${t("ลูกค้า", "Customers")} ${num(custs.length)} ${t("ราย · Lead", "· Leads")} ${num(pros.length)} ${t("ราย · รวม", "· total")} ${num(rows.length)} ${t("รายการ", "records")}`}
       action=${html`<${Btn} variant="outline" icon="download" disabled=${!shown.length}
         onClick=${()=>setExportOpen(true)}>${t("ส่งออกข้อมูล", "Export data")}</${Btn}>`}/>
     ${exportOpen && html`<${ExportDialog} scope=${exportScope} role=${_role} kind="places"
