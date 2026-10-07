@@ -3,7 +3,7 @@ import {withTransaction} from './pool.mjs';
 const COLS = `id, name, email, role, province, scope, overrides, status, pw_hash, pw_salt, pw_iter, must_change, fails,
   (extract(epoch from lock_until) * 1000)::bigint as lock_until_ms,
   (extract(epoch from tokens_valid_after) * 1000)::bigint as tokens_valid_after_ms,
-  to_char(last_login_at at time zone 'UTC', 'YYYY-MM-DD HH24:MI') as last`;
+  to_char(last_login_at at time zone 'Asia/Bangkok', 'YYYY-MM-DD HH24:MI') as last`;
 
 const LAST_RE = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/;
 
