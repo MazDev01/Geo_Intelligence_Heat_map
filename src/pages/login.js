@@ -107,9 +107,13 @@ export function Login({db, onLogin}){
           <label onClick=${()=>setRemember(!remember)}>
             <span class=${"checkbox"+(remember?" on":"")}>${remember&&html`<${Icon} name="check" size=${12} color="#fff"/>`}</span>
             ${t("จดจำฉัน", "Remember me")}</label>
-          <span class="link" onClick=${()=>setNote(t("ให้ผู้ดูแลระบบรีเซ็ตรหัสให้ที่หน้าจัดการผู้ใช้ แล้วนำรหัสชั่วคราวมาเข้าสู่ระบบ ระบบจะให้ตั้งรหัสใหม่เอง",
-            "Ask an administrator to reset it in User management, then sign in with the temporary password and set a new one"))}>
-            ${t("ลืมรหัสผ่าน?", "Forgot password?")}</span>
+          <button type="button" class="link" aria-expanded=${!!note} style=${{background:"none",border:"none",padding:0,font:"inherit",cursor:"pointer"}}
+            onClick=${()=>setNote(note ? "" : (/^\/admin\/?$/.test(location.pathname)
+              ? t("ขอรหัสชั่วคราวจากผู้ดูแลระบบอีกคน หรือจากทีมที่ติดตั้งระบบ แล้วนำมาเข้าสู่ระบบที่หน้านี้ ระบบจะให้ตั้งรหัสใหม่เอง",
+                  "Ask another administrator, or the team that installed the system, for a temporary password, then sign in here and set a new one")
+              : t("ขอรหัสชั่วคราวจากผู้ดูแลระบบของคุณ แล้วนำมาเข้าสู่ระบบที่หน้านี้ ระบบจะให้ตั้งรหัสใหม่เอง",
+                  "Ask your administrator for a temporary password, then sign in here and set a new one")))}>
+            ${t("ลืมรหัสผ่าน?", "Forgot password?")}</button>
         </div>
 
         <button class="btn primary" style=${{width:"100%"}} type="submit" disabled=${busy}>
