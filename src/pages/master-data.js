@@ -143,7 +143,7 @@ export function MasterData(){
             <td><div class="row" style=${{gap:"9px"}}>
               ${cfg.color && it.color_hex ? html`<span class="md-dot" style=${{background:it.color_hex}}></span>`:""}
               ${tab==="segments" ? html`<${IconGlyph} name=${it.icon} size=${17}/>` : ""}
-              <b>${it.label_th}</b>
+              <b>${t(it.label_th, it.label_en||it.label_th)}</b>
               ${it.unlisted && html`<${Badge} tone="warn">${t("ยังไม่ได้ตั้งค่า", "Not set up")}</${Badge}>`}</div></td>
             <td><span class="mono dim" style=${{fontSize:"12px"}}>${it.code}</span></td>
             <td>${use>0? html`<span>${num(use)} ${t("รายการ", "records")}</span>` : html`<span class="dim">—</span>`}</td>

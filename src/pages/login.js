@@ -115,14 +115,13 @@ export function Login({db, onLogin}){
         <button class="btn primary" style=${{width:"100%"}} type="submit" disabled=${busy}>
           ${busy?t("กำลังเข้าสู่ระบบ…", "Signing in…"):t("เข้าสู่ระบบ", "Sign in")} ${!busy&&html`<${Icon} name="chevronR" size=${16}/>`}</button>
 
-        <div class="lg-roles">
-          <div class="rl">${demo!=null ? t("เข้าดูเดโม — เลือกบทบาทแล้วเข้าได้เลย", "Try the demo — pick a role and you are in")
-                                        : t("กรอกอีเมลตัวอย่าง (ยังต้องใส่รหัสผ่านจริง)", "Fill a sample email (a real password is still required)")}</div>
+        ${demo!=null && html`<div class="lg-roles">
+          <div class="rl">${t("เข้าดูเดโม — เลือกบทบาทแล้วเข้าได้เลย", "Try the demo — pick a role and you are in")}</div>
           <div class="rr">
             ${["Administrator","Management","Trade Coordinator"].map(r=>html`<button key=${r} type="button"
               onClick=${()=>fillDemo(r)}>${roleTH(r)}</button>`)}
           </div>
-        </div>
+        </div>`}
       </form>` : html`
 
       <!-- ขั้นบังคับตั้งรหัสใหม่ — รหัสที่แอดมินตั้ง/รีเซ็ตให้ใช้เข้าได้ครั้งเดียว -->

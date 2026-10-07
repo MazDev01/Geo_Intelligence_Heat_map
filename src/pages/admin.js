@@ -1269,7 +1269,7 @@ export function Monitoring({defaultTab}={}){
 
       <div class="hzc hzc-sys" style=${{gridColumn:"span 7"}}><${Card} title=${t("ภาพรวมระบบข้อมูล", "Data system overview")} right=${html`<span class="hz-updated">${t("อัปเดตล่าสุด", "Last updated")} ${v.ref ? beD(new Date(v.ref)) : "—"}</span>`}>
         <div class="hz-sysov">
-          <div class="hz-total"><span class="hz-total-l">Total</span><b class="hz-total-n">${num(totRec)}</b><span class="hz-total-u">${t("รายการ", "records")}</span></div>
+          <div class="hz-total"><span class="hz-total-l">${t("ทั้งหมด", "Total")}</span><b class="hz-total-n">${num(totRec)}</b><span class="hz-total-u">${t("รายการ", "records")}</span></div>
           <div class="hz-stack">
             <div class="hz-stack-seg" style=${{width:(totRec?custs.length/totRec*100:0)+"%",background:"#33d69f"}}></div>
             <div class="hz-stack-seg" style=${{width:(totRec?pros.length/totRec*100:0)+"%",background:"#cbd5e1"}}></div>
