@@ -231,10 +231,9 @@ export function AddRecordsForm({onClose, onSave, editRecord, db={}, prospectOnly
             ${(rows.length>1 && !isEdit) ? html`<button class="ar-del" onClick=${()=>removeRow(i)} title=${t("ลบแถวนี้", "Delete this row")} aria-label=${t("ลบแถวนี้", "Delete this row")}><${Icon} name="trash" size=${14}/></button>`:""}
           </div>
           <div class="ar-grid">
-            ${!prospectOnly ? html`<label class="ar-f">${t("ประเภท", "Type")}
-              <select value=${r.type} onChange=${e=>setField(i,"type",e.target.value)}>
-                <option value="Existing">${t("ลูกค้าปัจจุบัน", "Existing customers")}</option>
-                <option value="Prospect">Lead</option></select></label>`:""}
+            ${!prospectOnly ? html`<div class="ar-f">${t("ประเภท", "Type")}
+              <${Dropdown} value=${r.type} onChange=${v=>setField(i,"type",v)}
+                options=${[["Existing",t("ลูกค้าปัจจุบัน", "Existing customers")], ["Prospect","Lead"]]}/></div>`:""}
             <label class="ar-f ar-wide">${t("ชื่อธุรกิจ *", "Business name *")}
               <input class=${showRowErr&&!r.name.trim()?"ar-bad":""} value=${r.name} onInput=${e=>setField(i,"name",e.target.value)} placeholder=${t("เช่น โรงแรมสวนสน", "e.g. Suan Son Hotel")}/></label>
             <label class="ar-f ar-wide">${t("หมวดหมู่ธุรกิจ", "Business category")}

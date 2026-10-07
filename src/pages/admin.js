@@ -663,8 +663,8 @@ export function Config(){
           <span style=${{fontSize:"13px",opacity:n.on?1:.45}}>${n.label}</span></div>
         <!-- ช่องทางกำหนดตายตัวเป็น "แจ้งเตือนระบบ" จึงแสดงเป็นข้อความ ไม่ใช่ตัวเลือกให้กดเปลี่ยน -->
         <span style=${{width:"130px",flex:"none",fontSize:"13px",color:"var(--muted)",opacity:n.on?1:.45}}>${t("แจ้งเตือนระบบ", "System alert")}</span>
-        <select class="input" style=${{width:"110px",padding:"7px 10px",flex:"none"}} value=${n.priority} onChange=${e=>setN(i,{priority:e.target.value})}>
-          <option value="low">${t("ต่ำ", "Low")}</option><option value="medium">${t("กลาง", "Medium")}</option><option value="high">${t("สูง", "High")}</option></select>
+        <div style=${{width:"110px",flex:"none"}}><${Dropdown} value=${n.priority} onChange=${v=>setN(i,{priority:v})}
+          options=${[["low",t("ต่ำ", "Low")], ["medium",t("กลาง", "Medium")], ["high",t("สูง", "High")]]}/></div>
       </div>`)}
       `,
       html`<${Badge} tone="info">${notif.filter(n=>n.on).length} ${t("เปิด", "On")}</${Badge}>`)}
