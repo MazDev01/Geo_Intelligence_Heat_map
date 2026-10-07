@@ -69,10 +69,12 @@ function changedFields(cur, next){
   const near = k => Math.abs(Number(cur[k])-Number(next[k])) < 0.00006;
   const moved = !(near("latitude") && near("longitude"));
   const out = {};
+  const val = (k, v) => k==="tc_owner" && (v==="ยังไม่มอบหมาย" || v==="auto") ? "" : (v??"");
   for(const k of Object.keys(next)){
     if(LOCAL_ONLY.has(k)) continue;
     if(PLACE_KEYS.includes(k)){ if(moved) out[k] = next[k]; continue; }
-    if((cur[k]??"") !== (next[k]??"")) out[k] = next[k];
+    if(k==="category" && (cur.segment??"")===(next.segment??"")) continue;
+    if(val(k, cur[k]) !== val(k, next[k])) out[k] = next[k];
   }
   return out;
 }
