@@ -1,4 +1,5 @@
 import {createRequire} from 'node:module';
+import {eventLabel, targetLabel, detailLabel} from './audit-labels.mjs';
 
 const require = createRequire(import.meta.url);
 let xlsxLib;
@@ -119,8 +120,8 @@ const STATUS = {
 export function sourceRows(source, list, lang) {
   const L = lang === 'en' ? 'en' : 'th';
   if (source === 'audit')
-    return [HEAD.audit[L], ...list.map(r => [when(r.at), r.actor || '', r.role || '', r.event || '', r.target || '',
-      r.detail && Object.keys(r.detail).length ? JSON.stringify(r.detail) : '', r.ip || ''])];
+    return [HEAD.audit[L], ...list.map(r => [when(r.at), r.actor || '', r.role || '', eventLabel(r.event, L), targetLabel(r, L),
+      detailLabel(r, L), r.ip || ''])];
   return [HEAD.lead_requests[L], ...list.map(r => [r.id, STATUS[L][r.status] || r.status || '', r.businessName || '', r.segment || '',
     r.province || '', r.district || '', r.address || '', r.phone || '', r.email || '', r.requestedBy || '', when(r.requestedAt),
     r.reviewedBy || '', when(r.reviewedAt), [r.rejectReason, r.rejectNote].filter(Boolean).join(' · '), r.note || '',
