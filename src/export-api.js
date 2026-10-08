@@ -56,6 +56,22 @@ export async function exportReport({kind, format, filename, rows, records, scope
   }
 }
 
+export async function downloadLeadFile(file){
+  const tk = token();
+  try{
+    const r = await fetch("/api/lead-requests/file?id="+encodeURIComponent(file.id), {cache:"no-store", headers: tk ? {Authorization:"Bearer "+tk} : {}});
+    if(!r.ok){
+      const data = await r.json().catch(()=>null);
+      return {ok:false, status:r.status, error: r.status===401 ? t("เซสชันหมดอายุ กรุณาเข้าสู่ระบบใหม่", "Your session has expired. Please sign in again")
+        : (data && data.error) || t("ดาวน์โหลดไม่สำเร็จ", "Download failed")+` (${r.status})`};
+    }
+    save(await r.blob(), nameOf(r, file.name));
+    return {ok:true};
+  }catch(e){
+    return {ok:false, error:t("ติดต่อเซิร์ฟเวอร์ไม่ได้", "Could not reach the server")};
+  }
+}
+
 export async function exportFromServer(source, format, params, filename){
   const tk = token();
   const qs = new URLSearchParams({source, format, filename, lang:t("th","en")});

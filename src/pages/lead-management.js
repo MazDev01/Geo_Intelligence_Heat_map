@@ -11,7 +11,7 @@ import {html, useState, useEffect, useApp, Icon, num, provinceTH, thDate, segTH,
 import {Btn, Badge, Table, Modal, DateField, toast} from "../ui.js";
 import {SEGMENTS, PROVINCE_KEYS} from "../mock/geoData.js";
 import {leadRequestsApi} from "../data.js";
-import {canExportSource, exportFromServer, beStamp} from "../export-api.js";
+import {canExportSource, exportFromServer, downloadLeadFile, beStamp} from "../export-api.js";
 import * as auth from "../auth.js";
 import {Dropdown} from "../select.js";
 import {createPortal} from "react-dom";
@@ -237,7 +237,8 @@ export function ReviewDrawer({lead, onClose, onReject, onApprove}){
         ${lead.tcNote?html`<div class="ld-kv"><span>${t("บันทึกจากการเข้าพบ", "Visit notes")}</span>
           <b style=${{maxWidth:"60%",textAlign:"right",fontWeight:500,lineHeight:1.5}}>${lead.tcNote}</b></div>`:""}
         ${(lead.docs||[]).length ? html`<div class="ld-docs">
-          ${lead.docs.map(d=>html`<span key=${d} class="ld-doc"><${Icon} name="reports" size=${13}/>${d}</span>`)}
+          ${lead.docs.map(d=>html`<button key=${d.id} type="button" class="ld-doc" title=${t("ดาวน์โหลด", "Download")}
+            onClick=${async ()=>{ const r=await downloadLeadFile(d); if(!r.ok) toast(r.error,"bad"); }}><${Icon} name="reports" size=${13}/>${d.name}</button>`)}
         </div>` : html`<div class="ld-none warn"><${Icon} name="info" size=${15} color="#b45309"/> ${t("ไม่มีไฟล์แนบมากับรายการนี้", "No files attached to this record")}</div>`}
 
         <!-- ส่วนที่ 3 · การดำเนินการ (รายการที่ตัดสินไปแล้วจะเห็นผลลัพธ์อย่างเดียว) -->
@@ -371,6 +372,8 @@ const LD_CSS=`
 .ld-docs{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
 .ld-doc{display:inline-flex;align-items:center;gap:7px;padding:8px 12px;border-radius:10px;font-size:12.5px;font-weight:600;
   color:var(--txt);border:1px solid var(--stroke2);background:var(--surface)}
+button.ld-doc{cursor:pointer;font-family:inherit}
+button.ld-doc:hover{border-color:var(--accent)}
 .ld-act-box{margin-top:4px}
 .ld-reasons{display:flex;flex-direction:column;gap:7px}
 .ld-reason{display:flex;align-items:center;gap:9px;padding:9px 12px;border-radius:9px;border:1px solid var(--stroke2);cursor:pointer;font-size:13px;color:var(--txt)}

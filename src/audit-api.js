@@ -82,7 +82,7 @@ const KEY_LABEL = {
   template:()=>t("ผังจับคู่","Template"), withdrawn:()=>t("ลบออก","Removed"), kept:()=>t("เก็บไว้","Kept"), round:()=>t("รอบ","Round"),
   places:()=>t("ร้าน","Places"), saved:()=>t("บันทึกแล้ว","Saved"), door:()=>t("ประตู","Entrance"), reason:()=>t("เหตุผล","Reason"),
   count:()=>t("จำนวน","Count"), ids:()=>t("รหัสแถว","Row IDs"),
-  requestId:()=>t("คำขอ","Request"), gap:()=>t("ช่องว่างตลาด","Market gap"), ownerId:()=>t("ผู้ดูแล (รหัส)","Owner (ID)"), custType:()=>t("ประเภทลูกค้า","Customer type"),
+  requestId:()=>t("คำขอ","Request"), file:()=>t("ไฟล์แนบ","Attachment"), gap:()=>t("ช่องว่างตลาด","Market gap"), ownerId:()=>t("ผู้ดูแล (รหัส)","Owner (ID)"), custType:()=>t("ประเภทลูกค้า","Customer type"),
   kind:()=>t("รายงาน","Report"), format:()=>t("รูปแบบ","Format"), records:()=>t("รายการ","Records"), scope:()=>t("ขอบเขต","Scope"),
   changed:()=>t("รายการที่เปลี่ยน","Changed"), perm:()=>t("สิทธิ์ที่ต้องมี","Permission needed"), source:()=>t("แหล่งข้อมูล","Source"), filters:()=>t("ตัวกรอง","Filters"),
 };

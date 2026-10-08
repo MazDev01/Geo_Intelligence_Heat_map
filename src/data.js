@@ -115,6 +115,20 @@ export async function placeVisitsApi(placeId, body){
 
 let _noLeadReqApi = false;
 
+export const DEAL_FILE_MAX = 10485760;
+export const dealFileError = f => {
+  if(!/\.(pdf|jpe?g|png)$/i.test(f.name||"")) return t("แนบได้เฉพาะไฟล์ PDF JPG PNG", "Only PDF, JPG or PNG files can be attached");
+  if(!f.size) return t("ไฟล์แนบว่างเปล่า", "The attachment is empty");
+  if(f.size > DEAL_FILE_MAX) return t("ไฟล์แนบใหญ่เกิน 10 MB", "The attachment is larger than 10 MB");
+  return null;
+};
+export const fileBase64 = file => new Promise((resolve, reject)=>{
+  const fr = new FileReader();
+  fr.onload = ()=>{ const s = String(fr.result||""); resolve(s.slice(s.indexOf(",")+1)); };
+  fr.onerror = ()=>reject(fr.error);
+  fr.readAsDataURL(file);
+});
+
 export async function leadRequestsApi(method="GET", {action, body, query}={}){
   if(_noLeadReqApi || _noPlacesApi) return {ok:true, local:true};
   const tk = token();

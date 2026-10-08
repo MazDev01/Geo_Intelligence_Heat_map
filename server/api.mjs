@@ -6,7 +6,7 @@ import {importUpload, mapUpload, confirmUpload, listFiles, withdrawFile} from '.
 import {listQueue, actOnQueue} from './import-queue.mjs';
 import {listPlans, createPlan, updatePlan, deletePlan} from './visit-plans.mjs';
 import {addPlaceVisit} from './place-visits.mjs';
-import {listRequests, submitRequest, approveRequest, rejectRequests, undoRequest} from './lead-requests.mjs';
+import {listRequests, submitRequest, approveRequest, rejectRequests, undoRequest, readRequestFile, MAX_DEAL_FILE_BYTES} from './lead-requests.mjs';
 import {cleanFilename, fileKind, MAX_FILE_BYTES} from './import-parse.mjs';
 import {readSettings, writeSettings, readPrefs, writePrefs, SETTING_PERMS} from './settings.mjs';
 import {readStats, STAT_FILES} from './stats.mjs';
@@ -18,6 +18,7 @@ const require = createRequire(import.meta.url);
 const {MAX_BYTES} = require('../zone-validate.cjs');
 
 const DOOR_ROLE = {admin: 'Administrator', management: 'Management', tc: 'Trade Coordinator'};
+const DEAL_BODY_BYTES = Math.ceil(MAX_DEAL_FILE_BYTES / 3) * 4 + 1e5;
 
 const send = (res, code, obj) => {
   res.writeHead(code, {
@@ -327,10 +328,12 @@ export function makeApi({pool, authStore, zoneStore, demoPassword, perms, webBoo
     if (!isAdmin && !isTc) return send(res, 403, {error: 'ไม่มีสิทธิ์ใช้คำสั่งนี้'});
     try {
       if (req.method === 'GET') return send(res, 200, await listRequests(pool, user, query));
-      let body;
-      try { body = JSON.parse(await readBody(req, 1e5)); }
-      catch (e) { return send(res, e.status === 413 ? 413 : 400, {error: e.status === 413 ? 'ข้อมูลใหญ่เกินไป' : 'อ่านคำขอไม่ได้'}); }
       const act = query.get('action') || 'submit';
+      const withFile = act === 'submit' && isTc;
+      const limit = withFile ? DEAL_BODY_BYTES : 1e5;
+      let body;
+      try { body = JSON.parse((await readBytes(req, limit, withFile ? limit * 4 : limit)).toString('utf8')); }
+      catch (e) { return send(res, e.status === 413 ? 413 : 400, {error: e.status === 413 ? (withFile ? 'ไฟล์แนบใหญ่เกิน 10 MB' : 'ข้อมูลใหญ่เกินไป') : 'อ่านคำขอไม่ได้'}); }
       const ctx = auditCtx(req, user);
       if (act === 'submit') {
         if (!isTc) return send(res, 403, {error: 'เฉพาะผู้ประสานงานการค้าเท่านั้น'});
@@ -344,9 +347,31 @@ export function makeApi({pool, authStore, zoneStore, demoPassword, perms, webBoo
       if (act === 'undo') return send(res, 200, await undoRequest(pool, user, body, ctx));
       return send(res, 400, {error: 'ไม่รู้จักคำสั่ง'});
     } catch (e) {
-      if (e && [400, 403, 404, 409].includes(e.status)) return send(res, e.status, {error: e.message});
+      if (e && [400, 403, 404, 409, 413].includes(e.status)) return send(res, e.status, {error: e.message});
       throw e;
     }
+  }
+
+  async function leadRequestFile(req, res, query) {
+    if (req.method !== 'GET') return send(res, 405, {error: 'รองรับเฉพาะ GET'});
+    const who = await authStore.auth(req.headers);
+    if (!who.ok) return send(res, who.code, {error: who.error});
+    const user = who.user;
+    const isAdmin = user.role === 'Administrator';
+    if (!isAdmin && user.role !== 'Trade Coordinator') return send(res, 403, {error: 'ไม่มีสิทธิ์ใช้คำสั่งนี้'});
+    if (denied(res, user, isAdmin ? 'customer.convert' : 'visit.manage_own')) return;
+    let file;
+    try { file = await readRequestFile(pool, user, query); }
+    catch (e) { if (e && [400, 404].includes(e.status)) return send(res, e.status, {error: e.message}); throw e; }
+    const dot = file.name.lastIndexOf('.');
+    res.writeHead(200, {
+      'Content-Type': file.type,
+      'Content-Disposition': disposition(file.name.slice(0, dot), file.name.slice(dot + 1)),
+      'Content-Length': file.body.length,
+      'Cache-Control': 'no-store',
+      'X-Content-Type-Options': 'nosniff',
+    });
+    res.end(file.body);
   }
 
   async function auditList(req, res, query) {
@@ -551,6 +576,7 @@ export function makeApi({pool, authStore, zoneStore, demoPassword, perms, webBoo
     '/api/notifications': notificationsApi,
     '/api/master-data': masterApi,
     '/api/lead-requests': leadRequests,
+    '/api/lead-requests/file': leadRequestFile,
     '/api/imports': imports,
     '/api/imports/mapping': importStep((body, admin, ctx) => mapUpload(pool, body, admin.id, ctx)),
     '/api/imports/rows': importRows,

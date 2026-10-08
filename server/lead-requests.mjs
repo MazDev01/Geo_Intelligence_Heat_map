@@ -3,8 +3,36 @@ import {writeAudit} from './audit.mjs';
 import {isActive} from './master-data.mjs';
 import {notify, adminIds, placeName} from './notifications.mjs';
 import {SCOPE_SQL, gapSnapshot} from './visit-plans.mjs';
+import {cleanFilename} from './import-parse.mjs';
 
 const fail = (status, message) => Object.assign(new Error(message), {status});
+
+export const MAX_DEAL_FILE_BYTES = 10485760;
+const MAX_DEAL_FILE_BASE64 = Math.ceil(MAX_DEAL_FILE_BYTES / 3) * 4;
+const FILE_TOO_BIG = 'ไฟล์แนบใหญ่เกิน 10 MB';
+const BASE64_RE = /^[A-Za-z0-9+/]*={0,2}$/;
+const FILE_KINDS = [
+  {ext: ['pdf'], mime: 'application/pdf', magic: Buffer.from('%PDF-')},
+  {ext: ['jpg', 'jpeg'], mime: 'image/jpeg', magic: Buffer.from([0xff, 0xd8, 0xff])},
+  {ext: ['png'], mime: 'image/png', magic: Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])},
+];
+
+const fileOf = v => {
+  if (v === undefined || v === null) return null;
+  if (typeof v !== 'object' || Array.isArray(v) || typeof v.name !== 'string' || typeof v.data !== 'string') throw fail(400, 'ไฟล์แนบไม่ถูกต้อง');
+  const filename = cleanFilename(v.name);
+  const m = /\.([A-Za-z0-9]+)$/.exec(filename);
+  const ext = m ? m[1].toLowerCase() : '';
+  const kind = FILE_KINDS.find(k => k.ext.includes(ext));
+  if (!kind || filename.length <= ext.length + 1) throw fail(400, 'รองรับเฉพาะไฟล์ PDF JPG PNG');
+  if (v.data.length > MAX_DEAL_FILE_BASE64) throw fail(413, FILE_TOO_BIG);
+  if (v.data.length % 4 !== 0 || !BASE64_RE.test(v.data)) throw fail(400, 'ไฟล์แนบไม่ถูกต้อง');
+  const bytes = Buffer.from(v.data, 'base64');
+  if (!bytes.length) throw fail(400, 'ไฟล์แนบว่างเปล่า');
+  if (bytes.length > MAX_DEAL_FILE_BYTES) throw fail(413, FILE_TOO_BIG);
+  if (bytes.length < kind.magic.length || !bytes.subarray(0, kind.magic.length).equals(kind.magic)) throw fail(400, 'เนื้อไฟล์ไม่ใช่ ' + ext.toUpperCase() + ' จริง');
+  return {filename, mime: kind.mime, bytes};
+};
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const UNDO_WINDOW_MS = 864e5;
@@ -44,6 +72,8 @@ select r.id, r.place_id, r.status, r.note, r.submitted_at, r.reviewed_at, r.reje
   coalesce((select json_agg(json_build_object('round', v.round, 'status', v.status,
       'doneDate', to_char(v.done_date, 'YYYY-MM-DD'), 'interest', v.interest, 'outcome', v.outcome) order by v.round)
     from place_visits v where v.place_id = r.place_id), '[]') as visits,
+  coalesce((select json_agg(json_build_object('id', f.id, 'name', f.filename, 'size', f.size_bytes, 'mime', f.mime) order by f.id)
+    from lead_request_files f where f.request_id = r.id), '[]') as files,
   count(*) over ()::int as total
 from lead_requests r
 left join places p on p.id = r.place_id
@@ -65,7 +95,7 @@ const toRequest = r => {
     rejectReason: r.reject_reason, rejectNote: r.reject_note,
     ownerId: r.owner_id, ownerName: r.owner_name, custType: r.cust_type,
     segmentFrom: pl.segmentFrom ?? null, gapSnapshot: pl.gap ?? null, gapLevelSnapshot: pl.level ?? null, visitDate: pl.visitDate ?? null,
-    visits: r.visits, files: [],
+    visits: r.visits, files: r.files,
   };
 };
 
@@ -138,6 +168,7 @@ export async function submitRequest(pool, user, body, ctx) {
     if (!DATE_RE.test(d) || Number.isNaN(t) || new Date(t).toISOString().slice(0, 10) !== d) throw fail(400, 'วันเข้าพบไม่ถูกต้อง ใช้รูปแบบ ปปปป-ดด-วว');
     visitDate = d;
   }
+  const file = fileOf(b.file);
   return withTransaction(pool, async tx => {
     const p = (await tx.query(
       `select id, type, province, segment, province in (${SCOPE_SQL}) as mine from places where id = $2 and deleted_at is null for update`,
@@ -151,12 +182,27 @@ export async function submitRequest(pool, user, body, ctx) {
     const id = (await tx.query(
       `insert into lead_requests (place_id, payload, note, submitted_by) values ($1, $2::jsonb, $3, $4) returning id`,
       [placeId, JSON.stringify({gap: snap.gap, level: snap.level, visitDate}), note, user.id])).rows[0].id;
-    await writeAudit(tx, ctx, 'lead_request_submit', placeId, {requestId: Number(id), gap: snap.gap});
+    if (file) {
+      await tx.query('insert into lead_request_files (request_id, filename, mime, size_bytes, content) values ($1, $2, $3, $4, $5)',
+        [id, file.filename, file.mime, file.bytes.length, file.bytes]);
+    }
+    await writeAudit(tx, ctx, 'lead_request_submit', placeId, {requestId: Number(id), gap: snap.gap, ...(file ? {file: file.filename} : {})});
     const name = await placeName(tx, placeId);
     await notify(tx, await adminIds(tx, user.id), 'deal_new', 'ดีลใหม่รออนุมัติ: ' + name,
       {requestId: Number(id), placeId, name, province: p.province, by: user.name || user.email || ''});
     return {ok: true, request: await readOne(tx, Number(id))};
   });
+}
+
+export async function readRequestFile(pool, user, query) {
+  const id = Number(query.get('id'));
+  if (!Number.isSafeInteger(id) || id < 1) throw fail(400, 'รหัสไฟล์ไม่ถูกต้อง');
+  const f = (await pool.query(
+    `select f.filename, f.mime, f.content, r.submitted_by from lead_request_files f
+       join lead_requests r on r.id = f.request_id where f.id = $1`, [id])).rows[0];
+  const mine = user.role === 'Administrator' || (f && f.submitted_by !== null && Number(f.submitted_by) === Number(user.id));
+  if (!f || !f.content || !mine) throw fail(404, 'ไม่พบไฟล์นี้');
+  return {name: f.filename, type: f.mime || 'application/octet-stream', body: f.content};
 }
 
 async function lockPending(tx, id) {

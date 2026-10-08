@@ -13,10 +13,11 @@ select p.id, p.type, p.account_no, p.business_name, p.category, p.segment, p.cou
   to_char(p.created_at at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as created_iso,
   o.name as tc_owner, p.visit_status, v.rounds,
   d.status as deal_status, d.payload->>'visitDate' as deal_visit_date, d.reject_reason as deal_reject_reason, d.reject_note as deal_reject_note,
-  to_char(d.submitted_at at time zone 'Asia/Bangkok', 'YYYY-MM-DD') as deal_submitted, ds.name as deal_visitor
+  to_char(d.submitted_at at time zone 'Asia/Bangkok', 'YYYY-MM-DD') as deal_submitted, ds.name as deal_visitor,
+  (select f.filename from lead_request_files f where f.request_id = d.id order by f.id limit 1) as deal_doc
 from places p
 left join users o on o.id = p.tc_owner_id
-left join lateral (select status, payload, submitted_at, submitted_by, reject_reason, reject_note from lead_requests lr where lr.place_id = p.id order by lr.id desc limit 1) d on true
+left join lateral (select id, status, payload, submitted_at, submitted_by, reject_reason, reject_note from lead_requests lr where lr.place_id = p.id order by lr.id desc limit 1) d on true
 left join users ds on ds.id = d.submitted_by
 left join (
   select pv.place_id, json_agg(json_build_object(
@@ -49,6 +50,7 @@ const putDeal = (out, r) => {
   putIf(out, 'dealVisitDate', r.deal_visit_date);
   putIf(out, 'dealSubmittedDate', r.deal_submitted);
   putIf(out, 'dealVisitor', r.deal_visitor);
+  if (r.deal_status === 'pending') putIf(out, 'dealDoc', r.deal_doc);
   if (r.deal_status === 'rejected') {
     putIf(out, 'dealRejectReason', r.deal_reject_reason);
     putIf(out, 'dealRejectNote', r.deal_reject_note);

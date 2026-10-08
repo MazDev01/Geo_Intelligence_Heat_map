@@ -3,7 +3,7 @@ import {html, useState, useEffect, useRef, Icon, SegmentIcon, num, pct, SEG_COLO
 import {basemap} from "./basemap.js";
 import {Btn, Badge, Meter, toast} from "./ui.js";
 import {Donut, BarChart, Gauge, rampRed} from "./charts.js";
-import {analyzeArea, downloadCSV} from "./data.js";
+import {analyzeArea, downloadCSV, dealFileError} from "./data.js";
 import {demandGap, gapBySegment, GAP_REF} from "./mock/geoData.js";
 import {Dropdown} from "./select.js";
 import {REJ_TH_OF} from "./pages/lead-management.js";
@@ -251,6 +251,7 @@ export function CustomerPanel({db, customer, onClose, onOpenArea, setCustomer, o
   const [roundForm,setRoundForm]=useState(null);   // {kind:'visit'|'appt'|'cancel', interest, outcome, apptDate, reason, note}
   const [openR,setOpenR]=useState(0);               // index รอบที่กาง (0 = ล่าสุด)
   const [dealDoc,setDealDoc]=useState("");          // ชื่อไฟล์เอกสารปิดดีลที่แนบ (โหมดปิดดีล)
+  const [dealFile,setDealFile]=useState(null);
   const [confirmSend,setConfirmSend]=useState(false); // ป็อปอัพยืนยันส่งดีล
   const c = customer;
   const segGap = c && c.status!=="Existing" ? segGapOf(db, c) : null;   // Lead ของหมวดนี้ในอำเภอนี้
@@ -292,7 +293,8 @@ export function CustomerPanel({db, customer, onClose, onOpenArea, setCustomer, o
           : (isTC
             ? html`<div style=${{display:"flex",flexDirection:"column",gap:"9px",marginTop:"10px"}}>
               <label class="deal-attach">
-                <input type="file" style=${{display:"none"}} onChange=${e=>{ const f=e.target.files&&e.target.files[0]; if(f) setDealDoc(f.name); }}/>
+                <input type="file" accept=".pdf,.jpg,.jpeg,.png" style=${{display:"none"}} onChange=${e=>{ const f=e.target.files&&e.target.files[0]; e.target.value=""; if(!f) return;
+                  const bad=dealFileError(f); if(bad){ toast(bad,"bad"); return; } setDealFile(f); setDealDoc(f.name); }}/>
                 <${Icon} name="upload" size=${15} color=${dealDoc?"#33d69f":"var(--muted)"}/>
                 <span>${dealDoc||t("แนบเอกสารปิดดีล","Attach the closing document")}</span>
               </label>
@@ -354,7 +356,7 @@ export function CustomerPanel({db, customer, onClose, onOpenArea, setCustomer, o
             <div class="row" style=${{gap:"8px",justifyContent:"flex-end",marginTop:"14px"}}>
               <${Btn} variant="ghost" size="sm" onClick=${()=>setConfirmSend(false)}>${t("ยกเลิก", "Cancel")}</${Btn}>
               <${Btn} variant="primary" size="sm" disabled=${busy} onClick=${async ()=>{ if(busy || !onSubmitDeal) return;
-                setBusy(true); const done=await onSubmitDeal(c, dealDoc); setBusy(false);
+                setBusy(true); const done=await onSubmitDeal(c, dealFile); setBusy(false);
                 if(done) setConfirmSend(false); }}>${t("ยืนยันส่ง", "Confirm and send")}</${Btn}>
             </div>
           </div>

@@ -1,7 +1,7 @@
 import {React, html, useState, useEffect, useMemo, createRoot, AppCtx, Icon, brandMark, num, roleTH, countryTH, provinceTH} from "./lib.js";
 import {t, useLang, getLang, setLang} from "./lib.js";   // สลับภาษา TH/EN — ดู src/i18n.js
 import {getLayerOpacity, subscribeLayerOpacity} from "./layer-opacity.js";   // ความทึบ = ตั้งที่แอดมินที่เดียว
-import {loadCountries, loadWorld, loadAreas, loadProvincesGeo, loadDetail, clearDetail, clearAggregates, writePlaces, placeVisitsApi, leadRequestsApi, loadCountry, loadDistricts, defaultFilters} from "./data.js";
+import {loadCountries, loadWorld, loadAreas, loadProvincesGeo, loadDetail, clearDetail, clearAggregates, writePlaces, placeVisitsApi, leadRequestsApi, dealFileError, fileBase64, loadCountry, loadDistricts, defaultFilters} from "./data.js";
 import {LoadingScreen, ToastHost, Badge, Btn, toast, LangToggle} from "./ui.js";
 import {Login} from "./pages/login.js";
 import * as auth from "./auth.js";   // โทเคน/บัญชีจริง (ดู api/auth.js · auth-store.cjs)
@@ -315,12 +315,20 @@ function App(){
     const last = sp && planResultOf(rec.visitRounds, sp);
     return sp && !(last && last.status==="ยกเลิก") ? {visitDate:sp.visitDate, visitor:(user&&user.name)||"—", planName:sp.name} : null;
   };
-  const submitDeal = async (prospect, doc)=>{
+  const submitDeal = async (prospect, file)=>{
     const plan = dealPlanOf(prospect);
     const visitDate = (plan&&plan.visitDate)||"";
-    const res = await leadRequestsApi("POST", {action:"submit", body:{placeId:prospect.id, ...(visitDate?{visitDate}:{})}});
+    let attach = null;
+    if(file){
+      const bad = dealFileError(file);
+      if(bad){ toast(bad,"bad"); return false; }
+      try{ attach = {name:file.name, data:await fileBase64(file)}; }
+      catch(e){ toast(t("อ่านไฟล์แนบไม่ได้", "Could not read the attachment"),"bad"); return false; }
+    }
+    const res = await leadRequestsApi("POST", {action:"submit", body:{placeId:prospect.id, ...(visitDate?{visitDate}:{}), ...(attach?{file:attach}:{})}});
     if(!res.ok){ toast(res.error,"bad"); return false; }
-    const stamp = { dealStatus:"pending", dealDoc:doc||"", dealVisitor:(user&&user.name)||"TC", dealVisitDate:visitDate,
+    const saved = res.request && res.request.files && res.request.files[0];
+    const stamp = { dealStatus:"pending", dealDoc: saved ? saved.name : (res.local && file ? file.name : ""), dealVisitor:(user&&user.name)||"TC", dealVisitDate:visitDate,
       dealSubmittedDate: planTodayKey() };
     setDb(prev=>({...prev, prospects:(prev.prospects||[]).map(x=> x.id===prospect.id ? {...x, ...stamp} : x) }));
     setSelectedCustomer(x=> x && x.id===prospect.id ? {...x, ...stamp} : x);
