@@ -172,8 +172,18 @@ function App(){
   const visitPlan = activePlan ? activePlan.customers : [];
   const visitRoute = activePlan ? activePlan.route : null;
   const planSync = usePlanSync({user, db, visitPlans, setVisitPlans, setActivePlanId});
-  const setVisitPlan = updater => { planSync.touch(activePlanId); setVisitPlans(prev => prev.map(p =>
-    p.id===activePlanId ? {...p, customers: typeof updater==="function" ? updater(p.customers) : updater} : p)); };
+  const setVisitPlan = updater => { planSync.touch(activePlanId); setVisitPlans(prev => prev.map(p => {
+    if(p.id!==activePlanId) return p;
+    const customers = typeof updater==="function" ? updater(p.customers) : updater;
+    const had = new Set((p.customers||[]).map(x=>x.id)), now = new Date().toISOString();
+    const addedAt = {}, fresh = {};
+    for(const c of customers||[]){
+      const isNew = !had.has(c.id);
+      addedAt[c.id] = isNew ? now : (p.addedAt||{})[c.id] || null;
+      if(isNew || (p.fresh||{})[c.id]) fresh[c.id] = true;
+    }
+    return {...p, customers, addedAt, fresh};
+  })); };
   const setVisitRoute = route => setVisitPlans(prev => prev.map(p => p.id===activePlanId ? {...p, route} : p));
   const createPlan = name => { const id = "plan-"+Date.now(); planSync.touch(id); setVisitPlans(prev=>[...prev, {id, name, customers:[], route:null, saved:false, visitDate:""}]); setActivePlanId(id); };
   const deletePlan = id => { planSync.remove(id); setVisitPlans(prev=>{
@@ -311,8 +321,10 @@ function App(){
   // TC ส่งสถานะ "ดีลสำเร็จ" (แนบเอกสารได้) → prospect.dealStatus="pending" เข้าคิวรออนุมัติในหน้าจัดการข้อมูล
   const dealPlanOf = rec => {
     const sp = visitPlans.filter(p=>p.saved && (p.customers||[]).some(x=>x.id===rec.id))
-      .sort((a,b)=>String(b.savedAt||"").localeCompare(String(a.savedAt||"")))[0];
-    const last = sp && planResultOf(rec.visitRounds, sp);
+    const addedOf = p => (p.addedAt||{})[rec.id] || "";
+    const sinceOf = p => { const s=String(p.savedAt||""), a=addedOf(p); return a>s ? a : s; };
+      .sort((a,b)=>sinceOf(b).localeCompare(sinceOf(a)))[0];
+    const last = sp && planResultOf(rec.visitRounds, {...sp, addedAt:addedOf(sp)});
     return sp && !(last && last.status==="ยกเลิก") ? {visitDate:sp.visitDate, visitor:(user&&user.name)||"—", planName:sp.name} : null;
   };
   const submitDeal = async (prospect, file)=>{

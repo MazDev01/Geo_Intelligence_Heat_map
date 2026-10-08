@@ -20,7 +20,19 @@ export function usePlanSync({user, db, visitPlans, setVisitPlans, setActivePlanI
   const s = st.current;
 
   const bodyOf = p => ({ name:String(p.name||"").trim().slice(0,80) || t("แผนไม่มีชื่อ", "Untitled plan"),
-    visitDate:p.visitDate||null, items:(p.customers||[]).map(c=>c.id), saved:!!p.saved });
+    visitDate:p.visitDate||null, items:(p.customers||[]).map(c=>(p.fresh||{})[c.id] ? {placeId:c.id, fresh:true} : c.id), saved:!!p.saved });
+
+  const applyAdded = (id, sent, items) => setVisitPlans(prev=>prev.map(x=>{
+    if(x.id!==id) return x;
+    const addedAt = {...(x.addedAt||{})}, fresh = {...(x.fresh||{})};
+    for(const it of items||[]){
+      const sameAdd = (sent.fresh||{})[it.placeId] && addedAt[it.placeId]===(sent.addedAt||{})[it.placeId];
+      if(fresh[it.placeId] && !sameAdd) continue;
+      addedAt[it.placeId] = it.addedAt || null;
+      delete fresh[it.placeId];
+    }
+    return {...x, addedAt, fresh};
+  }));
 
   const fail = res => {
     if(s.warned) return;
@@ -45,6 +57,7 @@ export function usePlanSync({user, db, visitPlans, setVisitPlans, setActivePlanI
       s.warned = false;
       const at = res.plan && res.plan.savedAt;
       if(at && p.savedAt!==at) setVisitPlans(prev=>prev.map(x=>x.id===id && x.saved ? {...x, savedAt:at} : x));
+      if(res.plan) applyAdded(id, p, res.plan.items);
       if(!sid && res.plan){
         if(latest.current.some(x=>x.id===id)) s.sid.set(id, res.plan.id);
         else await visitPlansApi("DELETE", res.plan.id);
@@ -91,7 +104,8 @@ export function usePlanSync({user, db, visitPlans, setVisitPlans, setActivePlanI
         for(const it of sp.items){ const c = byId.get(it.placeId); if(c && !it.deleted) customers.push(c); else dropped++; }
         s.sid.set(sp.id, sp.id);
         if(customers.length!==sp.items.length) s.dirty.add(sp.id);
-        return {id:sp.id, name:sp.name, customers, route:null, saved:!!sp.saved, savedAt:sp.savedAt||"", visitDate:sp.visitDate||""};
+        return {id:sp.id, name:sp.name, customers, route:null, saved:!!sp.saved, savedAt:sp.savedAt||"", visitDate:sp.visitDate||"",
+          addedAt:Object.fromEntries(sp.items.map(it=>[it.placeId, it.addedAt||null])), fresh:{}};
       });
       if(plans.length){
         const mine = latest.current.filter(p=>s.dirty.has(p.id) && !s.sid.has(p.id));

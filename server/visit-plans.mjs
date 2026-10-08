@@ -36,12 +36,13 @@ function readPlan(body) {
   const items = body.items === undefined ? [] : body.items;
   if (!Array.isArray(items)) throw fail(400, 'รายการร้านต้องเป็นรายการ');
   if (items.length > MAX_ITEMS) throw fail(400, 'แผนหนึ่งมีได้ไม่เกิน ' + MAX_ITEMS + ' ร้าน');
-  const placeIds = [];
+  const placeIds = [], fresh = new Set();
   for (const it of items) {
     const id = typeof it === 'string' ? it : it && typeof it === 'object' ? it.placeId : null;
     if (typeof id !== 'string' || !id || id.length > 40) throw fail(400, 'รหัสร้านในแผนไม่ถูกต้อง');
     if (placeIds.includes(id)) throw fail(400, 'มีร้านซ้ำในแผน: ' + id);
     placeIds.push(id);
+    if (typeof it === 'object' && it.fresh === true) fresh.add(id);
   }
 
   let route = null;
@@ -52,7 +53,7 @@ function readPlan(body) {
   }
 
   if (body.saved !== undefined && typeof body.saved !== 'boolean') throw fail(400, 'สถานะยืนยันแผนต้องเป็นจริงหรือเท็จ');
-  return {name, visitDate, placeIds, route, saved: body.saved === true};
+  return {name, visitDate, placeIds, fresh, route, saved: body.saved === true};
 }
 
 async function checkPlaces(tx, userId, placeIds) {
@@ -91,22 +92,24 @@ async function writeItems(tx, planId, userId, plan, keep) {
     if (!snaps.has(p.province)) snaps.set(p.province, await gapSnapshot(tx, p.province));
     return snaps.get(p.province)(p.segment);
   };
+  const now = (await tx.query("select date_trunc('milliseconds', now()) as t")).rows[0].t;
   const values = [], args = [planId];
   for (const [i, id] of plan.placeIds.entries()) {
-    let snap = keep.get(id) || null;
+    const old = plan.fresh.has(id) ? null : keep.get(id) || null;
+    let snap = plan.saved && old ? old.snapshot : null;
     if (!snap && plan.saved) snap = await snapFor(places.get(id));
-    args.push(id, i + 1, snap ? JSON.stringify(snap) : null);
+    args.push(id, i + 1, snap ? JSON.stringify(snap) : null, old ? old.addedAt : now);
     const n = args.length;
-    values.push(`($1, $${n - 2}, $${n - 1}, $${n}::jsonb)`);
+    values.push(`($1, $${n - 3}, $${n - 2}, $${n - 1}::jsonb, $${n}::timestamptz)`);
   }
-  await tx.query('insert into visit_plan_items (plan_id, place_id, seq, snapshot) values ' + values.join(', '), args);
+  await tx.query('insert into visit_plan_items (plan_id, place_id, seq, snapshot, added_at) values ' + values.join(', '), args);
 }
 
 const PLAN_SQL = `
 select v.plan_id, v.name, to_char(v.visit_date, 'YYYY-MM-DD') as visit_date, v.saved, v.saved_at, v.route, v.province,
   v.created_at, v.updated_at,
   coalesce((select json_agg(json_build_object('placeId', i.place_id, 'seq', i.seq, 'snapshot', i.snapshot,
-      'deleted', p.deleted_at is not null) order by i.seq)
+      'addedAt', i.added_at, 'deleted', p.deleted_at is not null) order by i.seq)
     from visit_plan_items i join places p on p.id = i.place_id where i.plan_id = v.plan_id), '[]') as items
 from visit_plans v where v.owner_id = $1 and ($2::text is null or v.plan_id = $2)
 order by v.created_at, v.plan_id`;
@@ -114,7 +117,8 @@ order by v.created_at, v.plan_id`;
 const toPlan = r => ({
   id: r.plan_id, name: r.name, visitDate: r.visit_date, saved: r.saved,
   savedAt: r.saved_at ? r.saved_at.toISOString() : null, route: r.route, province: r.province,
-  createdAt: r.created_at.toISOString(), updatedAt: r.updated_at.toISOString(), items: r.items,
+  createdAt: r.created_at.toISOString(), updatedAt: r.updated_at.toISOString(),
+  items: r.items.map(it => ({...it, addedAt: it.addedAt ? new Date(it.addedAt).toISOString() : null})),
 });
 
 const readOne = async (db, userId, planId) => {
@@ -151,10 +155,8 @@ export async function updatePlan(pool, user, planId, body, ctx) {
     const cur = (await tx.query('select saved from visit_plans where plan_id = $1 and owner_id = $2 for update', [planId, user.id])).rows[0];
     if (!cur) throw fail(404, 'ไม่พบแผนนี้');
     const keep = new Map();
-    if (plan.saved) {
-      for (const r of (await tx.query('select place_id, snapshot from visit_plan_items where plan_id = $1 and snapshot is not null', [planId])).rows)
-        keep.set(r.place_id, r.snapshot);
-    }
+    for (const r of (await tx.query('select place_id, snapshot, added_at from visit_plan_items where plan_id = $1', [planId])).rows)
+      keep.set(r.place_id, {snapshot: r.snapshot, addedAt: r.added_at});
     await tx.query(
       `update visit_plans set name = $3, visit_date = $4, saved = $5, route = $6::jsonb,
          saved_at = case when $5 and not saved then now() when not $5 then null else saved_at end

@@ -132,7 +132,7 @@ export function plansFromServer(serverPlans, db, province){
     for(const it of [...(sp.items||[])].sort((a,b)=>a.seq-b.seq)){
       const p = byId.get(it.placeId);
       if(!p || it.deleted) continue;
-      const res = planResultOf(p.visitRounds, {savedAt:sp.savedAt, visitDate:dateISO}, nextSaved(it.placeId, sp.savedAt));
+      const res = planResultOf(p.visitRounds, {savedAt:sp.savedAt, visitDate:dateISO, addedAt:it.addedAt}, nextSaved(it.placeId, sp.savedAt));
       const status = !res ? "missed" : res.status==="เสร็จสิ้น" ? "visited" : "cancelled";
       const outcome = status==="visited" ? roundLabel(res.outcome || res.interest || "") || null : null;
       const note = status==="visited" && res.note ? res.note : null;

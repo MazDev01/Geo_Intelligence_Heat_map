@@ -94,7 +94,9 @@ export function roundsInPlan(rounds, plan, until){
     return a>=from && (to===null || a<to); });
 }
 export function planResultOf(rounds, plan, until){
-  const rs=roundsInPlan(rounds, plan, until).filter(r=>r.status==="เสร็จสิ้น" || r.status==="ยกเลิก");
+  const added=msOf(plan&&plan.addedAt);
+  const voided=r=>{ const a=msOf(r.at); return added!==null && a!==null && a<added; };
+  const rs=roundsInPlan(rounds, plan, until).filter(r=>r.status==="เสร็จสิ้น" || (r.status==="ยกเลิก" && !voided(r)));
   return rs.length ? rs[rs.length-1] : null;
 }
 
