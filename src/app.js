@@ -320,9 +320,9 @@ function App(){
   // ── โฟลว์ปิดดีลLead → แอดมินอนุมัติเปลี่ยนเป็นลูกค้า ──
   // TC ส่งสถานะ "ดีลสำเร็จ" (แนบเอกสารได้) → prospect.dealStatus="pending" เข้าคิวรออนุมัติในหน้าจัดการข้อมูล
   const dealPlanOf = rec => {
-    const sp = visitPlans.filter(p=>p.saved && (p.customers||[]).some(x=>x.id===rec.id))
     const addedOf = p => (p.addedAt||{})[rec.id] || "";
     const sinceOf = p => { const s=String(p.savedAt||""), a=addedOf(p); return a>s ? a : s; };
+    const sp = visitPlans.filter(p=>p.saved && (p.customers||[]).some(x=>x.id===rec.id))
       .sort((a,b)=>sinceOf(b).localeCompare(sinceOf(a)))[0];
     const last = sp && planResultOf(rec.visitRounds, {...sp, addedAt:addedOf(sp)});
     return sp && !(last && last.status==="ยกเลิก") ? {visitDate:sp.visitDate, visitor:(user&&user.name)||"—", planName:sp.name} : null;
