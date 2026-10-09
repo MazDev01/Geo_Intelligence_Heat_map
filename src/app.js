@@ -686,7 +686,16 @@ function App(){
   const openInboxItem = n => {
     if(!n.read) readInbox([n.id]);
     const go = inboxView(n).go;
-    if(go && user && user.role==="Administrator") navItem(go);
+    if(go && user && user.role==="Administrator") return navItem(go);
+    if(n.key==="deal_result" && n.payload && n.payload.placeId) openPlaceById(n.payload.placeId);
+  };
+  const openPlaceById = async id => {
+    setMenu(null);
+    const cd = await withLoading(()=>ensureData("Thailand"));
+    if(!cd) return;
+    const o = (cd.customers||[]).find(x=>x.id===id) || (cd.prospects||[]).find(x=>x.id===id);
+    if(!o){ toast(t("ไม่พบร้านนี้ในข้อมูลของคุณแล้ว", "This shop is no longer in your data"),"bad"); return; }
+    openCustomer(o);
   };
 
   const backToGlobe = ()=>{ setView("workspace"); setMode("globe"); setActiveCountry(null); setSelectedProvince(null); setFilters(f=>({...f,province:"All"})); setOverlay(null); setFlyTarget(null); };
