@@ -353,6 +353,12 @@ label,.nav-item,.tab,.chip{font-weight:500}   /* labels & menus */
 /* forms */
 .field{margin-bottom:14px}
 .lg-hint{font-size:11.5px;color:var(--dim);margin-top:5px}
+.pw-wrap{position:relative}
+.pw-wrap .input{padding-right:44px}
+.pw-wrap .input::-ms-reveal{display:none}
+.pw-eye{position:absolute;right:4px;top:50%;transform:translateY(-50%);width:36px;height:36px;display:grid;place-items:center;
+  border:none;background:none;border-radius:8px;cursor:pointer;color:var(--muted)}
+.pw-eye:hover{background:var(--surface2);color:var(--txt)}
 .um-nopw,.um-tmppw{margin-left:8px;padding:2px 7px;border-radius:6px;font-size:10.5px;font-weight:700;vertical-align:middle}
 .um-nopw{background:rgba(220,38,38,.10);color:#b30019;border:1px solid rgba(220,38,38,.28)}
 .um-tmppw{background:rgba(217,119,6,.12);color:#92620a;border:1px solid rgba(217,119,6,.3)}

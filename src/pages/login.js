@@ -11,6 +11,7 @@ import * as auth from "../auth.js";
 export function Login({db, onLogin}){
   const [email, setEmail]   = useState("");
   const [pass, setPass]     = useState("");
+  const [showPass, setShowPass] = useState(false);
   const [remember, setRemember] = useState(true);
   const [busy, setBusy]     = useState(false);
   const [err, setErr]       = useState("");
@@ -97,27 +98,33 @@ export function Login({db, onLogin}){
           <input class="input" type="email" autocomplete="username" placeholder="you@company.com" value=${email}
             onInput=${e=>{setEmail(e.target.value); setErr("");}}/></div>
         <div class="field"><label>${t("รหัสผ่าน", "Password")}</label>
-          <input class="input" type="password" autocomplete="current-password" placeholder="••••••••••" value=${pass}
-            onInput=${e=>{setPass(e.target.value); setErr("");}}/></div>
+          <div class="pw-wrap">
+            <input class="input" type=${showPass?"text":"password"} autocomplete="current-password" placeholder="••••••••••" value=${pass}
+              onInput=${e=>{setPass(e.target.value); setErr("");}}/>
+            <button type="button" class="pw-eye" aria-pressed=${showPass}
+              aria-label=${showPass?t("ซ่อนรหัสผ่าน","Hide password"):t("แสดงรหัสผ่าน","Show password")}
+              title=${showPass?t("ซ่อนรหัสผ่าน","Hide password"):t("แสดงรหัสผ่าน","Show password")}
+              onClick=${()=>setShowPass(!showPass)}><${Icon} name=${showPass?"eyeOff":"eye"} size=${18}/></button>
+          </div></div>
 
         ${err && html`<div class="lg-err" role="alert">${err}</div>`}
-        ${note && html`<div class="lg-note">${note}</div>`}
 
         <div class="lg-remember">
           <label onClick=${()=>setRemember(!remember)}>
             <span class=${"checkbox"+(remember?" on":"")}>${remember&&html`<${Icon} name="check" size=${12} color="#fff"/>`}</span>
             ${t("จดจำฉัน", "Remember me")}</label>
           <button type="button" class="link" aria-expanded=${!!note} style=${{background:"none",border:"none",padding:0,font:"inherit",cursor:"pointer"}}
-            onClick=${()=>setNote(note ? "" : (/^\/admin\/?$/.test(location.pathname)
-              ? t("ขอรหัสชั่วคราวจากผู้ดูแลระบบอีกคน หรือจากทีมที่ติดตั้งระบบ แล้วนำมาเข้าสู่ระบบที่หน้านี้ ระบบจะให้ตั้งรหัสใหม่เอง",
-                  "Ask another administrator, or the team that installed the system, for a temporary password, then sign in here and set a new one")
-              : t("ขอรหัสชั่วคราวจากผู้ดูแลระบบของคุณ แล้วนำมาเข้าสู่ระบบที่หน้านี้ ระบบจะให้ตั้งรหัสใหม่เอง",
-                  "Ask your administrator for a temporary password, then sign in here and set a new one")))}>
+            onClick=${()=>setNote(note ? "" : "forgot")}>
             ${t("ลืมรหัสผ่าน?", "Forgot password?")}</button>
         </div>
 
         <button class="btn primary" style=${{width:"100%"}} type="submit" disabled=${busy}>
           ${busy?t("กำลังเข้าสู่ระบบ…", "Signing in…"):t("เข้าสู่ระบบ", "Sign in")} ${!busy&&html`<${Icon} name="chevronR" size=${16}/>`}</button>
+        ${note && html`<div style=${{position:"relative",height:0}}><div class="lg-note" role="status" style=${{position:"absolute",top:"12px",left:0,right:0,margin:0,zIndex:3}}>${/^\/admin\/?$/.test(location.pathname)
+          ? t("ขอรหัสชั่วคราวจากผู้ดูแลระบบอีกคน หรือจากทีมที่ติดตั้งระบบ แล้วนำมาเข้าสู่ระบบที่หน้านี้ ระบบจะให้ตั้งรหัสใหม่เอง",
+              "Ask another administrator, or the team that installed the system, for a temporary password, then sign in here and set a new one")
+          : t("ขอรหัสชั่วคราวจากผู้ดูแลระบบของคุณ แล้วนำมาเข้าสู่ระบบที่หน้านี้ ระบบจะให้ตั้งรหัสใหม่เอง",
+              "Ask your administrator for a temporary password, then sign in here and set a new one")}</div></div>`}
 
         ${demo!=null && html`<div class="lg-roles">
           <div class="rl">${t("เข้าดูเดโม — เลือกบทบาทแล้วเข้าได้เลย", "Try the demo — pick a role and you are in")}</div>
