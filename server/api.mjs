@@ -74,7 +74,7 @@ export function makeApi({pool, authStore, zoneStore, demoPassword, perms, webBoo
         return send(res, 401, {ok: false, code: 401, error: 'อีเมลหรือรหัสผ่านไม่ถูกต้อง'});
       }
       if (r.ok) await writeAudit(pool, auditCtx(req, r.user), 'login', r.user.email, {door: door || null});
-      else await writeAudit(pool, attempt, 'login_fail', attempt.actor.email, {reason: r.code === 423 ? 'locked' : 'credentials'});
+      else await writeAudit(pool, attempt, 'login_fail', attempt.actor.email, {reason: r.code === 423 ? 'locked' : r.reason === 'suspended' ? 'suspended' : 'credentials'});
       return reply(r);
     }
     if (action === 'change') {

@@ -158,14 +158,19 @@ function makeAuthStore(adapter, opts) {
       const u = await find(email);
       // ข้อความเดียวกันทุกกรณี ไม่บอกว่าอีเมลมีจริงไหม (กันไล่เดาบัญชี)
       const deny = { ok: false, code: 401, error: 'อีเมลหรือรหัสผ่านไม่ถูกต้อง' };
-      if (!u || u.status === 'Suspended') return deny;
+      if (!u) return deny;
+      const suspended = u.status === 'Suspended';
       if (u.lockUntil && u.lockUntil > Date.now())
-        return { ok: false, code: 423, error: 'กรอกผิดหลายครั้ง บัญชีถูกล็อกชั่วคราว ลองใหม่ภายหลัง' };
-      if (!u.pw) return { ok: false, code: 403, error: 'บัญชีนี้ยังไม่ได้ตั้งรหัสผ่าน ติดต่อผู้ดูแลระบบ' };
+        return suspended ? deny : { ok: false, code: 423, error: 'กรอกผิดหลายครั้ง บัญชีถูกล็อกชั่วคราว ลองใหม่ภายหลัง' };
+      if (!u.pw) return suspended ? deny : { ok: false, code: 403, error: 'บัญชีนี้ยังไม่ได้ตั้งรหัสผ่าน ติดต่อผู้ดูแลระบบ' };
       if (!verifyPassword(password, u.pw)) {
         const fails = (u.fails || 0) + 1;
         await save(u, fails >= MAX_FAILS ? { fails: 0, lockUntil: Date.now() + LOCK_MS } : { fails });
         return deny;
+      }
+      if (suspended) {
+        await save(u, { fails: 0, lockUntil: 0 });
+        return { ok: false, code: 403, reason: 'suspended', error: 'บัญชีนี้ถูกระงับ กรุณาติดต่อผู้ดูแลระบบ' };
       }
       await save(u, { fails: 0, lockUntil: 0, last: new Date().toISOString().slice(0, 16).replace('T', ' ') });
       return { ok: true, token: makeToken(u, secret), user: publicUser(u), mustChange: !!u.mustChange };
