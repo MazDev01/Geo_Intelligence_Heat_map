@@ -152,7 +152,7 @@ function App(){
   useEffect(()=>subscribeLayerOpacity(op=>setLayers(x=>({...x, op}))), []);
   const [selectedProvince,setSelectedProvince] = useState(null);
   const [selectedCustomer,setSelectedCustomer] = useState(null);
-  const [collapsed,setCollapsed] = useState(false);
+  const [collapsed,setCollapsed] = useState(()=>{ try{ return window.matchMedia("(max-width:640px)").matches; }catch(e){ return false; } });
   const [menu,setMenu] = useState(null);
   const [roleSub,setRoleSub] = useState(false);   // เมนูย่อย "สลับบทบาท (เดโม)" เปิด/ปิด
   const [langSub,setLangSub] = useState(false);   // เมนูย่อย "ภาษา" เปิด/ปิด

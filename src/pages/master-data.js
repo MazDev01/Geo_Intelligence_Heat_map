@@ -139,15 +139,15 @@ export function MasterData(){
         <tbody>
         ${rows.map((it,i)=>{ const use=useOf(it);
           return html`<tr key=${it.code} data-code=${it.code} style=${{opacity:it.is_active?1:.5}}>
-            <td><span class="md-seq">${i+1}</span></td>
-            <td><div class="row" style=${{gap:"9px"}}>
+            <td data-label=${t("ลำดับ", "Order")}><span class="md-seq">${i+1}</span></td>
+            <td data-label=${t("ชื่อที่แสดงผล", "Display name")}><div class="row" style=${{gap:"9px"}}>
               ${cfg.color && it.color_hex ? html`<span class="md-dot" style=${{background:it.color_hex}}></span>`:""}
               ${tab==="segments" ? html`<${IconGlyph} name=${it.icon} size=${17}/>` : ""}
               <b>${t(it.label_th, it.label_en||it.label_th)}</b>
               ${it.unlisted && html`<${Badge} tone="warn">${t("ยังไม่ได้ตั้งค่า", "Not set up")}</${Badge}>`}</div></td>
-            <td><span class="mono dim" style=${{fontSize:"12px"}}>${it.code}</span></td>
-            <td>${use>0? html`<span>${num(use)} ${t("รายการ", "records")}</span>` : html`<span class="dim">—</span>`}</td>
-            <td>${it.is_system
+            <td data-label=${t("รหัสอ้างอิง", "Reference code")}><span class="mono dim" style=${{fontSize:"12px"}}>${it.code}</span></td>
+            <td data-label=${t("จำนวนที่ใช้อยู่", "In use")}>${use>0? html`<span>${num(use)} ${t("รายการ", "records")}</span>` : html`<span class="dim">—</span>`}</td>
+            <td data-label=${t("สถานะ", "Status")}>${it.is_system
                 ? html`<${Badge} tone="neutral" icon="shield">${t("ระบบ", "System")}</${Badge}>`
                 : it.is_active ? html`<${Badge} tone="good">${t("ใช้งาน", "Active")}</${Badge}>` : html`<${Badge} tone="neutral">${t("เลิกใช้แล้ว", "Retired")}</${Badge}>`}</td>
             <td style=${{textAlign:"right"}}>${locked ? html`<span class="dim" style=${{fontSize:"11.5px",padding:"0 6px"}}>${t("ล็อก", "Locked")}</span>`
@@ -208,6 +208,17 @@ const MD_CSS = `
 .md-table th{text-align:left;padding:11px 14px;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;border-bottom:1px solid var(--stroke);white-space:nowrap}
 .md-table td{padding:10px 14px;border-bottom:1px solid var(--stroke);vertical-align:middle}
 .md-table tbody tr:last-child td{border-bottom:none}
+@media(max-width:640px){
+  .md-table-wrap{overflow:visible}
+  .md-table,.md-table tbody{display:block}
+  .md-table thead{display:none}
+  .md-table tbody tr{display:block;padding:8px 0;border-bottom:1px solid var(--stroke)}
+  .md-table tbody tr:last-child{border-bottom:none}
+  .md-table td,.md-table tbody tr:last-child td{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:6px 14px;border-bottom:none;text-align:right;overflow-wrap:anywhere}
+  .md-table td[data-label]::before{content:attr(data-label);flex:none;max-width:45%;text-align:left;font-size:11.5px;font-weight:600;color:var(--muted)}
+  .md-table td:not([data-label]){justify-content:flex-end}
+  .md-table td:not([data-label]) > .row{flex-wrap:wrap}
+}
 .md-dot{width:13px;height:13px;border-radius:4px;flex:none;box-shadow:0 0 0 1px rgba(0,0,0,.08)}
 .md-seq{display:inline-grid;place-items:center;min-width:26px;height:26px;padding:0 6px;border-radius:8px;
   font-size:12.5px;font-weight:700;color:var(--muted);background:var(--surface2);font-variant-numeric:tabular-nums}

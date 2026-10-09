@@ -108,7 +108,7 @@ export function Table({cols, rows, onRow, empty="No records", rowClass}){
   return html`<div class="table-wrap scrolly">
     <table class="table"><thead><tr>${cols.map((c,i)=>html`<th key=${i} style=${c.w?{width:c.w}:null}>${c.h}</th>`)}</tr></thead>
     <tbody>${rows.length? rows.map((r,ri)=>html`<tr key=${ri} class=${cx(onRow&&"clickable", rowClass&&rowClass(r,ri))} onClick=${onRow?()=>onRow(r,ri):null}>
-      ${cols.map((c,ci)=>html`<td key=${ci}>${c.render? c.render(r,ri): r[c.key]}</td>`)}
+      ${cols.map((c,ci)=>html`<td key=${ci} data-label=${typeof c.h==="string" && c.h ? c.h : undefined}>${c.render? c.render(r,ri): r[c.key]}</td>`)}
     </tr>`) : html`<tr><td colSpan=${cols.length}><div class="emptybox">${empty}</div></td></tr>`}</tbody></table>
   </div>`;
 }

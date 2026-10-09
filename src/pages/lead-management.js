@@ -174,11 +174,11 @@ export function LeadManagement({onCounts}){
         <tbody>
           ${rows.map(l=>{ const a=actionOf(l.status);
             return html`<tr key=${l.reqId}>
-            <td><${StatusBadge} s=${l.status}/></td>
-            <td><b>${l.id}</b>${l.customerId?html`<div class="ld-cid">${l.customerId}</div>`:""}</td>
-            <td>${l.businessName}</td>
-            <td>${l.submitter.name} <${RoleBadge} role=${l.submitter.role}/></td>
-            <td>${beD(l.submittedAt)}</td>
+            <td data-label=${t("สถานะ", "Status")}><${StatusBadge} s=${l.status}/></td>
+            <td data-label="Lead ID"><div><b>${l.id}</b>${l.customerId?html`<div class="ld-cid">${l.customerId}</div>`:""}</div></td>
+            <td data-label=${t("ชื่อลูกค้า/บริษัท", "Customer / company")}>${l.businessName}</td>
+            <td data-label=${t("ผู้ส่ง", "Submitted by")}><span>${l.submitter.name} <${RoleBadge} role=${l.submitter.role}/></span></td>
+            <td data-label=${t("วันที่ส่ง", "Submitted")}>${beD(l.submittedAt)}</td>
             <td class="rt">${a ? html`<button class="ld-eye" title=${a.label} aria-label=${a.label+" "+l.businessName}
                 onClick=${()=>onAction(l)}><${Icon} name="eye" size=${16}/></button>`
               : html`<button class="ld-eye" title=${t("ดูรายละเอียด", "View details")} aria-label=${t("ดูรายละเอียด", "View details")+" "+l.businessName}
@@ -344,6 +344,15 @@ const LD_CSS=`
 .ld-table th.rt,.ld-table td.rt{text-align:right}
 .ld-table tbody td{padding:11px 13px;border-bottom:1px solid var(--stroke);color:var(--txt);vertical-align:top}
 .ld-table tbody tr:hover{background:var(--surface)}
+@media(max-width:640px){
+  .ld-tablewrap{overflow:visible}
+  .ld-table,.ld-table tbody{display:block}
+  .ld-table thead{display:none}
+  .ld-table tbody tr{display:block;margin:0 0 10px;padding:6px 0;border:1px solid var(--stroke);border-radius:12px;background:var(--surface)}
+  .ld-table tbody td{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:7px 14px;border-bottom:none;text-align:right;overflow-wrap:anywhere}
+  .ld-table tbody td[data-label]::before{content:attr(data-label);flex:none;max-width:45%;text-align:left;font-size:11.5px;font-weight:600;color:var(--muted)}
+  .ld-table tbody td.rt{justify-content:flex-end}
+}
 .ld-badge{font-size:11.5px;font-weight:800;padding:3px 10px;border-radius:999px;white-space:nowrap}
 .ld-role{font-size:10.5px;font-weight:800;padding:1px 7px;border-radius:6px;margin-left:4px}
 .ld-role.tc{background:rgba(57,135,229,.16);color:#2f7fe0}
