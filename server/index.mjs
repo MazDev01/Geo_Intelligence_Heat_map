@@ -7,6 +7,7 @@ import {makeAuthAdapter} from './db/auth-adapter.mjs';
 import {adminSeed} from './db/admin-seed.mjs';
 import {makeZoneAdapter} from './db/zone-adapter.mjs';
 import {makeApi} from './api.mjs';
+import {makePlacesCache} from './places-cache.mjs';
 import * as perms from '../src/permissions.js';
 import {makeStatic} from './static.mjs';
 
@@ -51,7 +52,8 @@ const authStore = makeAuthStore(makeAuthAdapter(pool), {
   seed: adminSeed(env),
 });
 const zoneStore = makeZoneStore(makeZoneAdapter(pool));
-const api = makeApi({pool, authStore, zoneStore, demoPassword, perms, webBootstrap: !production, runtime: basemapUrl ? {basemapUrl} : {}});
+const placesCache = makePlacesCache(env);
+const api = makeApi({pool, authStore, zoneStore, demoPassword, perms, webBootstrap: !production, runtime: basemapUrl ? {basemapUrl} : {}, placesCache});
 const serveStatic = makeStatic(root);
 
 const SECURITY_HEADERS = {
@@ -84,6 +86,7 @@ const server = createServer(async (req, res) => {
 });
 
 server.on('error', async e => {
+  await placesCache.close();
   await pool.end().catch(() => {});
   fail(e.code === 'EADDRINUSE'
     ? `port ${port} is already in use. Stop the other server or set PORT to a free port`
@@ -100,6 +103,7 @@ async function shutdown(signal) {
   closing = true;
   console.log('[server] ' + signal + ' received, shutting down');
   server.close(async () => {
+    await placesCache.close();
     await pool.end().catch(() => {});
     process.exit(0);
   });

@@ -1,7 +1,9 @@
 import {createRequire} from 'node:module';
+import {gzipSync, gunzip} from 'node:zlib';
+import {promisify} from 'node:util';
 import {withTransaction} from './db/pool.mjs';
 import {auditCtx, clientIp, writeAudit, listAudit} from './audit.mjs';
-import {listPlaces, createPlaces, updatePlace, deletePlace} from './places.mjs';
+import {listPlaces, placesScope, createPlaces, updatePlace, deletePlace} from './places.mjs';
 import {importUpload, mapUpload, confirmUpload, listFiles, withdrawFile} from './imports.mjs';
 import {listQueue, actOnQueue} from './import-queue.mjs';
 import {listPlans, createPlan, updatePlan, deletePlan} from './visit-plans.mjs';
@@ -17,17 +19,44 @@ import {MAX_BODY, MAX_ROWS, readRequest, checkSource, cleanName, dataRows, build
 const require = createRequire(import.meta.url);
 const {MAX_BYTES} = require('../zone-validate.cjs');
 
+const gunzipAsync = promisify(gunzip);
+
 const DOOR_ROLE = {admin: 'Administrator', management: 'Management', tc: 'Trade Coordinator'};
+const KEEPS_PLACES = new Set(['/api/auth', '/api/notifications', '/api/me/prefs', '/api/exports']);
 const DEAL_BODY_BYTES = Math.ceil(MAX_DEAL_FILE_BYTES / 3) * 4 + 1e5;
 
-const send = (res, code, obj) => {
-  res.writeHead(code, {
-    'Content-Type': 'application/json; charset=utf-8',
-    'Cache-Control': 'no-store',
-    'X-Content-Type-Options': 'nosniff',
-    ...(code === 413 ? {Connection: 'close'} : {}),
-  });
-  res.end(obj === undefined ? '' : JSON.stringify(obj));
+const GZIP_MIN = 1024;
+const acceptsGzip = res => /\bgzip\b/i.test((res.req && res.req.headers['accept-encoding']) || '');
+
+const jsonHeaders = (code, extra) => ({
+  'Content-Type': 'application/json; charset=utf-8',
+  'Cache-Control': 'no-store',
+  'X-Content-Type-Options': 'nosniff',
+  Vary: 'Accept-Encoding',
+  ...(code === 413 ? {Connection: 'close'} : {}),
+  ...extra,
+});
+
+const sendText = (res, code, text) => {
+  if (text.length >= GZIP_MIN && acceptsGzip(res)) {
+    res.writeHead(code, jsonHeaders(code, {'Content-Encoding': 'gzip'}));
+    return res.end(gzipSync(text));
+  }
+  res.writeHead(code, jsonHeaders(code));
+  res.end(text);
+};
+
+const send = (res, code, obj) => sendText(res, code, obj === undefined ? '' : JSON.stringify(obj));
+
+const sendCached = async (res, entry) => {
+  if (entry.json !== undefined) return sendText(res, 200, entry.json);
+  if (acceptsGzip(res)) {
+    res.writeHead(200, jsonHeaders(200, {'Content-Encoding': 'gzip'}));
+    return res.end(entry.gz);
+  }
+  const plain = await gunzipAsync(entry.gz);
+  res.writeHead(200, jsonHeaders(200));
+  res.end(plain);
 };
 
 async function readBytes(req, limit, discardUpTo = limit) {
@@ -50,7 +79,7 @@ async function readBytes(req, limit, discardUpTo = limit) {
 
 const readBody = async (req, limit) => (await readBytes(req, limit)).toString('utf8');
 
-export function makeApi({pool, authStore, zoneStore, demoPassword, perms, webBootstrap = true, runtime = {}}) {
+export function makeApi({pool, authStore, zoneStore, demoPassword, perms, webBootstrap = true, runtime = {}, placesCache = null}) {
   const can = (user, key) => !perms || perms.effectivePerms(user.role, user.permOverrides || {}).has(key);
 
   async function auth(req, res) {
@@ -294,7 +323,13 @@ export function makeApi({pool, authStore, zoneStore, demoPassword, perms, webBoo
     const user = await requireUser(req, res);
     if (!user) return;
     if (!can(user, 'customer.view')) return send(res, 200, []);
-    return send(res, 200, await listPlaces(pool, kind, user, query.get('country'), {contact: can(user, 'map.view_contact_pii')}));
+    const country = query.get('country');
+    const contact = can(user, 'map.view_contact_pii');
+    const build = async () => JSON.stringify(await listPlaces(pool, kind, user, country, {contact}));
+    const scope = placesScope(user);
+    if (!placesCache || scope === undefined) return sendText(res, 200, await build());
+    const key = JSON.stringify([kind, country || null, scope, contact]);
+    return sendCached(res, await placesCache.get(key, build));
   };
 
   async function placesWrite(req, res, query) {
@@ -602,6 +637,8 @@ export function makeApi({pool, authStore, zoneStore, demoPassword, perms, webBoo
         console.error('[api] ' + path + ':', e);
         if (res.headersSent) return res.destroy();
         send(res, 500, {error: 'เซิร์ฟเวอร์ผิดพลาด'});
+      } finally {
+        if (placesCache && req.method !== 'GET' && req.method !== 'HEAD' && !KEEPS_PLACES.has(path)) placesCache.reset();
       }
     },
   };

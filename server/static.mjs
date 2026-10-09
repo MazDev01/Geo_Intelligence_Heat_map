@@ -1,5 +1,7 @@
 import {createReadStream} from 'node:fs';
-import {stat} from 'node:fs/promises';
+import {readFile, stat} from 'node:fs/promises';
+import {gzip} from 'node:zlib';
+import {promisify} from 'node:util';
 import {extname, join, resolve, sep} from 'node:path';
 
 const MIME = {
@@ -9,6 +11,10 @@ const MIME = {
   '.geojson': 'application/json; charset=utf-8',
   '.pmtiles': 'application/octet-stream',
 };
+
+const gz = promisify(gzip);
+const COMPRESS = new Set(['.html', '.js', '.json', '.geojson']);
+const COMPRESS_MAX = 8 * 1024 * 1024;
 
 export const DOORS = ['/admin', '/management', '/tc'];
 const INDEX_PATHS = new Set(['/', '/index.html', ...DOORS]);
@@ -31,6 +37,15 @@ export function allowedFile(path) {
 
 export function makeStatic(root) {
   const base = resolve(root);
+  const zipped = new Map();
+
+  const gzipped = async (file, st) => {
+    const hit = zipped.get(file);
+    if (hit && hit.mtimeMs === st.mtimeMs && hit.size === st.size) return hit.body;
+    const body = await gz(await readFile(file));
+    zipped.set(file, {mtimeMs: st.mtimeMs, size: st.size, body});
+    return body;
+  };
 
   const plain = (res, code, text, extra) => {
     res.writeHead(code, {'Content-Type': 'text/plain; charset=utf-8', 'X-Content-Type-Options': 'nosniff', ...extra});
@@ -60,6 +75,7 @@ export function makeStatic(root) {
       'X-Content-Type-Options': 'nosniff',
       'Cache-Control': 'no-cache',
       'Last-Modified': new Date(st.mtimeMs).toUTCString(),
+      ...(COMPRESS.has(ext) ? {Vary: 'Accept-Encoding'} : {}),
     };
 
     const since = Date.parse(req.headers['if-modified-since'] || '');
@@ -75,6 +91,12 @@ export function makeStatic(root) {
         .on('error', e => { console.error('[static] stream:', e.code || e.message); res.destroy(); })
         .pipe(res);
     };
+
+    if (!req.headers.range && COMPRESS.has(ext) && st.size <= COMPRESS_MAX && /\bgzip\b/i.test(req.headers['accept-encoding'] || '')) {
+      const body = await gzipped(file, st);
+      res.writeHead(200, {...common, 'Content-Encoding': 'gzip', 'Content-Length': body.length});
+      return res.end(head ? undefined : body);
+    }
 
     const m = /^bytes=(\d*)-(\d*)$/.exec(req.headers.range || '');
     if (m && (m[1] !== '' || m[2] !== '')) {

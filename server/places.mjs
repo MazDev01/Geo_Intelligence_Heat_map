@@ -99,11 +99,16 @@ const KINDS = {
   leads: {type: 'Prospect', map: toLead},
 };
 
+export function placesScope(user) {
+  const full = (user.scope || (FULL_ACCESS.has(user.role) ? 'national' : 'own_area')) === 'national';
+  if (full) return null;
+  return Number.isInteger(user.id) ? user.id : undefined;
+}
+
 export async function listPlaces(pool, kind, user, country, {contact = true} = {}) {
   const k = KINDS[kind];
-  const full = (user.scope || (FULL_ACCESS.has(user.role) ? 'national' : 'own_area')) === 'national';
-  if (!full && !Number.isInteger(user.id)) return [];
-  const scopeUserId = full ? null : user.id;
+  const scopeUserId = placesScope(user);
+  if (scopeUserId === undefined) return [];
   const r = await pool.query(SQL, [k.type, country || null, scopeUserId, null]);
   const list = r.rows.map(k.map);
   if (!contact) for (const o of list) { o.phone = null; if (kind === 'leads') o.email = ''; else delete o.email; }

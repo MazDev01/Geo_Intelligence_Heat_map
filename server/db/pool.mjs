@@ -1,6 +1,6 @@
 import pg from 'pg';
 
-function connectionConfig(env) {
+export function connectionConfig(env) {
   if (env.DATABASE_URL) return {connectionString: env.DATABASE_URL};
   if (!env.POSTGRES_PASSWORD)
     throw new Error('DATABASE_URL or POSTGRES_PASSWORD is required');
@@ -18,7 +18,7 @@ export function makePool(env = process.env) {
     ...connectionConfig(env),
     max: Number(env.DB_POOL_MAX || 10),
     idleTimeoutMillis: 30000,
-    connectionTimeoutMillis: 5000,
+    connectionTimeoutMillis: 30000,
   });
   pool.on('error', e => console.error('[db] idle client error:', e.message));
   return pool;
