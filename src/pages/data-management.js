@@ -333,7 +333,7 @@ function EditRowDrawer({row, onClose, onSave, onSkip, onMerge, onNew}){
 /* ═══════════════════ แท็บ 1: นำเข้าไฟล์ Excel (Wizard 4 ขั้น) ═══════════════════ */
 // resumeFile: เมื่อกด "จัดการรายการค้าง" จากแท็บจัดการไฟล์ → เปิด wizard ที่ขั้นตอนที่ 3 ของไฟล์นั้น
 function ImportWizard({resumeFile, staging, setStaging, onExitResume, onImported}={}){
-  const {placesChanged}=useApp();
+  const {placesChanged, nav}=useApp();
   const [step,setStep]=useState(1);
   const [file,setFile]=useState(null);
   const [fileErr,setFileErr]=useState("");
@@ -582,7 +582,7 @@ function ImportWizard({resumeFile, staging, setStaging, onExitResume, onImported
         <h3 style=${{margin:"10px 0 4px"}}>${t("นำเข้าข้อมูลเรียบร้อย", "Import complete")}</h3>
         <div class="dim">${t("สำเร็จ", "Succeeded")} ${counts.ok||0} ${t("· รอตรวจสอบ (ซ้ำ)", "· awaiting review (duplicates)")} ${counts.dup||0} ${t("· ข้าม", "· skipped")} ${(counts.incomplete||0)+(counts.badcoord||0)}</div>
         <div class="row" style=${{gap:"10px",marginTop:"16px",justifyContent:"center"}}>
-          <${Btn} variant="outline" onClick=${()=>toast(t("ไปที่รายการข้อมูลที่นำเข้า", "Go to the imported records"),"info")}>${t("ดูข้อมูลที่นำเข้า", "View the imported data")}</${Btn}>
+          <${Btn} variant="outline" onClick=${()=>{ if(resumeFile){ onExitResume && onExitResume(); } else if(nav) nav("data-files"); }}>${t("ดูข้อมูลที่นำเข้า", "View the imported data")}</${Btn}>
           <${Btn} variant="ghost" onClick=${()=>{setStep(1);clearFile();setDone(false);setPct(0);}}>${t("นำเข้าไฟล์ใหม่", "Import another file")}</${Btn}></div>
       </div>`}
     </div>` : ""}
