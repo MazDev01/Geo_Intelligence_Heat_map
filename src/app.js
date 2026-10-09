@@ -919,8 +919,8 @@ function App(){
             <${Icon} name="reports" size=${15} color="var(--accent)"/> ${t("รายงาน", "Reports")}</button>`}
           <div style=${{position:"relative"}}>
             <button class="icon-btn" data-bell="1" aria-label=${t("การแจ้งเตือน", "Notifications")} onClick=${()=>{ if(menu!=="notif") refreshInbox(); setMenu(menu==="notif"?null:"notif"); }}><${Icon} name="bell" size=${18}/>
-              ${(notifs.length || inbox.unread) ? html`<span class="dot"></span>` : ""}</button>
-            ${menu==="notif" && (()=>{ const shown = notifs; const count = shown.length + inbox.unread;
+              ${inbox.unread ? html`<span class="dot"></span>` : ""}</button>
+            ${menu==="notif" && (()=>{ const shown = notifs; const count = inbox.unread;
               return html`<div class="dropdown" data-inbox="1" style=${{width:"320px",maxHeight:"70vh",overflowY:"auto"}}>
               <div class="row between" style=${{padding:"6px 10px 10px"}}><b style=${{fontSize:"13px"}}>${t("การแจ้งเตือน", "Notifications")}</b>
                 <div class="row" style=${{gap:"8px"}}>
@@ -935,6 +935,8 @@ function App(){
                 <div style=${{flex:1}}><div style=${{fontSize:"12.5px",color:"var(--txt)",fontWeight:n.read?400:600}}>${v.t}</div>
                   ${Number.isFinite(at) ? html`<div class="dim" style=${{fontSize:"12px",marginTop:"2px"}}>${agoText(at)}</div>` : ""}</div>
                 ${n.read ? "" : html`<span style=${{width:"8px",height:"8px",borderRadius:"50%",background:"var(--accent)",flex:"none",marginTop:"5px"}}></span>`}</div>`; })}
+              ${shown.length ? html`<div data-inbox-summary="1" style=${{padding:"10px 10px 4px",fontSize:"11px",fontWeight:700,letterSpacing:".6px",color:"var(--muted)",
+                  borderTop:inbox.items.length?"1px solid var(--stroke)":"none",marginTop:inbox.items.length?"6px":0}}>${t("สรุปพื้นที่", "Area summary")}</div>` : ""}
               ${shown.map((n,i)=>html`<div key=${n.key} class="dd-item" style=${{alignItems:"flex-start",cursor:"default"}}>
                 <${Icon} name=${n.icon} size=${15} color="var(--accent2)"/>
                 <div style=${{flex:1}}><div style=${{fontSize:"12.5px",color:"var(--txt)"}}>${n.t}</div>
