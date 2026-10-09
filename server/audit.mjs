@@ -1,4 +1,5 @@
 import net from 'node:net';
+import {detailLabel, loadLabelContext} from './audit-labels.mjs';
 
 const EVENT_RE = /^[a-z][a-z_]*$/;
 const LOOPBACK = new Set(['127.0.0.1', '::1', '::ffff:127.0.0.1']);
@@ -65,8 +66,8 @@ export async function listAudit(pool, query, {max} = {}) {
        to_char(a.occurred_at at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') as at
      from audit_log a left join users u on u.id = a.actor_id ${cond} order by a.occurred_at desc, a.log_id desc limit $${args.length + 1} offset $${args.length + 2}`,
     [...args, limit, (page - 1) * limit]);
-  return {
-    ok: true, total, page, limit,
-    rows: r.rows.map(x => ({id: Number(x.log_id), at: x.at, actor: x.actor_email, actorId: x.actor_id, role: x.actor_role, event: x.event_type, target: x.target, detail: x.detail, ip: x.ip})),
-  };
+  const ctx = await loadLabelContext(pool);
+  const rows = r.rows.map(x => ({id: Number(x.log_id), at: x.at, actor: x.actor_email, actorId: x.actor_id, role: x.actor_role, event: x.event_type, target: x.target, detail: x.detail, ip: x.ip}));
+  for (const row of rows) row.detailText = {th: detailLabel(row, 'th', ctx), en: detailLabel(row, 'en', ctx)};
+  return {ok: true, total, page, limit, rows};
 }

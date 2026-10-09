@@ -1,4 +1,4 @@
-import {t} from "./i18n.js";
+import {t, getLang} from "./i18n.js";
 import {token} from "./auth.js";
 
 export async function fetchAudit(params){
@@ -100,6 +100,7 @@ export function detailText(r){
   const parts = [];
   const isExport = r.event==="export" || r.event==="export_denied";
   if(r.target) parts.push(isExport && EXPORT_TARGET[r.target] ? EXPORT_TARGET[r.target]() : r.target);
+  if(r.detailText){ const s = r.detailText[getLang()==="en" ? "en" : "th"]; if(s) parts.push(s); return parts.join(" · "); }
   for(const [k,v] of Object.entries(r.detail||{})){
     if(isExport && (k==="kind" || k==="source")) continue;
     if(v===null || v===undefined || v==="" || (Array.isArray(v) && !v.length)) continue;
