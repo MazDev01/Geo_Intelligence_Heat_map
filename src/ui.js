@@ -1,4 +1,4 @@
-import {html, Icon, cx, useState, useEffect, useRef, thDate} from "./lib.js";
+import {html, Icon, cx, useState, useEffect, useRef, thDate, todayBKK} from "./lib.js";
 import {createPortal} from "react-dom";   // portal Modal ไป <body> เพื่อไม่ให้ถูก .slide-panel (overflow:hidden + transform) กักไว้ในเนื้อหา — ป็อปอัพจึงคลุมเต็มจอ (รวมแถบเมนู)
 import {t, getLang, setLang} from "./i18n.js";
 
@@ -115,12 +115,83 @@ export function Table({cols, rows, onRow, empty="No records", rowClass}){
 
 /* ช่องเลือกวันที่แบบไทย — value/onChange ยังเป็น "YYYY-MM-DD" เหมือน <input type=date> ทุกประการ
    className ส่งต่อไปที่ input ตัวจริง เพื่อให้ CSS ขนาดเดิมของแต่ละหน้ายังใช้ได้ */
+const CAL_W = 284, CAL_H = 352;
+const calPad = n => String(n).padStart(2, "0");
+const calKey = (y, m, d) => { const x = new Date(Date.UTC(y, m, d)); return x.getUTCFullYear()+"-"+calPad(x.getUTCMonth()+1)+"-"+calPad(x.getUTCDate()); };
+const calParse = v => { const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(v||""); return m ? {y:+m[1], m:+m[2]-1, d:+m[3]} : null; };
+const calShift = (k, days) => { const p = calParse(k); return calKey(p.y, p.m, p.d+days); };
+const calMonths = () => getLang()==="en"
+  ? ["January","February","March","April","May","June","July","August","September","October","November","December"]
+  : ["มกราคม","กุมภาพันธ์","มีนาคม","เมษายน","พฤษภาคม","มิถุนายน","กรกฎาคม","สิงหาคม","กันยายน","ตุลาคม","พฤศจิกายน","ธันวาคม"];
+const calDows = () => getLang()==="en" ? ["Su","Mo","Tu","We","Th","Fr","Sa"] : ["อา","จ","อ","พ","พฤ","ศ","ส"];
+const calYear = y => getLang()==="en" ? y : y+543;
+
 export function DateField({value, onChange, min, max, title, className, placeholder=t("วว/ดด/ปปปป", "dd/mm/yyyy")}){
-  return html`<span class="thdate">
-    <input type="date" class=${className} value=${value||""} title=${title}
+  const [open,setOpen] = useState(false);
+  const [view,setView] = useState(null);
+  const [cursor,setCursor] = useState("");
+  const [pos,setPos] = useState(null);
+  const wrapRef = useRef(null); const popRef = useRef(null);
+  const today = todayBKK();
+  const allowed = k => (!min || k>=min) && (!max || k<=max);
+  const clamp = k => (min && k<min) ? min : (max && k>max) ? max : k;
+  const show = () => { const start = calParse(value) ? value : clamp(today); const p = calParse(start);
+    setView({y:p.y, m:p.m}); setCursor(start); setPos(null); setOpen(true); };
+  const close = back => { setOpen(false); if(back && wrapRef.current){ const i = wrapRef.current.querySelector("input"); if(i) i.focus(); } };
+  const pick = k => { if(!allowed(k)) return; onChange && onChange(k); close(true); };
+  const clear = () => { onChange && onChange(""); close(true); };
+  const go = (dy, dm) => setView(v => { const x = new Date(Date.UTC(v.y+dy, v.m+dm, 1)); return {y:x.getUTCFullYear(), m:x.getUTCMonth()}; });
+  const moveTo = k => { const p = calParse(k); setCursor(k); setView({y:p.y, m:p.m}); };
+  useEffect(()=>{ if(!open || !wrapRef.current) return;
+    const r = wrapRef.current.getBoundingClientRect();
+    let left = r.left; if(left + CAL_W > window.innerWidth - 8) left = Math.max(8, r.right - CAL_W);
+    let top = r.bottom + 6; if(top + CAL_H > window.innerHeight - 8 && r.top - CAL_H - 6 >= 8) top = r.top - CAL_H - 6;
+    setPos({left, top});
+    const inside = e => !!(popRef.current && e.target && e.target.nodeType===1 && popRef.current.contains(e.target));
+    const onDown = e => { if(wrapRef.current && wrapRef.current.contains(e.target)) return; if(inside(e)) return; setOpen(false); };
+    const onMove = e => { if(inside(e)) return; setOpen(false); };
+    document.addEventListener("mousedown", onDown); window.addEventListener("resize", onMove); window.addEventListener("scroll", onMove, true);
+    return ()=>{ document.removeEventListener("mousedown", onDown); window.removeEventListener("resize", onMove); window.removeEventListener("scroll", onMove, true); };
+  },[open]);
+  useEffect(()=>{ if(open && pos && popRef.current) popRef.current.focus(); },[open, !!pos]);
+  const onCalKey = e => {
+    const step = {ArrowLeft:-1, ArrowRight:1, ArrowUp:-7, ArrowDown:7}[e.key];
+    if(step){ e.preventDefault(); moveTo(calShift(cursor, step)); return; }
+    if(e.key==="PageUp" || e.key==="PageDown"){ e.preventDefault(); const p = calParse(cursor); const dir = e.key==="PageUp" ? -1 : 1;
+      const last = new Date(Date.UTC(p.y, p.m+dir+1, 0)).getUTCDate(); moveTo(calKey(p.y, p.m+dir, Math.min(p.d, last))); return; }
+    if(e.key==="Enter" || e.key===" "){ e.preventDefault(); pick(cursor); return; }
+    if(e.key==="Escape"){ e.preventDefault(); e.stopPropagation(); close(true); }
+  };
+  const onFieldKey = e => { if(e.key==="Enter" || e.key===" " || e.key==="ArrowDown"){ e.preventDefault(); if(!open) show(); }
+    else if(e.key==="Escape" && open){ e.preventDefault(); e.stopPropagation(); close(true); } };
+  const cells = view ? Array.from({length:42}, (_, i) => { const lead = new Date(Date.UTC(view.y, view.m, 1)).getUTCDay();
+    const k = calKey(view.y, view.m, i - lead + 1); const p = calParse(k); return {k, d:p.d, out:p.m!==view.m}; }) : [];
+  return html`<span class="thdate" ref=${wrapRef}>
+    <input type="date" class=${className} value=${value||""} title=${title} readOnly=${true} aria-haspopup="dialog" aria-expanded=${open}
       min=${min||undefined} max=${max||undefined}
+      onClick=${()=>open ? setOpen(false) : show()} onKeyDown=${onFieldKey}
       onChange=${e=>onChange&&onChange(e.target.value)} onInput=${e=>onChange&&onChange(e.target.value)}/>
     <span class=${cx("thdate-lb", !value&&"ph")}>${value ? thDate(value) : placeholder}</span>
+    ${open && pos && view && createPortal(html`<div class="thcal" ref=${popRef} role="dialog" tabIndex="-1" aria-label=${t("เลือกวันที่", "Choose a date")}
+        style=${{left:pos.left+"px", top:pos.top+"px"}} onKeyDown=${onCalKey}>
+      <div class="thcal-head">
+        <button type="button" class="thcal-nav" tabIndex="-1" title=${t("ปีก่อนหน้า", "Previous year")} onClick=${()=>go(-1,0)}>«</button>
+        <button type="button" class="thcal-nav" tabIndex="-1" title=${t("เดือนก่อนหน้า", "Previous month")} onClick=${()=>go(0,-1)}>‹</button>
+        <div class="thcal-title">${calMonths()[view.m]} ${calYear(view.y)}</div>
+        <button type="button" class="thcal-nav" tabIndex="-1" title=${t("เดือนถัดไป", "Next month")} onClick=${()=>go(0,1)}>›</button>
+        <button type="button" class="thcal-nav" tabIndex="-1" title=${t("ปีถัดไป", "Next year")} onClick=${()=>go(1,0)}>»</button>
+      </div>
+      <div class="thcal-grid">
+        ${calDows().map(d=>html`<div key=${d} class="thcal-dow">${d}</div>`)}
+        ${cells.map(c=>html`<button key=${c.k} type="button" data-day=${c.k} disabled=${!allowed(c.k)} tabIndex="-1"
+          class=${cx("thcal-day", c.out&&"out", c.k===today&&"today", c.k===value&&"on", c.k===cursor&&"cur")}
+          aria-pressed=${c.k===value} onMouseEnter=${()=>allowed(c.k)&&setCursor(c.k)} onClick=${()=>pick(c.k)}>${c.d}</button>`)}
+      </div>
+      <div class="thcal-foot">
+        <button type="button" class="thcal-link" tabIndex="-1" disabled=${!value} onClick=${clear}>${t("ล้าง", "Clear")}</button>
+        <button type="button" class="thcal-link" tabIndex="-1" disabled=${!allowed(today)} onClick=${()=>pick(today)}>${t("วันนี้", "Today")}</button>
+      </div>
+    </div>`, document.body)}
   </span>`;
 }
 

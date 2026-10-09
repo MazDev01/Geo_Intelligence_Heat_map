@@ -1,7 +1,7 @@
 import {html, useState, useEffect, useRef, Icon, SegmentIcon, num, pct, SEG_COLOR, SEGMENTS,
   segTH, gapTH, provinceTH, districtTH, fetchDrivingRoute, useLang} from "./lib.js";
 import {basemap} from "./basemap.js";
-import {Btn, Badge, Meter, toast} from "./ui.js";
+import {Btn, Badge, Meter, DateField, toast} from "./ui.js";
 import {Donut, BarChart, Gauge, rampRed} from "./charts.js";
 import {analyzeArea, downloadCSV, dealFileError} from "./data.js";
 import {demandGap, gapBySegment, GAP_REF} from "./mock/geoData.js";
@@ -330,8 +330,8 @@ export function CustomerPanel({db, customer, onClose, onOpenArea, setCustomer, o
             <div class="deal-modal-t">${t("บันทึกผลเข้าพบ", "Record visit result")}</div>
             <div class="deal-modal-b">${c.businessName}</div>
             <div class="vr-f" style=${{marginTop:"12px"}}>${t("วันที่เข้าพบ", "Visit date")}
-              <input type="date" class="vr-date" value=${roundForm.doneDate} max=${planTodayKey()}
-                onInput=${e=>setRoundForm(f=>({...f, doneDate:e.target.value}))}/></div>
+              <${DateField} className="vr-date" value=${roundForm.doneDate} max=${planTodayKey()}
+                onChange=${v=>setRoundForm(f=>({...f, doneDate:v}))}/></div>
             <div class="vr-f" style=${{marginTop:"9px"}}>${t("ความสนใจ", "Interest")}
               <${Dropdown} value=${roundForm.interest} onChange=${v=>setRoundForm(f=>({...f, interest:v}))}
                 options=${INTEREST.map(r=>[r, roundLabel(r)])}/></div>
@@ -471,7 +471,7 @@ const VR_CSS = `
 .deal-visit{display:inline-flex;align-items:center;justify-content:center;gap:7px;width:100%;font-family:var(--font);font-size:12.5px;font-weight:700;
   cursor:pointer;border:1px solid rgba(15,122,61,.35);border-radius:11px;padding:11px 14px;color:#0f7a3d;background:rgba(51,214,159,.08)}
 .deal-visit:hover{background:rgba(51,214,159,.16)}
-.vr-f .vr-date{color-scheme:light}
+.vr-f .vr-date{color-scheme:light}.vr-f .thdate{display:flex}.vr-f .thdate input{flex:1;min-width:0}
 .deal-modal-back{position:fixed;inset:0;z-index:1200;display:grid;place-items:center;background:rgba(4,10,20,.55);backdrop-filter:blur(3px)}
 .deal-modal{width:min(340px,calc(100vw - 40px));background:var(--panel);border:1px solid var(--stroke2);border-radius:16px;
   box-shadow:0 24px 64px rgba(0,0,0,.5);padding:18px 18px 16px;font-family:var(--font);animation:dealPop .22s cubic-bezier(.2,.9,.25,1)}
