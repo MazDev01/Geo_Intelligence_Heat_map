@@ -191,18 +191,23 @@ function UserEditModal({edit, users, me, onClose, onSave}){
   const [active,setActive] = useState(edit.status!=="Suspended");
   const [color,setColor] = useState(()=> isNew ? "" : tcColorOf(edit.id, users.filter(u=>u.role==="Trade Coordinator").findIndex(u=>u.id===edit.id)));
   const isTC = role==="Trade Coordinator";
-  const provOpts = [["", t("ยังไม่กำหนด", "Not assigned")], ...Object.keys(PROVINCE_TH).map(k=>[k, provinceTH(k)])];
+  const provOpts = [["", t("ยังไม่กำหนด", "Not assigned")], ...Object.keys(PROVINCE_TH).map(k=>[k, provinceTH(k)]).sort((a,b)=>String(a[1]).localeCompare(String(b[1]), t("th", "en")))];
+  const emailKey = String(email||"").trim().toLowerCase();
+  const emailTaken = !!emailKey && users.some(u=> String(u.id)!==String(edit.id) && String(u.email||"").trim().toLowerCase()===emailKey);
   const submit = ()=>{
+    if(emailTaken) return;
     if(!isNew && isTC && color) setTcColor(edit.id, color);
     onSave({...edit, origEmail: edit.email, name, email, role, province: isTC ? (province||null) : null, password,
       status: isNew ? undefined : (active ? "Active" : "Suspended")});
   };
   return html`<${Modal} title=${isNew?t("เพิ่มผู้ใช้", "Add user"):t("แก้ไขผู้ใช้", "Edit user")} onClose=${onClose}
     footer=${html`<${Btn} variant="ghost" onClick=${onClose}>${t("ยกเลิก", "Cancel")}</${Btn}>
-      <${Btn} variant="outline" icon="check" onClick=${submit}>${t("บันทึก", "Save")}</${Btn}>`}>
+      <${Btn} variant="outline" icon="check" disabled=${emailTaken} onClick=${submit}>${t("บันทึก", "Save")}</${Btn}>`}>
     <div>
       <${Field} label=${t("ชื่อ-นามสกุล", "Full name")}><input class="input" value=${name} onInput=${e=>setName(e.target.value)}/></${Field}>
-      <${Field} label=${t("อีเมล", "Email")}><input class="input" value=${email} readOnly=${isSelf} onInput=${e=>setEmail(e.target.value)}/>
+      <${Field} label=${t("อีเมล", "Email")}><input class="input" value=${email} readOnly=${isSelf} aria-invalid=${emailTaken?"true":undefined}
+          style=${emailTaken?{borderColor:"var(--bad)"}:undefined} onInput=${e=>setEmail(e.target.value)}/>
+        ${emailTaken && html`<div class="um-email-err" role="alert" style=${{fontSize:"11.5px",marginTop:"5px",lineHeight:1.5,color:"var(--bad)",fontWeight:600}}>${t("อีเมลนี้มีบัญชีอยู่แล้ว", "This email already has an account")}</div>`}
         ${!isNew && html`<div class="dim" style=${{fontSize:"11.5px",marginTop:"5px",lineHeight:1.5}}>${isSelf
           ? t("เปลี่ยนอีเมลของตัวเองไม่ได้", "You cannot change your own email")
           : t("เปลี่ยนแล้วเจ้าของบัญชีต้องเข้าสู่ระบบใหม่ด้วยอีเมลใหม่", "After a change the account owner must sign in again with the new email")}</div>`}
