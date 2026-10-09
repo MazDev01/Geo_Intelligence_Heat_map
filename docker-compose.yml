@@ -1,9 +1,16 @@
 name: geointel
 
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
   db:
     image: postgis/postgis:17-3.5
     restart: unless-stopped
+    logging: *logging
     environment:
       POSTGRES_DB: geointel
       POSTGRES_USER: geointel
@@ -23,6 +30,7 @@ services:
     build: .
     image: geointel-app
     restart: unless-stopped
+    logging: *logging
     depends_on:
       db:
         condition: service_healthy
