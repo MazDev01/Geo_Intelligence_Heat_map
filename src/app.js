@@ -579,7 +579,8 @@ function App(){
     // TC ต้องถูกล็อกอยู่ "จังหวัดที่รับผิดชอบ" เสมอ — เข้าหน้าจังหวัดโดยตรง ไม่ผ่านลูกโลก และต้องมี province เสมอ
     // (หน้า login ไม่ได้ส่ง province มา จึงกำหนดค่าเริ่มต้นที่นี่ · ในระบบจริงค่านี้จะมาจากบัญชีผู้ใช้)
     if(u && u.role==="Trade Coordinator"){
-      const prov = u.province || "Chiang Mai";
+      if(!u.province){ setUser({...u, province:null}); setView("workspace"); setMode("map"); return; }
+      const prov = u.province;
       setUser({...u, province:prov});
       setActiveCountry("Thailand"); setSelectedProvince(prov); setFilters(f=>({...f, province:prov}));
       setView("workspace"); setMode("map");
