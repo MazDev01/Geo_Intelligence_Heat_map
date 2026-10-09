@@ -54,7 +54,14 @@ const zoneStore = makeZoneStore(makeZoneAdapter(pool));
 const api = makeApi({pool, authStore, zoneStore, demoPassword, perms, webBootstrap: !production, runtime: basemapUrl ? {basemapUrl} : {}});
 const serveStatic = makeStatic(root);
 
+const SECURITY_HEADERS = {
+  'X-Frame-Options': 'DENY',
+  'Content-Security-Policy': "frame-ancestors 'none'",
+  'Referrer-Policy': 'strict-origin-when-cross-origin',
+};
+
 const server = createServer(async (req, res) => {
+  for (const [k, v] of Object.entries(SECURITY_HEADERS)) res.setHeader(k, v);
   let path, query;
   try {
     if (!req.url.startsWith('/') || req.url.startsWith('//')) throw new Error('bad request target');
