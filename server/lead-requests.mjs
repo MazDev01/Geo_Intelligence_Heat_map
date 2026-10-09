@@ -111,7 +111,7 @@ const dateOk = v => {
   return !!d && !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === v;
 };
 
-export async function listRequests(pool, user, query, {max} = {}) {
+export async function listRequests(pool, user, query, {max, contact = true} = {}) {
   const filter = query.get('status') || 'all';
   if (!Object.hasOwn(STATUS_FILTER, filter)) throw fail(400, 'ตัวกรองสถานะไม่ถูกต้อง');
   const limit = max ? max + 1 : Math.min(Math.max(parseInt(query.get('limit') || '50', 10) || 50, 1), 100);
@@ -138,14 +138,17 @@ export async function listRequests(pool, user, query, {max} = {}) {
   if (text) {
     args.push(like(text));
     const n = '$' + args.length;
-    where.push(`(p.business_name ilike ${n} or p.phone ilike ${n} or p.email ilike ${n} or p.id ilike ${n})`);
+    where.push(contact ? `(p.business_name ilike ${n} or p.phone ilike ${n} or p.email ilike ${n} or p.id ilike ${n})`
+      : `(p.business_name ilike ${n} or p.id ilike ${n})`);
   }
   const statuses = STATUS_FILTER[filter];
   if (statuses) add('r.status = any(?::text[])', statuses);
   const cond = list => (list.length ? ' where ' + list.join(' and ') : '');
   const rows = (await pool.query(SELECT_SQL + cond(where) + ' ' + ORDER_SQL + ` limit $${args.length + 1} offset $${args.length + 2}`,
     [...args, limit, (page - 1) * limit])).rows;
-  if (max) return {ok: true, rows: rows.map(toRequest)};
+  const out = rows.map(toRequest);
+  if (!contact) for (const o of out) { o.phone = null; o.email = null; }
+  if (max) return {ok: true, rows: out};
   const base = ' from lead_requests r left join places p on p.id = r.place_id left join users sb on sb.id = r.submitted_by' + cond(scopeWhere);
   const counts = (await pool.query(
     `select count(*)::int as all, count(*) filter (where r.status = 'pending')::int as pending,
@@ -153,7 +156,7 @@ export async function listRequests(pool, user, query, {max} = {}) {
   counts.history = counts.approved + counts.rejected;
   const submitters = (await pool.query(
     'select distinct sb.id, sb.name' + base + (scopeWhere.length ? ' and' : ' where') + ' sb.id is not null order by sb.name', scopeArgs)).rows;
-  return {ok: true, total: rows.length ? rows[0].total : 0, page, limit, counts, submitters, rows: rows.map(toRequest)};
+  return {ok: true, total: rows.length ? rows[0].total : 0, page, limit, counts, submitters, rows: out};
 }
 
 export async function submitRequest(pool, user, body, ctx) {

@@ -293,7 +293,8 @@ export function makeApi({pool, authStore, zoneStore, demoPassword, perms, webBoo
     if (req.method !== 'GET') return send(res, 405, {error: 'รองรับเฉพาะ GET'});
     const user = await requireUser(req, res);
     if (!user) return;
-    return send(res, 200, await listPlaces(pool, kind, user, query.get('country')));
+    if (!can(user, 'customer.view')) return send(res, 200, []);
+    return send(res, 200, await listPlaces(pool, kind, user, query.get('country'), {contact: can(user, 'map.view_contact_pii')}));
   };
 
   async function placesWrite(req, res, query) {
@@ -327,7 +328,7 @@ export function makeApi({pool, authStore, zoneStore, demoPassword, perms, webBoo
     const isAdmin = user.role === 'Administrator', isTc = user.role === 'Trade Coordinator';
     if (!isAdmin && !isTc) return send(res, 403, {error: 'ไม่มีสิทธิ์ใช้คำสั่งนี้'});
     try {
-      if (req.method === 'GET') return send(res, 200, await listRequests(pool, user, query));
+      if (req.method === 'GET') return send(res, 200, await listRequests(pool, user, query, {contact: can(user, 'map.view_contact_pii')}));
       const act = query.get('action') || 'submit';
       const withFile = act === 'submit' && isTc;
       const limit = withFile ? DEAL_BODY_BYTES : 1e5;

@@ -99,13 +99,15 @@ const KINDS = {
   leads: {type: 'Prospect', map: toLead},
 };
 
-export async function listPlaces(pool, kind, user, country) {
+export async function listPlaces(pool, kind, user, country, {contact = true} = {}) {
   const k = KINDS[kind];
   const full = (user.scope || (FULL_ACCESS.has(user.role) ? 'national' : 'own_area')) === 'national';
   if (!full && !Number.isInteger(user.id)) return [];
   const scopeUserId = full ? null : user.id;
   const r = await pool.query(SQL, [k.type, country || null, scopeUserId, null]);
-  return r.rows.map(k.map);
+  const list = r.rows.map(k.map);
+  if (!contact) for (const o of list) { o.phone = null; if (kind === 'leads') o.email = ''; else delete o.email; }
+  return list;
 }
 
 const TYPES = new Set(['Existing', 'Prospect']);

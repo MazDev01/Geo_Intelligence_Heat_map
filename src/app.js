@@ -28,6 +28,7 @@ import {pushAudit} from "./audit.js";
 import {buildNotifs, applyServerNotif, inboxView, agoText} from "./notifications.js";
 import {loadInbox, markInboxRead} from "./notif-api.js";
 import {loadSettings} from "./settings-api.js";
+import {effectivePerms} from "./permissions.js";
 import {applyMaster, masterKey} from "./master-api.js";   // กระดิ่ง: กรองตามบทบาท + ขอบเขตพื้นที่ + สวิตช์จริง
 import {deriveVisitStatus, planTodayKey, planResultOf} from "./visit-rounds.js";
 
@@ -725,7 +726,9 @@ function App(){
       if(!cd || !cd.customers || !cd.customers.length) return; return openCustomer(selectedCustomer||cd.customers[0]); }
     // สองหน้านี้มีข้อความ "กำลังโหลดข้อมูลธุรกิจ…" ของตัวเองอยู่แล้ว จึงเปิดหน้าไปเลยแล้วค่อยโหลดเบื้องหลัง
     // ไม่ต้องบังทั้งจอ และถ้าโหลดไม่สำเร็จก็ไม่มีอะไรค้างให้ผู้ใช้ติดอยู่
-    if(id==="reports"){ setOverlay(id); โหลดเบื้องหลัง(); return; }
+    if(id==="reports"){
+      if(user && !effectivePerms(user.role, user.permOverrides||{}).has("report.view")){ toast(t("บัญชีนี้ไม่มีสิทธิ์ดูรายงาน", "This account may not view reports"),"bad"); return; }
+      setOverlay(id); โหลดเบื้องหลัง(); return; }
     // รายงานแผนการเข้าพบ — เฉพาะ TC ที่มีจังหวัดรับผิดชอบ · บทบาทอื่นถูกเปลี่ยนเส้นทางออก
     if(id==="visit-plans"){
       if(user && user.role==="Trade Coordinator" && user.province){ setOverlay(id); โหลดเบื้องหลัง(); }
@@ -817,6 +820,9 @@ function App(){
 
   // บทบาทภาคสนาม (ผู้บริหาร/TC) ใช้แผนที่เป็นหลัก — ไม่มีแถบเมนูซ้าย · ผู้ดูแลระบบเห็นแถบเมนูเต็ม
   const isBiz = user.role !== "Administrator";
+  const myPerms = effectivePerms(user.role, user.permOverrides||{});
+  const canReport = myPerms.has("report.view");
+  const noView = !myPerms.has("map.view") || !myPerms.has("customer.view");
   const isAdmin = user.role === "Administrator";
   const isTC = user.role === "Trade Coordinator";   // TC ถูกล็อกไว้ที่จังหวัดที่รับผิดชอบเท่านั้น (ไม่มีลูกโลก/ไม่สลับจังหวัด)
   const roleDemo = user.role==="Administrator" ? "admin" : isTC ? "tc" : "management";   // บทบาทปัจจุบันในรูป demo param
@@ -896,7 +902,7 @@ function App(){
         <div class="tb-right">
           <!-- สลับภาษา ไทย/อังกฤษ — แสดงทุกบทบาท · ค่าถูกจำไว้ใน localStorage -->
           <${LangToggle}/>
-          ${isBiz && view==="workspace" && mode==="map" && html`<button data-tour="reports" title=${t("เปิดหน้ารายงาน","Open reports")} onClick=${()=>navItem("reports")}
+          ${isBiz && canReport && view==="workspace" && mode==="map" && html`<button data-tour="reports" title=${t("เปิดหน้ารายงาน","Open reports")} onClick=${()=>navItem("reports")}
             style=${{display:"inline-flex",alignItems:"center",gap:"7px",height:"38px",padding:"0 14px",marginRight:"8px",
               borderRadius:"10px",border:"1px solid var(--stroke2)",background:"var(--panel)",color:"var(--txt)",
               fontFamily:"var(--font)",fontSize:"12.5px",fontWeight:600,cursor:"pointer",backdropFilter:"blur(8px)"}}>
@@ -992,7 +998,7 @@ function App(){
               onArriveCountry=${arriveCountry} onSelectCountry=${selectCountry} onSelectProvince=${selectProvinceFromGlobe} onBackToGlobe=${backToGlobe}
               filters=${filters} setFilters=${setFilters} layers=${layers} setLayers=${setLayers}
               onPickProvince=${pickProvince} onPickCustomer=${pickCustomer}
-              onOpenReports=${isBiz ? (()=>navItem("reports")) : undefined}
+              onOpenReports=${isBiz && canReport ? (()=>navItem("reports")) : undefined}
               focusProvince=${overlay==="area"?selectedProvince:null}
               highlightCustomer=${overlay==="customer"?selectedCustomer:null} tourPanel=${tourPanel} tourFocus=${tourFocus}
               visitPlan=${visitPlan} visitRoute=${visitRoute} office=${planOffice} planRoutes=${savedPlanRoutes}
@@ -1001,7 +1007,7 @@ function App(){
 
         ${view==="workspace" && overlay==="area" && selectedProvince && !isTC && !isAdmin && html`<${AreaPanel} key=${selectedProvince} db=${db} filters=${filters}
           province=${selectedProvince} onClose=${()=>setOverlay(null)}
-          onReport=${user.role==="Administrator" ? (p=>{setSelectedProvince(p);setOverlay("reports");}) : undefined}
+          onReport=${user.role==="Administrator" && canReport ? (p=>{setSelectedProvince(p);setOverlay("reports");}) : undefined}
           onOpenCustomer=${p=>{setSelectedCustomer(p);setOverlay("customer");}}/>`}
 
         ${view==="workspace" && overlay==="customer" && selectedCustomer && html`<${CustomerPanel} key=${selectedCustomer.id} db=${db}
@@ -1041,6 +1047,14 @@ function App(){
             <h2 style=${{margin:"0 0 8px"}}>${t("บัญชีของคุณยังไม่ได้กำหนดพื้นที่ที่ดูแล", "Your account has no territory assigned yet")}</h2>
             <p class="muted" style=${{fontSize:"14px",lineHeight:1.6}}>${t("กรุณาติดต่อผู้ดูแลระบบเพื่อกำหนดพื้นที่รับผิดชอบก่อนเริ่มใช้งาน", "Please ask an administrator to assign your territory before you start.")}</p>
             <div style=${{marginTop:"18px"}}><button class="btn outline" onClick=${logout}>${t("ออกจากระบบ", "Sign out")}</button></div>
+          </div></div>`}
+
+        ${noView && !(isTC && !user.province) && !ModalComp && html`<div class="noview-cover" style=${{position:"absolute",inset:0,zIndex:1400,background:"var(--bg)",display:"grid",placeItems:"center",padding:"24px"}}>
+          <div style=${{textAlign:"center",maxWidth:"440px"}}>
+            <div style=${{width:"72px",height:"72px",borderRadius:"50%",background:"rgba(255,176,46,.14)",display:"grid",placeItems:"center",margin:"0 auto 16px"}}><${Icon} name="info" size=${32} color="var(--warn)"/></div>
+            <h2 style=${{margin:"0 0 8px"}}>${t("บัญชีของคุณไม่มีสิทธิ์ดูข้อมูลส่วนนี้", "Your account may not view this area")}</h2>
+            <p class="muted" style=${{fontSize:"14px",lineHeight:1.6}}>${t("กรุณาติดต่อผู้ดูแลระบบเพื่อขอสิทธิ์ดูแผนที่และรายการลูกค้า", "Please ask an administrator for access to the map and the customer list")}</p>
+            ${isBiz && html`<div style=${{marginTop:"18px"}}><button class="btn outline" onClick=${logout}>${t("ออกจากระบบ", "Sign out")}</button></div>`}
           </div></div>`}
 
         ${tcDenied && html`<div style=${{position:"absolute",inset:0,zIndex:1400,background:"var(--bg)",display:"grid",placeItems:"center",padding:"24px"}}>
