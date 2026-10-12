@@ -69,7 +69,7 @@ const CALLOUT_CSS = `
 `;
 
 export function GeoStage({db, mode, activeCountry, flyTarget, globeUnder, onArriveCountry, onSelectCountry, onSelectProvince,
-    filters, setFilters, layers, setLayers, onPickProvince, onPickCustomer, onOpenReports, focusProvince, highlightCustomer, onBackToGlobe, tourPanel, tourFocus, visitPlan, visitRoute, office, planRoutes, lockZones, zoneMode, canEditZones, noMask, zoneEdit, onExitZoneEdit,
+    filters, setFilters, layers, setLayers, onPickProvince, onPickCustomer, onOpenReports, focusProvince, highlightCustomer, onBackToGlobe, tourPanel, tourFocus, visitPlan, visitRoute, office, planRoutes, lockZones, zoneMode, canEditZones, noMask, zoneEdit, onExitZoneEdit, zoneEdRef,
     gsearch, setGsearch, searchResults, onPickProvinceZoom, onPickCustomerNav, lockProvince}){
   const areaByProvince = db.areaByProvince||{};
   const [layersOpen, setLayersOpen] = useState(true);    // แผงเลเยอร์เปิดอยู่เป็นค่าเริ่มต้น · กดไอคอนเลเยอร์เพื่อย่อ/ขยาย
@@ -82,6 +82,7 @@ export function GeoStage({db, mode, activeCountry, flyTarget, globeUnder, onArri
     : layers;
   // ตัวคุมการแก้รูปโซน — lmap สร้างให้แล้วส่งออกมาทาง onZoneEditor เพื่อให้แถบเครื่องมือด้านบนใช้ได้
   const [zoneEd, setZoneEd] = useState(null);
+  useEffect(()=>{ if(zoneEdRef) zoneEdRef.current = zoneEd; },[zoneEd]);
   // ความสูงจริงของแถบด้านบน — ของที่วางใต้มันจะได้ไม่โดนบังเวลาแถบสูงขึ้น (โหมดแก้รูปโซนสูงกว่าแถบค้นหา)
   const navRef = useRef(null);
   const [navH, setNavH] = useState(36);

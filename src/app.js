@@ -1,4 +1,4 @@
-import {React, html, useState, useEffect, useMemo, createRoot, AppCtx, Icon, brandMark, num, roleTH, countryTH, provinceTH} from "./lib.js";
+import {React, html, useState, useEffect, useMemo, useRef, createRoot, AppCtx, Icon, brandMark, num, roleTH, countryTH, provinceTH} from "./lib.js";
 import {t, useLang, getLang, setLang} from "./lib.js";   // สลับภาษา TH/EN — ดู src/i18n.js
 import {getLayerOpacity, subscribeLayerOpacity} from "./layer-opacity.js";   // ความทึบ = ตั้งที่แอดมินที่เดียว
 import {loadCountries, loadWorld, loadAreas, loadProvincesGeo, loadDetail, clearDetail, clearAggregates, writePlaces, placeVisitsApi, leadRequestsApi, dealFileError, fileBase64, loadCountry, loadDistricts, defaultFilters} from "./data.js";
@@ -91,7 +91,9 @@ function App(){
   const [restoring,setRestoring] = useState(()=>{ try{ return !new URLSearchParams(location.search).get("demo") && !!auth.token(); }catch(e){ return false; } });
   const [tcDenied,setTcDenied] = useState(null);   // หน้า 403 ของ TC เมื่อพยายามเข้าถึงข้อมูลนอกพื้นที่รับผิดชอบ
   const [zoneEdit,setZoneEdit] = useState(false);    // โหมดแก้รูปโซน: แถบเครื่องมือมาแทนแถบค้นหาบนแมพ
-  const [zoneEditFrom,setZoneEditFrom] = useState(null);  // หน้าที่กดเข้ามา — กด "ออก" ต้องพากลับไปหน้านั้น
+  const [zoneEditFrom,setZoneEditFrom] = useState(null);
+  const zoneEditRef = useRef(false);
+  const zoneEdRef = useRef(null);  // หน้าที่กดเข้ามา — กด "ออก" ต้องพากลับไปหน้านั้น
   // เซิร์ฟเวอร์เปิดโหมดเดโมอยู่ไหม — ใช้ตัดสินว่าจะโชว์เมนู "สลับบทบาท" ไหม
   // (เดิมดูแค่ ?demo= ใน URL พอเข้าผ่านหน้าล็อกอินจริงเมนูเลยหาย ทั้งที่ยังเป็นเครื่องเดโม)
   const [serverDemo,setServerDemo] = useState(false);
@@ -698,7 +700,14 @@ function App(){
     openCustomer(o);
   };
 
-  const backToGlobe = ()=>{ setView("workspace"); setMode("globe"); setActiveCountry(null); setSelectedProvince(null); setFilters(f=>({...f,province:"All"})); setOverlay(null); setFlyTarget(null); };
+  const leaveZoneEdit = ()=>{
+    if(!zoneEditRef.current) return true;
+    const ed = zoneEdRef.current;
+    if(ed && ed.isDirty && ed.isDirty() && !confirm(t("ยังไม่ได้เซฟการแก้ ออกเลยไหม?","You have unsaved changes. Leave anyway?"))) return false;
+    zoneEditRef.current = false; setZoneEdit(false); setZoneEditFrom(null);
+    return true;
+  };
+  const backToGlobe = ()=>{ if(!leaveZoneEdit()) return; setView("workspace"); setMode("globe"); setActiveCountry(null); setSelectedProvince(null); setFilters(f=>({...f,province:"All"})); setOverlay(null); setFlyTarget(null); };
   // คลิกจังหวัด = กรองแผนที่ไปที่จังหวัดนั้น · แผงวิเคราะห์พื้นที่เปิดให้ "ผู้บริหาร" เท่านั้น
   //   TC    ดูแค่เขตที่รับผิดชอบ ไม่ต้องวิเคราะห์ภาพรวม
   //   แอดมิน งานคือดูแลระบบ/ขอบเขต/ผู้ใช้ ไม่ใช่วิเคราะห์ตลาด — แผงนี้บังแมพตอนลากขอบโซนด้วย
@@ -725,6 +734,7 @@ function App(){
   const [subShut, setSubShut] = useState({});
   const toggleSub = id => setSubShut(m=>({...m, [id]: !m[id]}));
   const navItem = async (id)=>{ setMenu(null);
+    if(!leaveZoneEdit()) return;
     setSubShut(m=> m[id] ? {...m, [id]:false} : m);   // ไปหน้าไหน ให้กางเมนูย่อยของหน้านั้นเสมอ
     if(id==="dashboard") return navItem("workspace");   // 'แดชบอร์ด' landing removed → Business Overview now lives in 'แดชบอร์ดผู้บริหาร (monitoring)'
     if(id==="workspace") return backToGlobe();
@@ -768,6 +778,7 @@ function App(){
     setSelectedProvince(null); setSelectedCustomer(null); setFlyTarget(null); setMenu(null);
     setVisitPlans([{id:"plan-1", name:t("แผนที่ 1", "Plan 1"), customers:[], route:null, saved:false, visitDate:""}]); setActivePlanId("plan-1");
     setFilters(defaultFilters());
+    zoneEditRef.current = false; setZoneEdit(false); setZoneEditFrom(null);
   };
 
   // No blocking full-screen loader — the globe skeleton renders on frame 1 and data streams in.
@@ -797,10 +808,10 @@ function App(){
     // โหลดแบบเบื้องหลัง ไม่บังหน้าจอ — เข้าโหมดได้ทันที แล้ว effect ในแมพวาดเพิ่มเองเมื่อข้อมูลมาถึง
     if(!(db.areas && db.areas.length && db.provincesGeo)) โหลดเบื้องหลัง();
     setZoneEditFrom(overlay); setActiveCountry("Thailand");
-    setOverlay(null); setView("workspace"); setMode("map"); setZoneEdit(true);
+    setOverlay(null); setView("workspace"); setMode("map"); zoneEditRef.current = true; setZoneEdit(true);
   };
   // ⚠ ไม่ใช่แค่ปิดโหมด — ถ้าปล่อยไว้เฉย ๆ แอดมินจะค้างอยู่บนแมพใหญ่ที่ไม่มีเครื่องมืออะไรเลย
-  const exitZoneEdit = ()=>{ setZoneEdit(false); if(zoneEditFrom) setOverlay(zoneEditFrom); setZoneEditFrom(null); };
+  const exitZoneEdit = ()=>{ zoneEditRef.current = false; setZoneEdit(false); if(zoneEditFrom) setOverlay(zoneEditFrom); setZoneEditFrom(null); };
   const ctx = {db,user,logout,nav,settingsVer,scoringChanged,placesChanged,masterVer,masterChanged,filters,setFilters,startZoneEdit,routeParams:{area:selectedProvince},profileTab,visitPlans,office:planOffice,lang,setLang,
 
     deletePlan,setActivePlanId,applyDealApproved,applyDealRejected,addToPlan,goMap,updateRecord,adminAddRecords,adminDeleteRecord,
@@ -1006,7 +1017,7 @@ function App(){
           : html`<${GeoStage} db=${db} mode=${mode} activeCountry=${activeCountry} flyTarget=${flyTarget} globeUnder=${globeUnder}
               lockProvince=${isTC ? user.province : null} lockZones=${lockZones}
               zoneMode=${isTC && lockZones ? "lock" : user.role==="Management" ? "outline" : null}
-              canEditZones=${isAdmin} noMask=${isAdmin} zoneEdit=${zoneEdit && isAdmin} onExitZoneEdit=${exitZoneEdit}
+              canEditZones=${isAdmin} noMask=${isAdmin} zoneEdit=${zoneEdit && isAdmin} onExitZoneEdit=${exitZoneEdit} zoneEdRef=${zoneEdRef}
               onArriveCountry=${arriveCountry} onSelectCountry=${selectCountry} onSelectProvince=${selectProvinceFromGlobe} onBackToGlobe=${backToGlobe}
               filters=${filters} setFilters=${setFilters} layers=${layers} setLayers=${setLayers}
               onPickProvince=${pickProvince} onPickCustomer=${pickCustomer}
