@@ -224,7 +224,7 @@ function UserEditModal({edit, users, me, onClose, onSave}){
       </${Field}>
       ${isTC && html`<${Field} label=${t("จังหวัดที่รับผิดชอบ", "Assigned province")}>
         <${Dropdown} value=${province} onChange=${setProvince} options=${provOpts}/>
-        <div class="dim" style=${{fontSize:"11.5px",marginTop:"5px",lineHeight:1.5}}>${t("TC เห็นข้อมูลเฉพาะจังหวัดนี้ (และโซนที่ได้รับมอบหมาย) ถ้าไม่กำหนดจะไม่เห็นข้อมูลเลย", "A TC only sees this province (and any zones assigned). Left empty, they see no data at all")}</div>
+        <div class="dim" style=${{fontSize:"11.5px",marginTop:"5px",lineHeight:1.5}}>${t("จังหวัดหลักของ TC · พื้นที่เพิ่มเติมมอบที่หน้าจัดการขอบเขต · ถ้าไม่กำหนดจะไม่เห็นข้อมูลเลย", "The TC's main province · assign more areas on the territory page · left empty, they see no data at all")}</div>
       </${Field}>`}
       ${!isNew && html`<${Field} label=${t("เปิดใช้งานบัญชี", "Account active")}>
         <div class="row" style=${{gap:"10px",alignItems:"center"}}>
