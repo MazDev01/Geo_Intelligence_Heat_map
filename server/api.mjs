@@ -192,7 +192,13 @@ export function makeApi({pool, authStore, zoneStore, demoPassword, perms, webBoo
       if (!admin) return;
       const ctx = auditCtx(req, admin);
       const done = async (r, event, target) => {
-        if (r && r.ok) await writeAudit(pool, ctx, event, target, {});
+        if (r && r.ok) {
+          await writeAudit(pool, ctx, event, target, {});
+          if (r.territory && r.territory.length) {
+            const n = await pool.query('select count(*)::int n from territory_assign');
+            await writeAudit(pool, ctx, 'territory_assign', null, {count: n.rows[0].n, changes: r.territory, via: event});
+          }
+        }
         return reply(r);
       };
       if (query.get('approve')) return done(await zoneStore.approve(admin.id), 'zone_approve');

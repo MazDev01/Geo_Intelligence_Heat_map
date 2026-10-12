@@ -10,7 +10,7 @@ import {html, useState, useEffect, useMemo, useRef, useApp, Icon, num, provinceT
 import {basemap} from "../basemap.js";
 import {Card, Kpi, Btn, Badge, Toggle, Table, Tabs, Modal, Meter, toast} from "../ui.js";
 import {SEGMENTS, PROVINCE_KEYS, tcLabel, BKK, BKK_ZONES} from "../mock/geoData.js";
-import {loadZoneRegistry, zoneRegistry, zonesOf, zoneLabel, zoneColor, saveZoneRegistry, nextColor, ZONE_REST}
+import {loadZoneRegistry, zoneRegistry, zonesOf, zoneLabel, zoneColor, saveZoneRegistry, nextColor, ZONE_REST, subscribeZones}
   from "../zone-registry.js";   // ทะเบียนโซน — แหล่งความจริงเดียวของ id/ชื่อ/สี/จังหวัด
 import {pushAudit} from "../audit.js";
 import {ExportDialog, runExport, exportName} from "./reports.js";   // ป็อปอัพส่งออกตัวเดียวกับหน้ารายงาน
@@ -1789,7 +1789,9 @@ export function TerritoryManager(){
   useEffect(()=>{ let alive=true;
     loadZoneRegistry().then(g=>{ if(alive) setZonesGeo(g); })
       .catch(e=>console.warn("[territory] โหลดทะเบียนโซนไม่สำเร็จ", e));
-    return ()=>{ alive=false; }; },[]);
+    const off = subscribeZones(g=>{ if(!alive) return; setZonesGeo(g);
+      if(loadedRef.current) loadTerritory().then(res=>{ if(alive && res && !res.local) setAssign(res.assign); }); });
+    return ()=>{ alive=false; off(); }; },[]);
   const zonePaths = useMemo(()=>buildZonePaths(zonesGeo, paths && paths.proj),[zonesGeo, paths]);
 
   const areaBy = db.areaByProvince||{};

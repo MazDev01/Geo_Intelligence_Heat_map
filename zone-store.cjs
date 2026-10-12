@@ -125,8 +125,9 @@ function makeZoneStore(adapter) {
   /** บันทึกแล้วมีผลทันที (ข้ามขั้นตรวจ) — เก็บฉบับเดิมเข้าประวัติก่อนเสมอ */
   const publish = (raw, actor) => guard(async () => {
     const c = check(raw); if (c.error) return c;
-    const archived = await db.publish(c.gj, raw, { action: 'publish', actor, clearDraft: true });
-    return { ok: true, status: 'published', archived,
+    const out = {};
+    const archived = await db.publish(c.gj, raw, { action: 'publish', actor, clearDraft: true, out });
+    return { ok: true, status: 'published', archived, territory: out.territory || [],
              zones: c.gj.features.map(f => f.properties.zone_id),
              kb: Math.round(c.bytes / 1024), updatedAt: new Date().toISOString() };
   });
@@ -137,8 +138,9 @@ function makeZoneStore(adapter) {
     if (!draft) return { code: 404, error: 'ไม่มีฉบับร่างรออนุมัติ' };
     const raw = JSON.stringify(draft);
     const c = check(raw); if (c.error) return c;             // ร่างอาจถูกเซฟไว้ตั้งแต่กฎเก่า ตรวจซ้ำก่อนใช้จริง
-    const archived = await db.publish(c.gj, raw, { action: 'approve', actor, clearDraft: true });
-    return { ok: true, status: 'published', archived, approved: true,
+    const out = {};
+    const archived = await db.publish(c.gj, raw, { action: 'approve', actor, clearDraft: true, out });
+    return { ok: true, status: 'published', archived, approved: true, territory: out.territory || [],
              zones: c.gj.features.map(f => f.properties.zone_id), kb: Math.round(c.bytes / 1024) };
   });
 
@@ -155,8 +157,9 @@ function makeZoneStore(adapter) {
     if (!old) return { code: 404, error: 'ไม่พบฉบับ ' + version };
     const raw = JSON.stringify(old);
     const c = check(raw); if (c.error) return c;
-    const archived = await db.publish(c.gj, raw, { action: 'restore', actor });
-    return { ok: true, status: 'published', restored: version, archived,
+    const out = {};
+    const archived = await db.publish(c.gj, raw, { action: 'restore', actor, out });
+    return { ok: true, status: 'published', restored: version, archived, territory: out.territory || [],
              zones: c.gj.features.map(f => f.properties.zone_id) };
   });
 

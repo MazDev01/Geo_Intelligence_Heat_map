@@ -122,7 +122,7 @@ export const saveZoneDraft = fc => post("", JSON.stringify(normalize(fc)));
 export async function saveZoneRegistry(fc){
   const norm = normalize(fc);
   const r = await post("?publish=1", JSON.stringify(norm));
-  if(r.ok){ cache = norm; subs.forEach(fn=>{ try{ fn(cache); }catch(e){} }); }
+  if(r.ok) await loadZoneRegistry({force:true});
   return r;
 }
 

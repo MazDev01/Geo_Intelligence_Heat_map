@@ -154,7 +154,10 @@ const VALUE = {
   perm: {'report.export_summary': ['ส่งออกรายงานสรุป (PDF)', 'Export summary report (PDF)'],
     'report.export_raw_pii': ['ส่งออกข้อมูลดิบที่มี PII (CSV/Excel)', 'Export raw data containing PII (CSV/Excel)'],
     'audit.export': ['ส่งออก log', 'Export logs']},
-  via: {'server-console': ['คำสั่งบนเครื่องเซิร์ฟเวอร์', 'Server console']},
+  via: {'server-console': ['คำสั่งบนเครื่องเซิร์ฟเวอร์', 'Server console'],
+    zone_publish: ['ใช้โซนจริง (ย้ายตามโซนอัตโนมัติ)', 'Zones published (moved with the zones)'],
+    zone_approve: ['อนุมัติร่างโซน (ย้ายตามโซนอัตโนมัติ)', 'Zone draft approved (moved with the zones)'],
+    zone_restore: ['ย้อนโซนเป็นฉบับเก่า (ย้ายตามโซนอัตโนมัติ)', 'Older zones restored (moved with the zones)']},
 };
 
 const MASTER_OF = {reason: 'reject-reasons', segmentFrom: 'segments', segmentTo: 'segments', segment: 'segments', province: 'areas'};
