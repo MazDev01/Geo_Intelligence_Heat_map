@@ -50,11 +50,12 @@ const VP_TARGET_TH = {
 // สร้างประวัติแผนการเข้าพบจาก "ข้อมูลจริง" ในจังหวัดของ TC (Lead ในจังหวัดนั้น)
 // deterministic ตาม จังหวัด+อีเมลเจ้าของ · Lead ของหมวดในย่านถูก "แช่แข็ง" ไว้บนแต่ละจุด ณ วันวางแผน
 // ─────────────────────────────────────────────────────────────────────────────
-export function genVisitPlans(prospects, province, ownerEmail, customers){
-  const pool = (prospects||[]).filter(p=>p.province===province && p.latitude!=null && p.longitude!=null);
+export function genVisitPlans(prospects, province, ownerEmail, customers, provinces){
+  const provs = provinces && provinces.length ? provinces : [province];
+  const pool = (prospects||[]).filter(p=>provs.includes(p.province) && p.latitude!=null && p.longitude!=null);
   if(!pool.length) return [];
   // ช่องว่างรายหมวดของจังหวัดนี้ ณ ตอนสร้างรายงาน — ใช้เป็นฐานของ snapshot ต่อจุด
-  const gapBySeg = Object.fromEntries(gapBySegment((customers||[]).filter(c=>c.province===province), pool)
+  const gapBySeg = Object.fromEntries(gapBySegment((customers||[]).filter(c=>provs.includes(c.province)), pool)
     .map(x=>[x.seg, x.gap]));
   const maxGap = Math.max(1, ...Object.values(gapBySeg));
   const rnd = mulberry32(hashStr(province+"|"+(ownerEmail||"tc")));
@@ -157,9 +158,11 @@ export function plansFromServer(serverPlans, db, province){
 const PAGE_SIZE = 20;
 
 export function VisitPlanReport(){
-  const {db, user, nav} = useApp();
+  const {db, user, nav, tcProvinces} = useApp();
   const isTC = !!(user && user.role==="Trade Coordinator" && user.province);
   const province = isTC ? user.province : null;
+  const provKey = !isTC ? "" : (tcProvinces && tcProvinces.length ? tcProvinces : [province]).join("|");
+  const provText = provKey ? provKey.split("|").map(provinceTH).join(", ") : "";
 
   // ── สถานะตัวกรอง (init จาก URL เพื่อให้เปิด URL ตรง/รีเฟรช/ย้อนกลับได้) ──
   const readParams = ()=>{ const q=new URLSearchParams(location.search);
@@ -192,9 +195,9 @@ export function VisitPlanReport(){
   }, [isTC, province, user && user.email]);
 
   const plans = useMemo(()=> !isTC || serverPlans===undefined ? []
-    : serverPlans===null ? genVisitPlans(db.prospects||[], province, user.email, db.customers||[])
+    : serverPlans===null ? genVisitPlans(db.prospects||[], province, user.email, db.customers||[], provKey.split("|"))
     : plansFromServer(serverPlans, db, province),
-    [isTC, serverPlans, db.prospects, db.customers, province, user && user.email]);
+    [isTC, serverPlans, db.prospects, db.customers, province, provKey, user && user.email]);
   // อำเภอทั้งหมดที่ปรากฏในแผน (ตัวเลือกตัวกรองอำเภอ) — จากข้อมูลจริง
   const distOpts = useMemo(()=>{ const s=new Set(); plans.forEach(pl=>pl.districts.forEach(d=>s.add(d)));
     return [["all",t("ทุกอำเภอ", "All districts")], ...[...s].sort().map(d=>[d, districtTH(d)])]; }, [plans, getLang()]);
@@ -243,10 +246,10 @@ export function VisitPlanReport(){
   const rangeText = (from||to) ? (from?beDateVP(from):t("เริ่มต้น", "Start"))+" – "+(to?beDateVP(to):t("ล่าสุด", "Latest")) : t("ทุกช่วงเวลา", "All periods");
 
   // ── ส่งออก (ใช้หน้าต่างส่งออกเดียวกับรายงานอื่น · PDF + Excel) ──
-  const exportScope = { areaName: province?provinceTH(province):"", areaLabel: province?(t("จังหวัด", "provinces")+provinceTH(province)):"",
+  const exportScope = { areaName: provText, areaLabel: provText?(t("จังหวัด", "provinces")+provText):"",
     segLabel:t("ทุกหมวดธุรกิจ", "All business categories"), dateLabel: rangeText, counts:{total: fPlans.length} };
   const buildVpRows = ()=>{ const rows=[];
-    rows.push([t("รายงานแผนการเข้าพบ · จังหวัด", "Visit plan report · province")+provinceTH(province)+t(" · ผู้จัดทำ ", " · prepared by ")+((user&&user.name)||"")]);
+    rows.push([t("รายงานแผนการเข้าพบ · จังหวัด", "Visit plan report · province")+provText+t(" · ผู้จัดทำ ", " · prepared by ")+((user&&user.name)||"")]);
     rows.push([t("ช่วงเวลา: ", "Period: ")+rangeText]);
     rows.push([t("สรุป: พบ ", "Summary: ")+summary.n+t(" แผน · วางแผนไว้ ", " plans · planned ")+summary.planned+t(" แห่ง · เข้าพบจริง ", " places · actually visited ")+summary.visited+t(" แห่ง · อัตราทำตามแผน ", " places · plan completion ")+summary.rate+"%"]);
     rows.push([]);
@@ -281,7 +284,7 @@ export function VisitPlanReport(){
     <div class="page-head vp-head">
       <div>
         <div class="eyebrow">${t("รายงาน · แผนการเข้าพบ", "Reports · visit plans")}</div>
-        <h1>${t("รายงานแผนการเข้าพบ · จังหวัด", "Visit plan report · province ")}${provinceTH(province)}</h1>
+        <h1>${t("รายงานแผนการเข้าพบ · จังหวัด", "Visit plan report · province ")}${provText}</h1>
         <div class="sub">${t("แผนที่คุณสร้างเองในพื้นที่รับผิดชอบ ·", "Plans you created in your own territory ·")} ${(user&&user.name)||""} ${t("· อ่านอย่างเดียว (วางแผนทำที่หน้าแผนที่)", "· read-only (plan on the map page)")}</div>
       </div>
       <div class="ph-right">

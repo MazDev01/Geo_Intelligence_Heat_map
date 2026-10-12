@@ -830,7 +830,7 @@ function App(){
   };
   // ⚠ ไม่ใช่แค่ปิดโหมด — ถ้าปล่อยไว้เฉย ๆ แอดมินจะค้างอยู่บนแมพใหญ่ที่ไม่มีเครื่องมืออะไรเลย
   const exitZoneEdit = ()=>{ zoneEditRef.current = false; setZoneEdit(false); if(zoneEditFrom) setOverlay(zoneEditFrom); setZoneEditFrom(null); };
-  const ctx = {db,user,logout,nav,settingsVer,scoringChanged,placesChanged,masterVer,masterChanged,filters,setFilters,startZoneEdit,routeParams:{area:selectedProvince},profileTab,visitPlans,office:planOffice,lang,setLang,
+  const ctx = {db,user,logout,nav,settingsVer,scoringChanged,placesChanged,masterVer,masterChanged,filters,setFilters,startZoneEdit,routeParams:{area:selectedProvince},profileTab,visitPlans,office:planOffice,tcProvinces,lang,setLang,
 
     deletePlan,setActivePlanId,applyDealApproved,applyDealRejected,addToPlan,goMap,updateRecord,adminAddRecords,adminDeleteRecord,
     selectedProvince,setSelectedProvince,selectedCustomer,setSelectedCustomer,selectedCountry:activeCountry};

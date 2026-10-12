@@ -131,11 +131,13 @@ function QuickRange({db, from, to, setFrom, setTo}){
 }
 
 export function Reports(){
-  const {db, filters, visitPlans, user, addToPlan, goMap, nav} = useApp();
+  const {db, filters, visitPlans, user, addToPlan, goMap, nav, tcProvinces} = useApp();
   // เมื่อผู้ใช้เป็น TC → หน้ารายงานนี้คือ "แดชบอร์ดของ TC": ล็อกจังหวัดที่รับผิดชอบ ไม่มีตัวเลือกข้ามจังหวัด/TC คนอื่น (กันข้อมูลรั่ว)
   const isTC   = !!(user && user.role==="Trade Coordinator" && user.province);
   const tcProv = isTC ? user.province : null;
-  const [prov, setProv]           = useState(isTC ? tcProv : "All");    // TC ล็อกจังหวัด · อื่น ๆ = ทั้งหมด/รายจังหวัด
+  const tcProvs = !isTC ? [] : (tcProvinces && tcProvinces.length ? tcProvinces : [tcProv]);
+  const tcProvText = tcProvs.map(provinceTH).join(", ");
+  const [prov, setProv]          = useState(isTC ? tcProv : "All");    // TC ล็อกจังหวัด · อื่น ๆ = ทั้งหมด/รายจังหวัด
   const [segSel, setSegSel]       = useState("All");    // ตัวกรอง Segment ธุรกิจ
   const [from, setFrom]           = useState("");       // ช่วงเวลา: วันที่เริ่ม (created_at)
   const [to, setTo]               = useState("");       // ช่วงเวลา: วันที่สิ้นสุด (created_at)
@@ -159,7 +161,7 @@ export function Reports(){
   const today = thDate(PLAN_TODAY);
 
   const exportInputs = () => {
-    const ef = {...f, segments:segObj, province:tcProv};
+    const ef = {...f, segments:segObj, province:tcProvs.length>1 ? "All" : tcProv};
     return {today, filters:ef, district:distSel==="All" ? null : distSel, period:exportScope.dateLabel, k:globalKpis(vdb, ef),
       rankOpp:rankAreas(vdb, ef, "gapScore"), rankCov:rankAreas(vdb, ef, "coverage"), rankGap:rankAreas(vdb, ef, "gapCount"),
       rankOppDist:rankDistricts(vdb, ef, "gapScore"), rankGapDist:rankDistricts(vdb, ef, "gapCount")};
@@ -172,7 +174,7 @@ export function Reports(){
 
   // ขอบเขตวิเคราะห์: "ทั้งหมด" = 4 จังหวัดหลัก (ที่มีข้อมูลระดับเขต) · หรือจังหวัดเดียวที่เลือก
   // ไม่รวมจังหวัดอื่นที่ไม่มีข้อมูลระดับเขต (เช่น ขอนแก่น) เพราะ cluster/เขตรองรับแค่ 4 จังหวัดนี้
-  const scopeProvs = prov==="All" ? CLUSTER_PROVS : [prov];
+  const scopeProvs = isTC ? tcProvs : prov==="All" ? CLUSTER_PROVS : [prov];
   // ── Global Filters: Segment + ช่วงเวลา(created_at) + TC — ใช้ร่วมกันทุก Section ──
   const segObj = segSel==="All" ? f.segments : segOnly(segSel);
   const cfFor = p => ({status:{Existing:true,Prospect:true}, segments:segObj, province:p});
@@ -182,7 +184,7 @@ export function Reports(){
   const distOk = o => !isTC || distSel==="All" || o.district===distSel;   // TC: กรองตามอำเภอในจังหวัดที่รับผิดชอบ
   const pass = o => inDate(o) && tcOk(o) && distOk(o);
   // รายชื่ออำเภอในจังหวัดของ TC (สำหรับตัวกรองอำเภอ) — ดึงจากข้อมูลจริง
-  const tcDistricts = isTC ? [...new Set(db.customers.concat(db.prospects).filter(x=>x.province===tcProv).map(x=>x.district).filter(Boolean))].sort() : [];
+  const tcDistricts = isTC ? [...new Set(db.customers.concat(db.prospects).filter(x=>tcProvs.includes(x.province)).map(x=>x.district).filter(Boolean))].sort() : [];
   // ชุดข้อมูลกรองตามช่วงเวลา/TC (ยังไม่จำกัดจังหวัด) — ใช้กับ Area Comparison 4 จังหวัด
   const fdb = {...db, customers: db.customers.filter(pass), prospects: db.prospects.filter(pass)};
   // ชุดข้อมูลในขอบเขตจังหวัดที่เลือก + กรองเวลา/TC — ป้อนเข้าสูตรเดิม (analyzeArea/buildClusters) ไม่แก้สูตร
@@ -193,8 +195,8 @@ export function Reports(){
   const _exSeg = o => segSel==="All" || o.segment===segSel;
   const _beTH = s => s ? thDate(s) : "";   // ใช้ตัวแปลงกลาง
   const exportScope = {
-    areaName: isTC ? (distSel!=="All"?districtTH(distSel):provinceTH(tcProv)) : (prov==="All"?t("ทั้งประเทศ", "Nationwide"):provinceTH(prov)),
-    areaLabel: isTC ? (`${t("จังหวัด", "Province ")}${provinceTH(tcProv)}`+(distSel!=="All"?` ${t("· อ.", "· dist.")}${districtTH(distSel)}`:"")) : (prov==="All"?t("ทั้งประเทศ (4 จังหวัดหลัก)", "Nationwide (4 main provinces)"):`${t("จังหวัด", "Province ")}${provinceTH(prov)}`),
+    areaName: isTC ? (distSel!=="All"?districtTH(distSel):tcProvText) : (prov==="All"?t("ทั้งประเทศ", "Nationwide"):provinceTH(prov)),
+    areaLabel: isTC ? (`${t("จังหวัด", "Province ")}${tcProvText}`+(distSel!=="All"?` ${t("· อ.", "· dist.")}${districtTH(distSel)}`:"")) : (prov==="All"?t("ทั้งประเทศ (4 จังหวัดหลัก)", "Nationwide (4 main provinces)"):`${t("จังหวัด", "Province ")}${provinceTH(prov)}`),
     segLabel: segSel==="All"?t("ทั้งหมด", "All"):segTH(segSel),
     dateLabel: (from||to)?`${from?_beTH(from):t("เริ่มต้น", "Start")} – ${to?_beTH(to):t("ล่าสุด", "Latest")}`:t("ทั้งหมด", "All"),
     counts:{ existing: vdb.customers.filter(_exSeg).length, prospect: vdb.prospects.filter(_exSeg).length },
@@ -425,7 +427,7 @@ export function Reports(){
   const tcLosers  = tcSegDelta.slice().sort((a,b)=>a.delta-b.delta).slice(0,3).filter(x=>x.delta<0);
   const _tcGain0 = tcGainers[0];
   const tcInsights = [
-    {icon:"gap",    tone:"bad",  title:`${t("อัตราการเปลี่ยนเป็นลูกค้า", "Conversion rate")} ${custShare}%`, body:`${t("เป็นลูกค้าแล้ว", "Now customers")} ${num(totExisting)} ${t("ราย · ยังเป็น Lead", "customers · still Leads")} ${num(totProspect)} ${t("ราย ในเขต", "in the territory of ")}${provinceTH(tcProv)}`},
+    {icon:"gap",    tone:"bad",  title:`${t("อัตราการเปลี่ยนเป็นลูกค้า", "Conversion rate")} ${custShare}%`, body:`${t("เป็นลูกค้าแล้ว", "Now customers")} ${num(totExisting)} ${t("ราย · ยังเป็น Lead", "customers · still Leads")} ${num(totProspect)} ${t("ราย ในเขต", "in the territory of ")}${tcProvText}`},
     {icon:"target", tone:"warn", title:`${t("หมวดธุรกิจที่เขตนี้ยังขาด", "Categories this territory is short of")}`, body:`${num(gapNotVisit)} ${t("ราย ที่ยังไม่ได้เข้าพบ — อยู่ในหมวดที่เครือข่ายยังขาด ควรเข้าดูแลก่อน", "not yet visited — they sit in categories the network is short of, so handle these first")}`},
   ];
   if(_tcGain0) tcInsights.push({icon:"trend", tone:"good", title:`${t("หมวด", "categories ")}${_tcGain0.label} ${t("กำลังเติบโต", "is growing")}`, body:`${t("ลูกค้าใหม่", "New customers")} ${num(_tcGain0.cur)} ${t("ราย ใน 90 วันล่าสุด (+", "in the last 90 days (+")}${num(_tcGain0.delta)} ${t("จากช่วงก่อน)", "vs. the previous period)")}`});
@@ -454,7 +456,7 @@ export function Reports(){
     <!-- ═════ Header: ชื่อหน้า + เลือกจังหวัด + ปุ่มส่งออก (เว้นมุมขวาบนให้ปุ่มปิด ✕ ของ modal) ═════ -->
     <div class="page-head" style=${{paddingRight:"56px", flexWrap:"wrap"}}>
       <div><div class="eyebrow">${isTC?t("แดชบอร์ดผู้ประสานงานการค้า (TC)", "Trade Coordinator dashboard"):t("ข่าวกรองเชิงพื้นที่ GeoIntel", "GeoIntel spatial intelligence")}</div>
-        <h1>${isTC?`${t("ภาพรวมจังหวัด", "Province overview ")}${provinceTH(tcProv)}`:t("แดชบอร์ดสรุปภาพรวมเชิงพื้นที่", "Spatial overview dashboard")}</h1>
+        <h1>${isTC?`${t("ภาพรวมจังหวัด", "Province overview ")}${tcProvText}`:t("แดชบอร์ดสรุปภาพรวมเชิงพื้นที่", "Spatial overview dashboard")}</h1>
         <div class="sub">${isTC?`${user.name} · `:""}${t("จัดทำเมื่อ", " Prepared on")} ${today} ${t("· เครื่องมือทำเหมืองเชิงสถิติ · เอกสารลับ", "· statistical mining tool · confidential")}</div></div>
       <div class="ph-right" style=${{gap:"10px"}}>
         <button class="export-btn export-secondary" onClick=${()=>setExportOpen(true)}>
