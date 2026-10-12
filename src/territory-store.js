@@ -64,8 +64,9 @@ export async function saveTerritory(assign){
     const body = await r.json().catch(()=>({}));
     if(r.ok) return {ok:true, local:false, ...body};
     serverError = body.message || body.error || ("HTTP "+r.status);
+    if(r.status!==404 && r.status!==501) return {ok:false, error:serverError};
   }catch(e){
-    serverError = e.message;
+    return {ok:false, error:e.message};
   }
   // เซิร์ฟเวอร์เก็บให้ไม่ได้ — อย่างน้อยอย่าให้สิ่งที่แอดมินเพิ่งตั้งหายไปเฉย ๆ
   try{

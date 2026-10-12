@@ -1761,7 +1761,6 @@ export function TerritoryManager(){
   const [geo,setGeo]       = useState(()=>db.provincesGeo||null);
   const [focus,setFocus]   = useState(null);            // จังหวัดที่คลิกจากแผนที่ (null = ยังไม่ได้เลือก)
   const [legendAll,setLegendAll] = useState(false);     // กางคำอธิบายสีให้ครบทุกคน
-  const [pick,setPick]     = useState("");              // TC ที่เลือกไว้ในกล่องมอบหมาย (ยังไม่กดบันทึก)
 
   // โหลดการมอบหมายที่เคยบันทึกไว้จากเซิร์ฟเวอร์ — ไม่มีของเก่า = คงค่าตั้งต้นจากโปรไฟล์ TC (seedTerritory)
   // loadedRef กันไม่ให้เซฟทับก่อนโหลดเสร็จ (ถ้าแอดมินกดมอบหมายเร็วมากตอนหน้ายังโหลดอยู่)
@@ -1817,30 +1816,32 @@ export function TerritoryManager(){
   // เปิดกล่องมอบหมายพร้อมตั้งค่าเริ่มต้นเป็นผู้ดูแลปัจจุบัน (คลิกซ้ำที่จังหวัดเดิม = ปิดกล่อง)
   // แมพส่งชื่อ "จังหวัด" มา — กรุงเทพฯ ต้องแปลงเป็นคีย์หน่วยก่อน ไม่งั้นหาแถวไม่เจอ
   const focusFromMap = pv => { const k = rows.some(r=>r.key===pv) ? pv : unitsOf(unitProv(pv))[0];
-    setFocus(k); setPick(k && assign[k] ? String(assign[k]) : ""); };
+    setFocus(k); };
   const provKeysOf = id => rows.filter(r=>r.tc&&r.tc.id===id).map(r=>r.key);
 
   /* มอบหมาย/ยกเลิกมอบหมาย — ทุกครั้งบันทึกลง Audit Log (เข้าถึงหน้านี้ได้เฉพาะผู้ดูแลระบบ) */
   const applyAssign=(provs, tcId)=>{
     if(!provs.length) return;
     const tc = tcId? tcById[Number(tcId)] : null;
+    if(provs.every(pv=>String(assign[pv]??"")===String(tc?tc.id:""))) return;
+    const prev = Object.fromEntries(provs.map(pv=>[pv, assign[pv]]));
     const next = {...assign};
     for(const pv of provs){ if(tc) next[pv]=tc.id; else delete next[pv]; }
     setAssign(next);
-    // บันทึกขึ้นเซิร์ฟเวอร์ทันที — ไม่งั้นรีเฟรชแล้วหาย และ TC ไม่มีวันเห็นว่าตัวเองถือโซนไหน
-    if(loadedRef.current) saveTerritory(next).then(r=>{
-      if(!r.ok) toast(t("บันทึกไม่สำเร็จ: ", "Save failed: ")+r.error, "bad");
-      // บันทึกลงเครื่องได้ แต่ขึ้นเซิร์ฟเวอร์ไม่ได้ — ต้องบอก ไม่งั้นแอดมินจะเข้าใจว่า TC เห็นแล้ว
-      else if(r.local) toast(t("บันทึกในเครื่องนี้เท่านั้น — TC ที่เปิดจากเครื่องอื่นจะยังไม่เห็น",
-        "Saved on this device only — a TC on another device will not see it yet"), "warn");
-    });
     const names = provs.map(unitLabel).join(", ");
-    pushAudit({ action: tc? t("มอบหมายขอบเขตพื้นที่การขาย", "Assigned a sales territory") : t("ยกเลิกมอบหมายขอบเขตพื้นที่การขาย", "Unassigned a sales territory"), category:"แก้ไข",
-      detail: `${provs.length>1?`${provs.length} ${t("จังหวัด ·", "Province ·")} `:""}${names} → ${tc? `${tc.name} (${tc.email})` : t("ไม่มีผู้ดูแล (no man’s land)", "No owner (no man's land)")}` });
-    toast(tc ? `${t("มอบหมาย", "Assigned")} ${provs.length} ${t("จังหวัดให้", "to")} ${tc.name} ${t("แล้ว", "")}` : `${t("ยกเลิกผู้ดูแล", "Removed the owner of")} ${provs.length} ${t("จังหวัดแล้ว", "")}`, tc?"good":"warn");
+    const revert = ()=>setAssign(cur=>{ const back={...cur};
+      for(const pv of provs){ if(prev[pv]===undefined) delete back[pv]; else back[pv]=prev[pv]; }
+      return back; });
+    if(!loadedRef.current){ revert(); toast(t("ยังโหลดข้อมูลไม่เสร็จ ลองใหม่อีกครั้ง", "Still loading — please try again"), "bad"); return; }
+    saveTerritory(next).then(r=>{
+      if(!r.ok){ revert(); toast(t("บันทึกไม่สำเร็จ: ", "Save failed: ")+r.error, "bad"); return; }
+      pushAudit({ action: tc? t("มอบหมายขอบเขตพื้นที่การขาย", "Assigned a sales territory") : t("ยกเลิกมอบหมายขอบเขตพื้นที่การขาย", "Unassigned a sales territory"), category:"แก้ไข",
+        detail: `${provs.length>1?`${provs.length} ${t("จังหวัด ·", "Province ·")} `:""}${names} → ${tc? `${tc.name} (${tc.email})` : t("ไม่มีผู้ดูแล (no man’s land)", "No owner (no man's land)")}` });
+      if(r.local) toast(t("บันทึกในเครื่องนี้เท่านั้น — TC ที่เปิดจากเครื่องอื่นจะยังไม่เห็น",
+        "Saved on this device only — a TC on another device will not see it yet"), "warn");
+      else toast(tc ? `${t("บันทึกแล้ว", "Saved")} · ${names} → ${tc.name}` : `${t("บันทึกแล้ว", "Saved")} · ${names} → ${t("ไม่มีผู้ดูแล", "No owner")}`, tc?"good":"warn");
+    });
   };
-  // กดบันทึกในกล่องมอบหมาย → เขียนค่าใหม่ + ปิดกล่อง
-  const saveAssign = ()=>{ if(!focus) return; applyAssign([focus], pick||null); setFocus(null); };
 
   const tcOptions = [["",t("— ยังไม่มีคนดูแล —", "— no owner yet —")],
     ...tcUsers.map(u=>[String(u.id), u.name])];
@@ -1883,9 +1884,8 @@ export function TerritoryManager(){
                   placeholder=${t("เลือก TC ที่จะดูแล…", "Choose the TC to own it…")}/></div>
               </div>`)
             : html`<div class="tr-as-row">
-                <div style=${{flex:1,minWidth:0}}><${Dropdown} value=${pick} onChange=${setPick} options=${tcOptions}
+                <div style=${{flex:1,minWidth:0}}><${Dropdown} value=${curTCId} onChange=${v=>applyAssign([focus], v||null)} options=${tcOptions}
                   placeholder=${t("เลือก TC ที่จะดูแล…", "Choose the TC to own it…")}/></div>
-                <${Btn} variant="primary" size="sm" icon="check" disabled=${pick===curTCId} onClick=${saveAssign}>${t("บันทึก", "Save")}</${Btn}>
               </div>`}
         </div>`
         : html`<div class="tr-as-hint">${t("คลิกจังหวัดบนแผนที่เพื่อกำหนดหรือเปลี่ยน TC ที่ดูแลพื้นที่นั้น", "Click a province on the map to set or change the TC who owns it")}</div>`}
