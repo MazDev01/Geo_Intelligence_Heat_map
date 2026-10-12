@@ -118,6 +118,11 @@ export function ZoneToolbar({ed, onExit}){
   // เข้าโหมดวาดเกิดหลังโหลด Geoman เสร็จ (ไม่ใช่ตอนกดปุ่ม) ต้องให้ตัว editor เรียกกลับมาเรนเดอร์ใหม่
   useEffect(()=>{ if(!ed || !ed.setDrawHandler) return;
     ed.setDrawHandler(()=>redraw()); return ()=>ed.setDrawHandler(null); },[ed]);
+  useEffect(()=>{ if(!ed || !ed.loadDraft) return;
+    let live = true;
+    ed.loadDraft().then(r=>{ if(live && r && r.loaded) redraw(); })
+      .catch(e=>console.warn("[zone-toolbar] load draft", e));
+    return ()=>{ live = false; }; },[ed]);
 
   // ⚠ ต้องมีปุ่มออกด้วย — ถ้าแมพยังไม่พร้อม แล้วแถบมีแต่ข้อความ แอดมินจะออกจากโหมดนี้ไม่ได้เลย
   if(!ed) return html`<div class="ztb"><div class="ztb-row">

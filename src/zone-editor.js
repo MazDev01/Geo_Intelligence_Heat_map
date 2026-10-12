@@ -671,6 +671,16 @@ export function createZoneEditor(map, zones) {
       return r;
     },
 
+    async loadDraft() {
+      const d = await loadZoneDraft();
+      if (!d || !d.features || !d.features.length) return { ok: true, loaded: false };
+      if (dirty || drawing || history.length) return { ok: true, loaded: false };
+      reload(d);
+      future.length = 0;
+      dirty = false;
+      return { ok: true, loaded: true, zones: d.features.length };
+    },
+
     revert() {
       reload(snapshot);
       history.length = 0;

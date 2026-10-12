@@ -125,7 +125,7 @@ function makeZoneStore(adapter) {
   /** บันทึกแล้วมีผลทันที (ข้ามขั้นตรวจ) — เก็บฉบับเดิมเข้าประวัติก่อนเสมอ */
   const publish = (raw, actor) => guard(async () => {
     const c = check(raw); if (c.error) return c;
-    const archived = await db.publish(c.gj, raw, { action: 'publish', actor });
+    const archived = await db.publish(c.gj, raw, { action: 'publish', actor, clearDraft: true });
     return { ok: true, status: 'published', archived,
              zones: c.gj.features.map(f => f.properties.zone_id),
              kb: Math.round(c.bytes / 1024), updatedAt: new Date().toISOString() };
