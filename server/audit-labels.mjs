@@ -78,6 +78,7 @@ const KEY = {
   segmentFrom: ['หมวดเดิม', 'Previous segment'],
   segmentTo: ['หมวดใหม่', 'New segment'],
   via: ['ทำผ่าน', 'Via'],
+  changes: ['การเปลี่ยนแปลง', 'Changes'],
 };
 
 const SUB = {
@@ -189,7 +190,18 @@ const flat = (v, L, ctx) => Object.entries(v).filter(([, b]) => b !== null && b 
 const plain = (v, L, ctx, k) => (Array.isArray(v) ? v.map(x => plain(x, L, ctx, k)).join(', ')
   : v && typeof v === 'object' ? '(' + flat(v, L, ctx) + ')'
   : v === true ? '✓' : v === false ? '—' : v === null || v === undefined ? '' : typeof v === 'string' ? codeLabel(k, v, L, ctx) : String(v));
-const value = (v, k, L, ctx) => (Array.isArray(v)
+const areaLabel = (key, L, ctx) => {
+  const [prov, zone] = String(key).split('/');
+  const p = codeLabel('province', prov, L, ctx);
+  if (!zone) return p;
+  return p + ' · ' + (zone === '__rest' ? (L === 'en' ? 'Outside any zone' : 'พื้นที่นอกโซน') : (L === 'en' ? 'zone ' : 'โซน ') + zone);
+};
+const noOwner = L => (L === 'en' ? 'No owner' : 'ไม่มีผู้ดูแล');
+const territoryChanges = (v, L, ctx) => v.map(c => areaLabel(c.area, L, ctx) + ': '
+  + (c.from || noOwner(L)) + ' → ' + (c.to || noOwner(L))).join(', ');
+const value = (v, k, L, ctx) => (k === 'changes' && Array.isArray(v) && v.every(c => c && typeof c === 'object' && 'area' in c)
+  ? territoryChanges(v, L, ctx)
+  : Array.isArray(v)
   ? (k === 'fields' || k === 'changed' ? v.map(x => word(String(x), L)) : v.map(x => plain(x, L, ctx, k))).join(', ')
   : v && typeof v === 'object' ? (k === 'scope' ? Object.values(v).filter(Boolean).join(' · ') : flat(v, L, ctx)) : plain(v, L, ctx, k));
 

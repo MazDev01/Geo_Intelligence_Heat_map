@@ -257,11 +257,22 @@ export function makeApi({pool, authStore, zoneStore, demoPassword, perms, webBoo
       try {
         await withTransaction(pool, async tx => {
           await tx.query('lock table territory_assign in share row exclusive mode');
+          const prev = await tx.query('select key, user_id from territory_assign');
+          const before = new Map(prev.rows.map(r => [r.key, r.user_id]));
+          const after = new Map(clean.map(([key, , userId]) => [key, userId]));
+          const ids = [...new Set([...before.values(), ...after.values()])];
+          const who = new Map((await tx.query('select id, name, email from users where id = any($1::int[])', [ids]))
+            .rows.map(u => [u.id, `${u.name} (${u.email})`]));
+          const changes = [...new Set([...before.keys(), ...after.keys()])].sort()
+            .filter(key => before.get(key) !== after.get(key))
+            .map(key => ({area: key,
+              from: before.has(key) ? who.get(before.get(key)) || '#' + before.get(key) : null,
+              to: after.has(key) ? who.get(after.get(key)) || '#' + after.get(key) : null}));
           await tx.query('delete from territory_assign');
           for (const [key, kind, userId] of clean)
             await tx.query('insert into territory_assign (key, kind, user_id, assigned_by) values ($1, $2, $3, $4)',
               [key, kind, userId, admin.id]);
-          await writeAudit(tx, auditCtx(req, admin), 'territory_assign', null, {count: clean.length});
+          await writeAudit(tx, auditCtx(req, admin), 'territory_assign', null, {count: clean.length, changes});
         });
       } catch (e) {
         if (e && e.code === '23503') return send(res, 400, {error: 'มี id ของ TC ที่ไม่มีบัญชีอยู่ในระบบ'});
