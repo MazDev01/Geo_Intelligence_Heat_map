@@ -13,7 +13,7 @@ import {Profile} from "./pages/profile.js";
 import {Users, Config, Audit, Monitoring, SEED_USERS} from "./pages/admin.js";
 import {loadTerritory} from "./territory-store.js";   // การมอบหมาย TC ↔ จังหวัด/โซน ที่แอดมินบันทึกไว้
 import {BKK, SEGMENTS, setScoring, scoringKey} from "./mock/geoData.js";
-import {loadZoneRegistry, zoneRegistry, zonesOf, zoneLabel} from "./zone-registry.js";   // ทะเบียนโซน (แหล่งเดียว)
+import {loadZoneRegistry, zoneRegistry, zonesOf, zoneLabel, ZONE_REST} from "./zone-registry.js";   // ทะเบียนโซน (แหล่งเดียว)
 import {MasterData} from "./pages/master-data.js";
 import {DataManagement, DataImport, DataFiles, DataLeads, TerritoryManager} from "./pages/data-management.js";
 import {VisitPlanReport} from "./pages/visit-plan-report.js";
@@ -128,15 +128,33 @@ function App(){
   },[user]);
   // null = ไม่จำกัดระดับโซน (เห็นทั้งจังหวัดเหมือนเดิม) — ทั้งตอนยังไม่เคยมอบหมาย
   // และตอน TC ถือครบทุกโซนในจังหวัด ซึ่งไม่ต่างอะไรกับดูทั้งจังหวัด
-  const lockZones = useMemo(()=>{
+  const tcAreas = useMemo(()=>{
+    if(!user || user.role!=="Trade Coordinator" || !user.province) return null;
     // เดโมรายโซนมาก่อนเสมอ — ใช้ดูว่า TC ของโซนนั้นเห็นอะไร โดยไม่ต้องตั้งค่าอะไรล่วงหน้า
-    if(demoZone && user && user.role==="Trade Coordinator") return [demoZone];
-    if(!territory || tcId==null || !user || !user.province) return null;
-    const pre = user.province + "/";
-    const all  = Object.keys(territory).filter(k=>k.startsWith(pre));
-    const mine = all.filter(k=>territory[k]===tcId).map(k=>k.slice(pre.length));
-    return (!mine.length || mine.length===all.length) ? null : mine;
-  },[territory, tcId, user, demoZone]);
+    if(demoZone) return {[user.province]: [demoZone]};
+    const out = {[user.province]: null};
+    if(!territory || tcId==null) return out;
+    Object.keys(territory).filter(k=>territory[k]===tcId).forEach(k=>{ out[k.split("/")[0]] = null; });
+    const feats = (zonesReg && zonesReg.features) || [];
+    for(const p of Object.keys(out)){
+      if(territory[p]===tcId) continue;
+      const zs = feats.filter(f=>f.properties && f.properties.province===p).map(f=>f.properties.zone_id);
+      if(!zs.length) continue;
+      const units = [...zs, ZONE_REST];
+      const pre = p + "/";
+      const mine = Object.keys(territory).filter(k=>k.startsWith(pre) && territory[k]===tcId).map(k=>k.slice(pre.length)).filter(z=>units.includes(z));
+      out[p] = (!mine.length || units.every(u=>mine.includes(u))) ? null : mine;
+    }
+    return out;
+  },[territory, tcId, user, demoZone, zonesReg]);
+  const tcProvinces = useMemo(()=>tcAreas ? Object.keys(tcAreas) : null,[tcAreas]);
+  const tcKey = tcProvinces ? tcProvinces.join("|") : "";
+  const tcMany = !!(tcProvinces && tcProvinces.length>1);
+  const tcZoned = !!(tcAreas && Object.values(tcAreas).some(Boolean));
+  const tcAreaText = tcAreas ? Object.entries(tcAreas).map(([p,z])=>provinceTH(p)+(z && z.length ? " · "+z.map(zoneLabel).join(", ") : "")).join(", ") : "";
+  useEffect(()=>{ if(!tcProvinces || tcProvinces.length<2 || !user) return;
+    setSelectedProvince(sp=>sp===user.province ? null : sp);
+    setFilters(f=>f.province===user.province ? {...f, province:"All"} : f); },[tcKey, user]);
   const [view,setView] = useState("dashboard");        // dashboard (business overview) | workspace (globe/map)
   const [mode,setMode] = useState("globe");            // globe | map (within workspace)
   const [activeCountry,setActiveCountry] = useState(null);
@@ -711,14 +729,14 @@ function App(){
   // คลิกจังหวัด = กรองแผนที่ไปที่จังหวัดนั้น · แผงวิเคราะห์พื้นที่เปิดให้ "ผู้บริหาร" เท่านั้น
   //   TC    ดูแค่เขตที่รับผิดชอบ ไม่ต้องวิเคราะห์ภาพรวม
   //   แอดมิน งานคือดูแลระบบ/ขอบเขต/ผู้ใช้ ไม่ใช่วิเคราะห์ตลาด — แผงนี้บังแมพตอนลากขอบโซนด้วย
-  const pickProvince = p =>{ setSelectedProvince(p); setFilters(f=>({...f,province:p}));
+  const pickProvince = p =>{ setSelectedProvince(p); if(!tcMany) setFilters(f=>({...f,province:p}));
     setOverlay(isTC || isAdmin ? null : "area"); };
   const pickCustomer = c =>{ setSelectedCustomer(c); setOverlay("customer"); };
   // topbar-search province result → just zoom to the province (the province-filter effect flies there); no panel
-  const pickProvinceZoom = p =>{ if(tcGuard(p, t("พื้นที่ ", "Area ")+provinceTH(p))) return; setSelectedProvince(p); setFilters(f=>({...f,province:p})); setOverlay(null); };
+  const pickProvinceZoom = p =>{ if(tcGuard(p, t("พื้นที่ ", "Area ")+provinceTH(p))) return; setSelectedProvince(p); if(!tcMany) setFilters(f=>({...f,province:p})); setOverlay(null); };
   // TC เข้าถึงได้เฉพาะพื้นที่ที่รับผิดชอบ — ถ้าจังหวัดของทรัพยากรไม่ตรง session → 403 (บันทึก Audit Log)
   const tcGuard = (prov, name)=>{
-    if(user && user.role==="Trade Coordinator" && user.province && prov && prov!==user.province){
+    if(user && user.role==="Trade Coordinator" && user.province && prov && !(tcProvinces||[user.province]).includes(prov)){
       setTcDenied({name: name||t("ข้อมูลนี้","this record")});
       pushAudit({user:user.email||"tc@geointel.io", action:t("พยายามเข้าถึงข้อมูลนอกพื้นที่", "Attempted to access data outside their territory"), category:"ปฏิเสธการเข้าถึง",
         detail:(name?name+" · ":"")+t("อยู่ในพื้นที่ ", "is in ")+provinceTH(prov)+t(" (นอกเขตรับผิดชอบ)", " (outside their territory)")});
@@ -911,8 +929,7 @@ function App(){
         : (view==="workspace" && mode==="map")
           ? (isTC
               /* TC ถูกล็อกที่จังหวัดเดียว — breadcrumb เป็นข้อความคงที่ ไม่มีลิงก์กลับประเทศ/ลูกโลก */
-              ? html`<div class="crumbs"><span class="crumb-cur">${t("เขตที่รับผิดชอบ ·", "Territory ·")} <b>${provinceTH(user.province||"")}${
-                  lockZones && lockZones.length===1 ? " · "+zoneLabel(lockZones[0]) : ""}</b></span></div>`
+              ? html`<div class="crumbs"><span class="crumb-cur">${t("เขตที่รับผิดชอบ ·", "Territory ·")} <b>${tcAreaText}</b></span></div>`
               : html`<div class="crumbs crumbs-nav">
               <button class="crumb-link" onClick=${backToGlobe}>${t("หน้าหลัก", "Home")}</button>
               <span class="crumb-sep">›</span>
@@ -1015,14 +1032,14 @@ function App(){
         ${(view==="dashboard" && user.role==="Administrator")
           ? html`<${Dashboard}/>`
           : html`<${GeoStage} db=${db} mode=${mode} activeCountry=${activeCountry} flyTarget=${flyTarget} globeUnder=${globeUnder}
-              lockProvince=${isTC ? user.province : null} lockZones=${lockZones}
-              zoneMode=${isTC && lockZones ? "lock" : user.role==="Management" ? "outline" : null}
+              lockProvinces=${isTC ? tcProvinces : null} lockAreas=${isTC ? tcAreas : null}
+              zoneMode=${isTC && tcZoned ? "lock" : user.role==="Management" ? "outline" : null}
               canEditZones=${isAdmin} noMask=${isAdmin} zoneEdit=${zoneEdit && isAdmin} onExitZoneEdit=${exitZoneEdit} zoneEdRef=${zoneEdRef}
               onArriveCountry=${arriveCountry} onSelectCountry=${selectCountry} onSelectProvince=${selectProvinceFromGlobe} onBackToGlobe=${backToGlobe}
               filters=${filters} setFilters=${setFilters} layers=${layers} setLayers=${setLayers}
               onPickProvince=${pickProvince} onPickCustomer=${pickCustomer}
               onOpenReports=${isBiz && canReport ? (()=>navItem("reports")) : undefined}
-              focusProvince=${overlay==="area"?selectedProvince:null}
+              focusProvince=${overlay==="area" || tcMany ? selectedProvince : null}
               highlightCustomer=${overlay==="customer"?selectedCustomer:null} tourPanel=${tourPanel} tourFocus=${tourFocus}
               visitPlan=${visitPlan} visitRoute=${visitRoute} office=${planOffice} planRoutes=${savedPlanRoutes}
               gsearch=${gsearch} setGsearch=${setGsearch} searchResults=${results}
@@ -1085,8 +1102,8 @@ function App(){
             <div style=${{width:"72px",height:"72px",borderRadius:"50%",background:"rgba(255,90,90,.12)",display:"grid",placeItems:"center",margin:"0 auto 16px"}}><${Icon} name="gap" size=${32} color="var(--bad)"/></div>
             <h2 style=${{margin:"0 0 8px"}}>${t("ไม่สามารถเข้าถึงข้อมูลที่ขอได้", "You cannot access the requested data")}</h2>
             <p class="muted" style=${{fontSize:"14px",lineHeight:1.6}}>${t("ข้อมูลที่คุณเปิดอยู่นอกพื้นที่ที่คุณดูแล หากคิดว่าเป็นความผิดพลาด กรุณาติดต่อผู้ดูแลระบบ", "The record you opened is outside your territory. If you think this is a mistake, contact an administrator.")}</p>
-            <div style=${{marginTop:"18px"}}><button class="btn outline" onClick=${()=>{ setTcDenied(null); setOverlay(null); setSelectedProvince(user.province); setFilters(f=>({...f,province:user.province})); }}>
-              ${t("← กลับไปหน้าจังหวัด", "← Back to the province ")}${provinceTH(user.province||"")}</button></div>
+            <div style=${{marginTop:"18px"}}><button class="btn outline" onClick=${()=>{ setTcDenied(null); setOverlay(null); const many = tcProvinces && tcProvinces.length>1; setSelectedProvince(many ? null : user.province); setFilters(f=>({...f,province: many ? "All" : user.province})); }}>
+              ${tcProvinces && tcProvinces.length>1 ? t("← กลับไปเขตที่รับผิดชอบ", "← Back to my territory") : t("← กลับไปหน้าจังหวัด", "← Back to the province ")+provinceTH(user.province||"")}</button></div>
           </div></div>`}
 
         ${loadingData && html`<div style=${{position:"absolute",inset:0,zIndex:900,background:"rgba(4,7,14,.5)",backdropFilter:"blur(2px)",display:"grid",placeItems:"center"}}>

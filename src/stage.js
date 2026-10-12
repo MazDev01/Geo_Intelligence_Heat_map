@@ -69,8 +69,10 @@ const CALLOUT_CSS = `
 `;
 
 export function GeoStage({db, mode, activeCountry, flyTarget, globeUnder, onArriveCountry, onSelectCountry, onSelectProvince,
-    filters, setFilters, layers, setLayers, onPickProvince, onPickCustomer, onOpenReports, focusProvince, highlightCustomer, onBackToGlobe, tourPanel, tourFocus, visitPlan, visitRoute, office, planRoutes, lockZones, zoneMode, canEditZones, noMask, zoneEdit, onExitZoneEdit, zoneEdRef,
-    gsearch, setGsearch, searchResults, onPickProvinceZoom, onPickCustomerNav, lockProvince}){
+    filters, setFilters, layers, setLayers, onPickProvince, onPickCustomer, onOpenReports, focusProvince, highlightCustomer, onBackToGlobe, tourPanel, tourFocus, visitPlan, visitRoute, office, planRoutes, lockAreas, zoneMode, canEditZones, noMask, zoneEdit, onExitZoneEdit, zoneEdRef,
+    gsearch, setGsearch, searchResults, onPickProvinceZoom, onPickCustomerNav, lockProvinces}){
+  const areaText = lockProvinces ? lockProvinces.map(p=>{ const z = lockAreas && lockAreas[p];
+    return provinceTH(p)+(z && z.length ? " · "+z.map(zoneName).join(", ") : ""); }).join(", ") : "";
   const areaByProvince = db.areaByProvince||{};
   const [layersOpen, setLayersOpen] = useState(true);    // แผงเลเยอร์เปิดอยู่เป็นค่าเริ่มต้น · กดไอคอนเลเยอร์เพื่อย่อ/ขยาย
   // โหมดแสดงผลแผนที่ปัจจุบันตามระดับซูม (heat/cluster/marker) — แผนที่แจ้งมาผ่าน onMapMode ใช้โชว์ legend Lead เฉพาะตอนซูมออก
@@ -175,7 +177,7 @@ export function GeoStage({db, mode, activeCountry, flyTarget, globeUnder, onArri
     ${mode==="map" && html`
       <${LeafletMap} db=${db} filters=${filters} layers=${mapLayers} country=${activeCountry||"Thailand"} dark=${mapDark}
         focusProvince=${focusProvince} highlight=${highlightCustomer} focusPoint=${tourFocus} onPickArea=${onPickProvince} onPickCustomer=${onPickCustomer}
-        onMapMode=${setMapMode} plan=${visitPlan} route=${visitRoute} office=${office} planRoutes=${planRoutes} lockProvince=${lockProvince} lockZones=${lockZones} zoneMode=${zoneMode} canEditZones=${canEditZones} noMask=${noMask} onZoneEditor=${setZoneEd}/>
+        onMapMode=${setMapMode} plan=${visitPlan} route=${visitRoute} office=${office} planRoutes=${planRoutes} lockProvinces=${lockProvinces} lockAreas=${lockAreas} zoneMode=${zoneMode} canEditZones=${canEditZones} noMask=${noMask} onZoneEditor=${setZoneEd}/>
 
       <!-- แถบนำทางกระชับแถวเดียว: [ค้นหา] (หมวดหมู่ธุรกิจย้ายไปเป็น dropdown ท้ายแผงเลเยอร์แล้ว)
            หลักการ: ตัวกรอง (หมวดหมู่) อยู่ซ้าย/กลาง · ปุ่ม Action (เพิ่มข้อมูล/รายงาน) แยกไปอยู่ขวาสุด -->
@@ -258,7 +260,7 @@ export function GeoStage({db, mode, activeCountry, flyTarget, globeUnder, onArri
         </div>
 
         <!-- เลเยอร์ "เส้นทางดำเนินการ" (เฉพาะ TC) — ต่อจากLead · แสดงเส้นเชื่อมเส้นทางแผนเข้าพบที่ TC วางไว้ในระบบ -->
-        ${lockProvince && html`<div style=${{paddingTop:"10px",borderTop:"1px solid var(--stroke)",marginTop:"10px"}}>
+        ${lockProvinces && html`<div style=${{paddingTop:"10px",borderTop:"1px solid var(--stroke)",marginTop:"10px"}}>
           <div class="row between">
             <div class="row" style=${{gap:"9px",opacity:layers.route!==false?1:.45,transition:"opacity .15s"}}>
               <span class="dotc" style=${{background:"repeating-linear-gradient(90deg,#8a7bff 0 5px,transparent 5px 9px)",width:"14px",height:"3px",borderRadius:"2px"}}></span>
@@ -296,10 +298,9 @@ export function GeoStage({db, mode, activeCountry, flyTarget, globeUnder, onArri
            เดิม 56px เหลือช่องแค่ ~12px เลยดูเบียดปุ่มสลับโทน -->
       <div style=${{position:"absolute",top:(16+navH+10)+"px",left:"84px",zIndex:490,maxWidth:"calc(100% - 100px)"}}>
         <div class=${zoneEdit ? "" : "map-panel map-fx"} style=${{padding: zoneEdit?"0":"6px 11px",display:"flex",alignItems:"center",gap:"10px",flexWrap:"wrap",flex:"none"}}>
-          ${lockProvince
+          ${lockProvinces
             ? html`<span style=${{display:"inline-flex",alignItems:"center",gap:"6px",fontSize:"12.5px",fontWeight:700,color:"var(--accent2)"}}>
-                <${Icon} name="pin" size=${14}/> ${t("เขตที่รับผิดชอบ:", "Territory:")} ${provinceTH(lockProvince)}${
-                  lockZones && lockZones.length===1 ? " · "+zoneName(lockZones[0]) : ""}</span>`
+                <${Icon} name="pin" size=${14}/> ${t("เขตที่รับผิดชอบ:", "Territory:")} ${areaText}</span>`
             : html`<div style=${{width:"190px",flex:"none"}}>
                 <${Dropdown} value=${filters.province||"All"} placeholder=${t("ทุกจังหวัด", "All provinces")} options=${provinceOpts}
                   onChange=${v=>setFilters(f=>({...f, province:v}))}/></div>
