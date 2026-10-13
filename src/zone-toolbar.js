@@ -8,8 +8,9 @@
 // เข้าโหมดนี้จาก: หน้าจัดการขอบเขตพื้นที่การขาย → ปุ่ม "แก้รูปโซนบนแผนที่"
 // ---------------------------------------------------------------------------
 import {html, useState, useEffect, useRef, Icon} from "./lib.js";
-import {t} from "./i18n.js";
-import {zonesSaveBlocked, zonesBlockedText} from "./zone-registry.js";
+import {t, getLang} from "./i18n.js";
+import {zonesSaveBlocked, zonesBlockedText, listZoneVersions, restoreZoneVersion} from "./zone-registry.js";
+import {Modal, Btn} from "./ui.js";
 
 if(typeof document!=="undefined" && !document.getElementById("ztb-css")){
   const st=document.createElement("style"); st.id="ztb-css";
@@ -76,6 +77,19 @@ if(typeof document!=="undefined" && !document.getElementById("ztb-css")){
 .ztb-zrow input[type=text]{flex:1;min-width:0;height:28px;border:1px solid var(--stroke2);border-radius:7px;
   background:var(--surface);color:var(--txt);font-family:var(--font);font-size:12.5px;padding:0 7px}
 .ztb-zrow .ztb-zid{font-size:11px;color:var(--dim);white-space:nowrap}
+.ztb-gpop{min-width:150px;padding:5px}
+.ztb-gopt{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:8px 10px;border-radius:8px;
+  cursor:pointer;font-size:12.5px;color:var(--txt);white-space:nowrap}
+.ztb-gopt:hover,.ztb-gopt.hl{background:var(--surface2)}
+.ztb-gopt.on{font-weight:600}
+.ztb-gopt svg{color:var(--accent);flex:none}
+.ztb-hpop{min-width:300px;max-width:min(420px,92vw)}
+.ztb-hrow{display:flex;align-items:center;gap:9px;padding:6px 4px;border-top:1px solid var(--stroke)}
+.ztb-htx{flex:1;min-width:0;display:flex;flex-direction:column;gap:1px}
+.ztb-htx b{font-size:12.5px;font-weight:600}
+.ztb-htx span{font-size:11.5px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ztb-hrow button{height:28px;font-size:12px}
+.ztb-hnone{padding:8px 4px;font-size:12px;color:var(--muted)}
 /* ⚠ ต้องปิด outline ของเบราว์เซอร์เอง — ตอนเตือนเราโฟกัสช่องให้ Chrome จะวาดวงดำทับกรอบแดง
    จนเห็นแค่ตัวหนังสือแดง เลยทำวงโฟกัสเองทั้งสองสถานะ */
 .ztb input:focus,.ztb select:focus{outline:none;border-color:var(--accent);
@@ -108,8 +122,32 @@ export function ZoneToolbar({ed, onExit}){
   const toggleList = ()=>{
     const b=zBtnRef.current, row=b&&b.parentElement;
     if(b) setPopLeft(Math.max(0, b.offsetLeft - (row?row.scrollLeft:0)));
+    setHistOpen(false); setGapOpen(false);
     setListOpen(v=>!v);
   };
+  const hBtnRef = useRef(null);
+  const [histOpen, setHistOpen] = useState(false);
+  const [hist, setHist] = useState(null);
+  const [histLeft, setHistLeft] = useState(0);
+  const toggleHist = ()=>{
+    const b=hBtnRef.current, row=b&&b.parentElement;
+    if(b) setHistLeft(Math.max(0, b.offsetLeft - (row?row.scrollLeft:0)));
+    setListOpen(false); setGapOpen(false);
+    if(!histOpen){ setHist(null); listZoneVersions().then(v=>setHist(v.slice(0,20))); }
+    setHistOpen(v=>!v);
+  };
+  const gBtnRef = useRef(null);
+  const gPopRef = useRef(null);
+  const [gapOpen, setGapOpen] = useState(false);
+  const [gapLeft, setGapLeft] = useState(0);
+  const [gapHl, setGapHl] = useState(-1);
+  useEffect(()=>{ if(!gapOpen) return;
+    const onDoc = e => { if(gBtnRef.current && gBtnRef.current.contains(e.target)) return;
+      if(gPopRef.current && gPopRef.current.contains(e.target)) return; setGapOpen(false); };
+    document.addEventListener("mousedown", onDoc); return ()=>document.removeEventListener("mousedown", onDoc); },[gapOpen]);
+  const [ask, setAsk] = useState(null);
+  const confirmBox = opts => new Promise(res=>setAsk({...opts, res}));
+  const answer = v => { const a=ask; setAsk(null); if(a) a.res(v); };
   const [newColor, setNewColor] = useState("#0ea5e9");   // สีของโซนที่กำลังจะวาด — เลือกเองได้ก่อนกดวาด     // ยังไม่ได้ใส่ชื่อ → กรอบแดงที่ช่อง ไม่ใช่ข้อความบรรทัดใหม่
   const [gap, setGap] = useState(0);        // 0 = ยังไม่ได้เลือกระยะ (กันลดหมุดโดยไม่ได้ตั้งใจ)
   const redraw = ()=>bump(n=>n+1);
@@ -144,6 +182,40 @@ export function ZoneToolbar({ed, onExit}){
     setBusy(false); redraw();
   };
 
+  const GAPS = [100,200,300,500];
+  const gapLabel = m => t("ห่าง","gap")+" "+m+" "+t("ม.","m");
+  const openGap = ()=>{ const b=gBtnRef.current, row=b&&b.parentElement;
+    if(b) setGapLeft(Math.max(0, b.offsetLeft - (row?row.scrollLeft:0)));
+    setListOpen(false); setHistOpen(false);
+    setGapHl(GAPS.findIndex(m=>String(m)===String(gap))); setGapOpen(true); };
+  const toggleGap = ()=> gapOpen ? setGapOpen(false) : openGap();
+  const pickGap = m => { setGapOpen(false); setGap(m);
+    run(()=>ed.thin(m), r=>`${t("หมุดห่างอย่างน้อย","Minimum spacing")} ${m} ${t("ม. · เหลือ","m · now")} ${r.after} ${t("จุด (จาก","points (from")} ${r.before})`); };
+  const onGapKey = e => {
+    if(e.key==="Escape"){ if(gapOpen){ e.preventDefault(); setGapOpen(false); } return; }
+    if(e.key==="ArrowDown" || e.key==="ArrowUp"){ e.preventDefault();
+      if(!gapOpen){ openGap(); return; }
+      setGapHl(h=>{ const n = h + (e.key==="ArrowDown" ? 1 : -1); return n<0 ? 0 : n>=GAPS.length ? GAPS.length-1 : n; }); return; }
+    if(e.key==="Enter" || e.key===" "){ e.preventDefault();
+      if(!gapOpen){ openGap(); return; }
+      if(gapHl>=0 && gapHl<GAPS.length) pickGap(GAPS[gapHl]); }
+  };
+  const whenOf = v => { const m=/^(\d{4}-\d\d-\d\d)T(\d\d)-(\d\d)-(\d\d)-(\d{3})Z$/.exec(v||"");
+    const d = m ? new Date(`${m[1]}T${m[2]}:${m[3]}:${m[4]}.${m[5]}Z`) : null;
+    return d && !isNaN(d) ? d.toLocaleString(getLang()==="en"?"en-GB":"th-TH", {dateStyle:"medium", timeStyle:"short"}) : String(v||""); };
+  const zonesOfVer = v => { const z=Array.isArray(v.zones)?v.zones:[];
+    return `${z.length} ${t("โซน","zones")}${z.length?": "+z.join(" · "):""}`; };
+  const restore = async v => {
+    const yes = await confirmBox({title:t("ย้อนไปใช้โซนชุดนี้?","Restore this set of zones?"), ok:t("ย้อนกลับ","Restore"),
+      body:`${t("ใช้ถึง","In use until")} ${whenOf(v.version)} · ${zonesOfVer(v)}\n${t("โซนชุดปัจจุบันจะถูกเก็บเข้าประวัติ ไม่หาย","The current zones are kept in the history")}`
+        +(ed.isDirty() ? "\n"+t("การแก้ที่ยังไม่เซฟจะหาย","Unsaved edits will be lost") : "")});
+    if(!yes) return;
+    setBusy(true); setMsg(null);
+    const r = await restoreZoneVersion(v.version);
+    if(!r.ok){ setBusy(false); setMsg({text:r.error, tone:"bad"}); return; }
+    location.reload();
+  };
+
   // รหัสโซนไม่ต้องกรอก — zone-editor สร้างให้เองจากชื่อ (หรือ Z1 Z2 … ถ้าชื่อเป็นภาษาไทย)
   const draw = async ()=>{
     const nm = znm.trim();
@@ -162,8 +234,9 @@ export function ZoneToolbar({ed, onExit}){
   return html`<div class="ztb">
     <div class="ztb-row" role="toolbar" aria-label=${t("เครื่องมือแก้รูปโซน","Zone editing tools")}>
     <button class="ztb-exit" title=${t("ออกจากโหมดแก้ไข","Leave edit mode")}
-      onClick=${()=>{ if(s.drawing) ed.cancelDraw();
-        if(ed.isDirty() && !confirm(t("ยังไม่ได้เซฟการแก้ ออกเลยไหม?","You have unsaved changes. Leave anyway?"))) return; onExit(); }}>
+      onClick=${async ()=>{ if(s.drawing) ed.cancelDraw();
+        if(ed.isDirty() && !(await confirmBox({title:t("ยังไม่ได้เซฟการแก้","Unsaved changes"), ok:t("ออก","Leave"), danger:true,
+          body:t("ออกตอนนี้การแก้ที่ยังไม่เซฟจะหาย","Leaving now discards your unsaved edits")}))) return; onExit(); }}>
       <${Icon} name="chevron" size=${14} style=${{transform:"rotate(90deg)"}}/> ${t("ออก","Exit")}</button>
     <span class="ztb-sep"></span>
 
@@ -186,10 +259,10 @@ export function ZoneToolbar({ed, onExit}){
     ${s.picking && html`<button class="ztb-del ztb-ico" disabled=${busy || s.drawing || !s.picked.length}
       aria-label=${t("ลบโซนที่เลือก","Delete the selected zones")}
       title=${t("ลบโซนที่เลือก","Delete the selected zones")}
-      onClick=${()=>{
+      onClick=${async ()=>{
         const names = s.picked.map(id=>{ const z=ed.zones().find(x=>x.zone_id===id); return z?z.name:id; });
-        if(!confirm(t("ลบโซน ","Delete zone ")+names.join(" · ")+t("?\nลูกค้าในโซนนี้จะกลายเป็นพื้นที่นอกโซน",
-          "?\nCustomers there fall back to the outside-zone area"))) return;
+        if(!(await confirmBox({title:t("ลบโซน ","Delete zone ")+names.join(" · ")+"?", ok:t("ลบ","Delete"), danger:true,
+          body:t("ลูกค้าในโซนนี้จะกลายเป็นพื้นที่นอกโซน","Customers there fall back to the outside-zone area")}))) return;
         run(()=>{ for(const id of s.picked){ const r=ed.remove(id); if(r.ok===false) return r; } return {ok:true}; });
       }}>
       <${Icon} name="trash" size=${15}/>${s.picked.length>0?html`<b class="ztb-n">${s.picked.length}</b>`:null}</button>`}
@@ -213,12 +286,10 @@ export function ZoneToolbar({ed, onExit}){
     <span class="ztb-sep"></span>
     <!-- เลือกระยะแล้วลดหมุดทันที — เดิมต้องเลือกแล้วกดปุ่มอีกที ทำให้เข้าใจผิดว่าเลือกแล้วไม่มีอะไรเกิดขึ้น
          ทุกตัวเลือกคิดจาก "รูปก่อนลดหมุด" เสมอ เลือกสลับไปมาได้ผลเท่าเดิมทุกครั้ง (ดู thin() ใน zone-editor) -->
-    <select class="ztb-gap" disabled=${busy || s.drawing} value=${String(gap)} title=${t("เลือกแล้วลดหมุดทันที","Applies as soon as you pick")}
-      onChange=${e=>{ const m=+e.target.value; setGap(m);
-        run(()=>ed.thin(m), r=>`${t("หมุดห่างอย่างน้อย","Minimum spacing")} ${m} ${t("ม. · เหลือ","m · now")} ${r.after} ${t("จุด (จาก","points (from")} ${r.before})`); }}>
-      ${[0,100,200,300,500].map(m=>html`<option key=${m} value=${String(m)} disabled=${m===0}>
-        ${m===0 ? t("หมุดห่าง…","Spacing…") : t("ห่าง","gap")+" "+m+" "+t("ม.","m")}</option>`)}
-    </select>
+    <button ref=${gBtnRef} class=${"ztb-gap"+(gapOpen?" on":"")} disabled=${busy || s.drawing} onClick=${toggleGap} onKeyDown=${onGapKey}
+      aria-haspopup="listbox" aria-expanded=${gapOpen} title=${t("เลือกแล้วลดหมุดทันที","Applies as soon as you pick")}>
+      <span>${String(gap)==="0" ? t("หมุดห่าง…","Spacing…") : gapLabel(gap)}</span>
+      <${Icon} name="chevron" size=${13} style=${{transform:gapOpen?"rotate(180deg)":"none",transition:".15s"}}/></button>
     <!-- ลูกศรซ้าย/ขวา = ย้อน/ทำซ้ำ เหมือนเครื่องมือทั่วไป · จำนวนขั้นอยู่ใน tooltip ไม่รกบนปุ่ม -->
     <button class="ztb-ico" disabled=${busy || (!s.drawing && !s.undo)}
       onClick=${()=> s.drawing ? (ed.undoVertex(), redraw()) : run(()=>ed.undo())}
@@ -232,16 +303,22 @@ export function ZoneToolbar({ed, onExit}){
       <${Icon} name="redo" size=${15}/></button>
     <button class="ztb-ico" disabled=${busy || s.drawing}
       aria-label=${t("ทิ้งการแก้ทั้งหมด","Discard all edits")} title=${t("ทิ้งการแก้ทั้งหมด กลับเป็นรูปตอนเปิดหน้า","Discard all edits and go back to the shape at page load")}
-      onClick=${()=>{ if(confirm(t("ทิ้งการแก้ทั้งหมดกลับเป็นรูปตอนเปิดหน้า?","Discard all edits and go back to the shape at page load?"))) run(()=>ed.revert()); }}>
+      onClick=${async ()=>{ if(await confirmBox({title:t("ทิ้งการแก้ทั้งหมด?","Discard all edits?"), ok:t("ทิ้ง","Discard"), danger:true,
+        body:t("รูปโซนจะกลับเป็นตอนเปิดหน้า","Zones go back to the shape at page load")})) run(()=>ed.revert()); }}>
       <${Icon} name="refresh" size=${15}/></button>
+
+    <button ref=${hBtnRef} class=${"ztb-hist"+(histOpen?" on":"")} disabled=${busy || s.drawing} onClick=${toggleHist}
+      title=${t("โซนชุดก่อน ๆ ที่เคยใช้จริง · ย้อนกลับได้","Earlier published zones · restore one")}>
+      ${t("ประวัติ","History")}</button>
 
     <span class="ztb-sep"></span>
     <button class="ztb-save" disabled=${busy || s.drawing || noSave} title=${noSave ? zonesBlockedText() : ""} onClick=${()=>run(()=>ed.saveDraft(),
       r=>`${t("เซฟร่างแล้ว","Draft saved")} · ${t("ยังไม่มีผลกับ TC จนมีคนอนุมัติ","no effect for TCs until approved")}`)}>
       ${t("เซฟร่าง","Save draft")}</button>
-    <button class="ztb-pub" disabled=${busy || s.drawing || noSave} title=${noSave ? zonesBlockedText() : ""} onClick=${()=>{
-      if(confirm(t("ใช้จริงทันทีโดยไม่ผ่านการตรวจ?\nTC และผู้บริหารจะเห็นเส้นใหม่ทันทีที่รีเฟรช",
-                   "Publish now without review?\nTCs and Management will see the new boundary on refresh")))
+    <button class="ztb-pub" disabled=${busy || s.drawing || noSave} title=${noSave ? zonesBlockedText() : ""} onClick=${async ()=>{
+      if(await confirmBox({title:t("ใช้โซนชุดนี้จริง?","Publish these zones?"), ok:t("ใช้จริง","Publish"),
+        body:t("มีผลทันทีโดยไม่ผ่านการตรวจ\nTC และผู้บริหารจะเห็นเส้นใหม่เมื่อรีเฟรช",
+               "Takes effect now without review\nTCs and Management see the new boundary on refresh")}))
         run(()=>ed.publish(), r=>`${t("ใช้จริงแล้ว","Published")}${r.archived?` · ${t("ฉบับเดิมเก็บเข้าประวัติ","previous version archived")}`:""}`); }}>
       ${t("ใช้จริง","Publish")}</button>
     </div>
@@ -269,6 +346,25 @@ export function ZoneToolbar({ed, onExit}){
       </div>`)}
       ${!ed.zones().length && html`<div class="ztb-stat" style=${{padding:"6px 4px"}}>${t("ยังไม่มีโซน","No zones yet")}</div>`}
     </div>`}
+    ${gapOpen && html`<div ref=${gPopRef} class="ztb-pop ztb-gpop" role="listbox" style=${{left:gapLeft+"px"}}>
+      ${GAPS.map((m,i)=>{ const cur = String(m)===String(gap); return html`<div key=${m} role="option" aria-selected=${cur}
+        class=${"ztb-gopt"+(cur?" on":"")+(i===gapHl?" hl":"")} onMouseEnter=${()=>setGapHl(i)} onClick=${()=>pickGap(m)}>
+        <span>${gapLabel(m)}</span>${cur ? html`<${Icon} name="check" size=${14}/>` : null}</div>`; })}
+    </div>`}
+    ${histOpen && html`<div class="ztb-pop ztb-hpop" style=${{left:histLeft+"px"}}>
+      <h4>${t("โซนชุดก่อน ๆ ที่เคยใช้จริง","Earlier published zones")}</h4>
+      ${hist===null ? html`<div class="ztb-hnone">${t("กำลังโหลด…","Loading…")}</div>`
+        : !hist.length ? html`<div class="ztb-hnone">${t("ยังไม่มีประวัติ","No history yet")}</div>`
+        : hist.map(v=>html`<div class="ztb-hrow" key=${v.version}>
+            <div class="ztb-htx"><b>${t("ใช้ถึง","In use until")} ${whenOf(v.version)}</b><span title=${zonesOfVer(v)}>${zonesOfVer(v)}</span></div>
+            <button disabled=${busy} onClick=${()=>restore(v)}>${t("ย้อนกลับ","Restore")}</button>
+          </div>`)}
+    </div>`}
+    ${ask && html`<${Modal} small title=${ask.title} onClose=${()=>answer(false)}
+      footer=${html`<${Btn} variant="ghost" onClick=${()=>answer(false)}>${t("ยกเลิก","Cancel")}</${Btn}>
+        <${Btn} variant=${ask.danger?"danger":"primary"} onClick=${()=>answer(true)}>${ask.ok}</${Btn}>`}>
+      <div class="ztb-ask" style=${{fontSize:"13px",lineHeight:1.8,whiteSpace:"pre-line"}}>${ask.body}</div>
+    </${Modal}>`}
     ${noSave && html`<div class="ztb-msg bad" data-zones-blocked="1">${zonesBlockedText()}</div>`}
     ${msg && msg.tone==="bad" && !(noSave && msg.text===zonesBlockedText()) && html`<div class="ztb-msg bad">${msg.text}</div>`}
   </div>`;

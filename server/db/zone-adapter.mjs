@@ -144,8 +144,11 @@ export function makeZoneAdapter(pool) {
     getDraft: () => readState(pool, 'draft'),
 
     async listHistory() {
-      const r = await pool.query('select version_key from zone_history order by version desc');
-      return r.rows.map(x => ({version: x.version_key, name: 'history/' + x.version_key + '.geojson'}));
+      const r = await pool.query(`select version_key, action,
+          (select coalesce(json_agg(coalesce(f->'properties'->>'zone_name', f->'properties'->>'zone_id')), '[]'::json)
+             from jsonb_array_elements(case when jsonb_typeof(snapshot->'features') = 'array' then snapshot->'features' else '[]'::jsonb end) f) as zones
+        from zone_history order by version desc`);
+      return r.rows.map(x => ({version: x.version_key, name: 'history/' + x.version_key + '.geojson', action: x.action, zones: x.zones || []}));
     },
 
     async getVersion(key) {

@@ -260,6 +260,9 @@ export function createZoneEditor(map, zones) {
 
   /** ไฮไลต์โซนที่ติ๊กไว้ — เส้นหนาขึ้น + ประ + ทึบขึ้น เพื่อให้ต่างจากโซนปกติชัด ๆ */
   function restyleSelection() {
+    const alive = new Set();
+    zones.layer.eachLayer(l => { if (l.feature && l.feature.properties) alive.add(l.feature.properties.zone_id); });
+    for (const id of [...selected]) if (!alive.has(id)) selected.delete(id);
     zones.layer.eachLayer(l => {
       const p = (l.feature && l.feature.properties) || {};
       const c = p.color || '#64748b';
@@ -503,6 +506,7 @@ export function createZoneEditor(map, zones) {
       pushHistory();
       zones.layer.removeLayer(z._layer);
       dirty = true;
+      restyleSelection();
       return { ok: true };
     },
 
