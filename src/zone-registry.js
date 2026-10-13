@@ -45,6 +45,8 @@ export const nextColor = used => PALETTE.find(c=>!used.includes(c)) || PALETTE[u
 
 let cache = null;          // FeatureCollection ที่ normalize แล้ว
 let pending = null;
+let trusted = false;
+let tainted = false;
 const subs = new Set();
 
 /** เติมฟิลด์ที่ขาดให้ครบ เพื่อให้ผู้เรียกไม่ต้องเช็ค null ทุกที่ */
@@ -71,19 +73,25 @@ function normalize(fc){
 
 /** โหลดทะเบียน: ของที่เซฟไว้บนเซิร์ฟเวอร์ก่อน (204 = ยังไม่เคยเซฟ) ไม่มีค่อยใช้ไฟล์ใน repo */
 export function loadZoneRegistry({force=false}={}){
-  if(cache && !force) return Promise.resolve(cache);
+  if(cache && trusted && !force) return Promise.resolve(cache);
   if(pending && !force) return pending;
+  let fromServer = true;
   pending = fetch(API, {cache:"no-store"})
-    .then(r => (r.ok && r.status!==204) ? r.json() : null)
-    .catch(()=>null)
+    .then(r => { if(!r.ok) fromServer = false; return (r.ok && r.status!==204) ? r.json() : null; })
+    .catch(()=>{ fromServer = false; return null; })
     .then(gj => gj || fetch(STATIC, {cache:"no-store"}).then(r=>r.json()))
-    .then(gj => { cache = normalize(gj); pending = null;
+    .then(gj => { cache = normalize(gj); pending = null; trusted = fromServer; if(!fromServer) tainted = true;
       subs.forEach(fn=>{ try{ fn(cache); }catch(e){ console.warn("[zone-registry] subscriber error", e); } });
       return cache; })
     .catch(e => { pending = null; console.warn("[zone-registry] โหลดทะเบียนโซนไม่สำเร็จ", e);
+      trusted = false; tainted = true;
       cache = {type:"FeatureCollection", features:[]}; return cache; });
   return pending;
 }
+
+export const zonesSaveBlocked = () => tainted;
+export const zonesBlockedText = () => t("โหลดโซนจากเซิร์ฟเวอร์ไม่สำเร็จ — รีเฟรชหน้าก่อนบันทึก", "Zones could not be loaded from the server — refresh the page before saving");
+const blocked = () => ({ok:false, blocked:true, error:zonesBlockedText()});
 
 /** ค่าที่โหลดไว้แล้ว (ไม่ยิงเน็ต) — null ถ้ายังไม่เคยโหลด */
 export const zoneRegistry = () => cache;
@@ -116,10 +124,11 @@ async function post(query, body){
 }
 
 /** บันทึกเป็น "ฉบับร่าง" — ยังไม่มีผลกับ TC/ผู้บริหารจนกดอนุมัติ */
-export const saveZoneDraft = fc => post("", JSON.stringify(normalize(fc)));
+export const saveZoneDraft = fc => tainted ? Promise.resolve(blocked()) : post("", JSON.stringify(normalize(fc)));
 
 /** บันทึกแล้วมีผลทันที (ข้ามขั้นอนุมัติ) — อัปเดตแคชในหน้าให้ตรงกันด้วย */
 export async function saveZoneRegistry(fc){
+  if(tainted) return blocked();
   const norm = normalize(fc);
   const r = await post("?publish=1", JSON.stringify(norm));
   if(r.ok) await loadZoneRegistry({force:true});

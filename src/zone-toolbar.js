@@ -9,6 +9,7 @@
 // ---------------------------------------------------------------------------
 import {html, useState, useEffect, useRef, Icon} from "./lib.js";
 import {t} from "./i18n.js";
+import {zonesSaveBlocked, zonesBlockedText} from "./zone-registry.js";
 
 if(typeof document!=="undefined" && !document.getElementById("ztb-css")){
   const st=document.createElement("style"); st.id="ztb-css";
@@ -132,6 +133,7 @@ export function ZoneToolbar({ed, onExit}){
   </div></div>`;
 
   const s = ed.summary();
+  const noSave = zonesSaveBlocked();
   const run = async (fn, okMsg)=>{
     setBusy(true); setMsg(null);
     try{
@@ -234,10 +236,10 @@ export function ZoneToolbar({ed, onExit}){
       <${Icon} name="refresh" size=${15}/></button>
 
     <span class="ztb-sep"></span>
-    <button class="ztb-save" disabled=${busy || s.drawing} onClick=${()=>run(()=>ed.saveDraft(),
+    <button class="ztb-save" disabled=${busy || s.drawing || noSave} title=${noSave ? zonesBlockedText() : ""} onClick=${()=>run(()=>ed.saveDraft(),
       r=>`${t("เซฟร่างแล้ว","Draft saved")} · ${t("ยังไม่มีผลกับ TC จนมีคนอนุมัติ","no effect for TCs until approved")}`)}>
       ${t("เซฟร่าง","Save draft")}</button>
-    <button class="ztb-pub" disabled=${busy || s.drawing} onClick=${()=>{
+    <button class="ztb-pub" disabled=${busy || s.drawing || noSave} title=${noSave ? zonesBlockedText() : ""} onClick=${()=>{
       if(confirm(t("ใช้จริงทันทีโดยไม่ผ่านการตรวจ?\nTC และผู้บริหารจะเห็นเส้นใหม่ทันทีที่รีเฟรช",
                    "Publish now without review?\nTCs and Management will see the new boundary on refresh")))
         run(()=>ed.publish(), r=>`${t("ใช้จริงแล้ว","Published")}${r.archived?` · ${t("ฉบับเดิมเก็บเข้าประวัติ","previous version archived")}`:""}`); }}>
@@ -267,6 +269,7 @@ export function ZoneToolbar({ed, onExit}){
       </div>`)}
       ${!ed.zones().length && html`<div class="ztb-stat" style=${{padding:"6px 4px"}}>${t("ยังไม่มีโซน","No zones yet")}</div>`}
     </div>`}
-    ${msg && msg.tone==="bad" && html`<div class="ztb-msg bad">${msg.text}</div>`}
+    ${noSave && html`<div class="ztb-msg bad" data-zones-blocked="1">${zonesBlockedText()}</div>`}
+    ${msg && msg.tone==="bad" && !(noSave && msg.text===zonesBlockedText()) && html`<div class="ztb-msg bad">${msg.text}</div>`}
   </div>`;
 }
