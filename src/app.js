@@ -61,6 +61,7 @@ const MODALS = {reports:Reports, "visit-plans":VisitPlanReport, profile:Profile,
 const TITLES = () => ({...Object.fromEntries(NAV().flatMap(g=>g.items).flatMap(i=>[[i.id,i.label], ...(i.sub||[]).map(sb=>[sb.id,sb.label])])),
   workspace:t("แผนที่วิเคราะห์","Analysis Map"), reports:t("รายงาน","Reports"),
   "visit-plans":t("รายงานแผนการเข้าพบ","Visit Plan Report"), profile:t("โปรไฟล์","Profile")});
+const ROUTE_EXTRA = ["from","to","dist","status","plan"];
 const THAILAND_CENTER = [13.2, 101];   // hardcoded fly-in target for the post-login intro (no search/query)
 const INTRO_KEY = "geointel_intro";    // sessionStorage flag — the globe intro plays once per session
 
@@ -438,6 +439,7 @@ function App(){
             else if(go==="visit-plans") setOverlay("visit-plans");
             else if(go==="customer"){ const c=(cd.customers||[]).find(x=>x.province===prov); if(c){ setSelectedCustomer(c); setOverlay("customer"); } }
             else if(go==="area") setOverlay("area");
+            else if(go && MODALS[go] && !ADMIN.has(go)) setOverlay(go);
           }).catch(()=>{});
         }
         if(q.get("tour")){ setShowWelcome(false); setTourOpen(true); }
@@ -455,9 +457,10 @@ function App(){
         setFilters(f=>({...f, province:"All"}));
         selectCountry("Thailand", THAILAND_CENTER);
       }
-      if(go==="country"||go==="area"||go==="customer"){
+      if(go==="country"||go==="map"||go==="area"||go==="customer"){
         const cd=await loadCountry("Thailand"); setDb(prev=>({...prev,...cd}));
         setView("workspace"); setActiveCountry("Thailand"); setMode("map");
+        if(go==="map" && q.get("province")){ const p=q.get("province"); setSelectedProvince(p); setFilters(f=>({...f, province:p})); }
         // แอดมินไม่มีแผงวิเคราะห์พื้นที่ — ?go=area จึงพาไปที่จังหวัดเฉย ๆ ไม่เปิดแผง
         if(go==="area"){ setSelectedProvince(cd.areas[0].province); setOverlay(admin ? null : "area"); }
         else if(go==="customer"){ setSelectedCustomer(cd.customers[0]); setOverlay("customer"); }
@@ -605,6 +608,7 @@ function App(){
       setActiveCountry("Thailand"); setSelectedProvince(prov); setFilters(f=>({...f, province:prov}));
       setView("workspace"); setMode("map");
       loadCountry("Thailand").then(cd=>setDb(prev=>({...prev,...cd}))).catch(()=>{});
+      applyRoute(u, false);
       return;
     }
     setUser(u); setView("workspace"); setMode("globe");
@@ -616,6 +620,7 @@ function App(){
       selectCountry("Thailand", THAILAND_CENTER);
     }
     // ผู้ดูแลระบบยังเข้าหน้าลูกโลกแบบเลือกจังหวัดเองตามเดิม
+    if(u) applyRoute(u, false);
   };
   // A featured-province card was clicked on the globe: scope every data stage to that province, warm the
   // caches, then fly the globe in. arriveCountry (the globe's onArrive) reveals the map; the province
@@ -797,6 +802,8 @@ function App(){
     setVisitPlans([{id:"plan-1", name:t("แผนที่ 1", "Plan 1"), customers:[], route:null, saved:false, visitDate:""}]); setActivePlanId("plan-1");
     setFilters(defaultFilters());
     zoneEditRef.current = false; setZoneEdit(false); setZoneEditFrom(null);
+    routeLive.current = false; routeHold.current = false;
+    try{ history.replaceState(null,"",routeUrl({go:null})); }catch(e){}
   };
 
   // No blocking full-screen loader — the globe skeleton renders on frame 1 and data streams in.
@@ -830,6 +837,76 @@ function App(){
   };
   // ⚠ ไม่ใช่แค่ปิดโหมด — ถ้าปล่อยไว้เฉย ๆ แอดมินจะค้างอยู่บนแมพใหญ่ที่ไม่มีเครื่องมืออะไรเลย
   const exitZoneEdit = ()=>{ zoneEditRef.current = false; setZoneEdit(false); if(zoneEditFrom) setOverlay(zoneEditFrom); setZoneEditFrom(null); };
+  const routeLive = useRef(false);
+  const routePop = useRef(false);
+  const routeHold = useRef(false);
+  const [routeTick,setRouteTick] = useState(0);
+  const routeOf = ()=>{
+    if(!user) return {go:null};
+    const tc = user.role==="Trade Coordinator";
+    const modal = overlay && MODALS[overlay] && (!ADMIN.has(overlay) || user.role==="Administrator") && !(overlay==="visit-plans" && !tc) ? overlay : null;
+    if(modal) return {go:modal};
+    if(tc || view!=="workspace" || mode!=="map") return {go:null};
+    return {go:"map", province: filters.province && filters.province!=="All" ? filters.province : null};
+  };
+  const routeUrl = r =>{
+    const q = new URLSearchParams(location.search);
+    if(!r.go || r.go!==q.get("go")) ROUTE_EXTRA.forEach(k=>q.delete(k));
+    if(r.go) q.set("go", r.go); else q.delete("go");
+    if(r.province) q.set("province", r.province); else q.delete("province");
+    const qs = q.toString();
+    return location.pathname+(qs ? "?"+qs : "")+location.hash;
+  };
+  const applyRoute = (u, fromPop)=>{
+    const q = new URLSearchParams(location.search);
+    const go = q.get("go"), province = q.get("province");
+    const admin = u.role==="Administrator", tc = u.role==="Trade Coordinator";
+    if(go==="map"){
+      if(tc){ if(fromPop) setOverlay(null); return; }
+      if(province){ setSelectedProvince(province); setFilters(f=>({...f, province})); }
+      else if(fromPop){ setSelectedProvince(null); setFilters(f=>({...f, province:"All"})); }
+      if(fromPop ? mode!=="map" : admin){ routeHold.current = true; arriveCountry("Thailand").catch(()=>{ routeHold.current = false; }); }
+      else if(fromPop) setOverlay(null);
+      return;
+    }
+    if(go && MODALS[go]){
+      const allowed = go==="visit-plans" ? (tc && !!u.province)
+        : go==="reports" ? effectivePerms(u.role, u.permOverrides||{}).has("report.view")
+        : (!ADMIN.has(go) || admin);
+      if(allowed && !fromPop && !admin && !tc){
+        setFlyTarget(null); routeHold.current = true;
+        arriveCountry("Thailand").then(()=>{ setOverlay(go); โหลดเบื้องหลัง(); }).catch(()=>{ routeHold.current = false; });
+      }
+      else if(allowed){ setOverlay(go); if(go!=="profile") โหลดเบื้องหลัง(); }
+      else if(fromPop) setOverlay(null);
+      return;
+    }
+    if(!fromPop) return;
+    if(admin) backToGlobe(); else setOverlay(null);
+  };
+  React.useLayoutEffect(()=>{
+    if(!user){ routeLive.current = false; return; }
+    if(flyTarget && mode==="globe") return;
+    if(routeHold.current){ if(mode!=="map") return; routeHold.current = false; }
+    const r = routeOf();
+    const q = new URLSearchParams(location.search);
+    const curGo = q.get("go")||null, curProv = q.get("province")||null;
+    const want = r.go||null;
+    if(want!==curGo || (r.province||null)!==curProv){
+      const push = routeLive.current && !routePop.current && want!==curGo && !(user.role==="Management" && !curGo && want==="map");
+      try{ push ? history.pushState(null,"",routeUrl(r)) : history.replaceState(null,"",routeUrl(r)); }catch(e){}
+    }
+    routeLive.current = true; routePop.current = false;
+  },[user, overlay, view, mode, filters.province, flyTarget, routeTick]);
+  useEffect(()=>{
+    if(!user) return;
+    const onPop = ()=>{
+      if(zoneEditRef.current && !leaveZoneEdit()){ try{ history.pushState(null,"",routeUrl(routeOf())); }catch(e){} return; }
+      routePop.current = true; setMenu(null); applyRoute(user, true); setRouteTick(n=>n+1);
+    };
+    window.addEventListener("popstate", onPop);
+    return ()=>window.removeEventListener("popstate", onPop);
+  });
   const ctx = {db,user,logout,nav,settingsVer,scoringChanged,placesChanged,masterVer,masterChanged,filters,setFilters,startZoneEdit,routeParams:{area:selectedProvince},profileTab,visitPlans,office:planOffice,tcProvinces,lang,setLang,
 
     deletePlan,setActivePlanId,applyDealApproved,applyDealRejected,addToPlan,goMap,updateRecord,adminAddRecords,adminDeleteRecord,

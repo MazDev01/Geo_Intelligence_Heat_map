@@ -299,7 +299,8 @@ export function LeafletMap({db, filters, layers, country="Thailand", onPickArea,
       const flyProv=()=>{ if(!m.alive||!m.map) return;
         if(m.filters && m.filters.province !== want) return;        // ผู้ใช้เปลี่ยนจังหวัดระหว่างรอ = ทิ้งคิวเก่า
         const f=m.provFeatures && m.provFeatures[want];
-        if(f){ m.map.flyToBounds(f.getBounds(), {padding:[40,40], duration:0.8, maxZoom:LOD_ZOOM}); }
+        if(f){ const fly=()=>{ if(m.alive && m.map && (!m.filters || m.filters.province===want)) m.map.flyToBounds(f.getBounds(), {padding:[40,40], duration:0.8, maxZoom:LOD_ZOOM}); };
+          if(lockList) fly(); else m._provRetry=setTimeout(fly, 0); }
         else if(tries++ < 80){ m._provRetry=setTimeout(flyProv, 150); } };   // up to ~12s — รูปจังหวัดละเอียดขึ้น ใช้เวลาสร้างนานกว่าเดิม
       flyProv();
     }
