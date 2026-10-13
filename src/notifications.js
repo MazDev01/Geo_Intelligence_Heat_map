@@ -11,7 +11,7 @@
    เหตุการณ์ที่ผู้ใช้ได้รับจริง = ระบบเปิดไว้ AND ผู้ใช้ไม่ได้ปิดเอง
    ═══════════════════════════════════════════════════════════════════════════ */
 import {permByRole, DEFAULT_SCOPE} from "./permissions.js";   // ตารางสิทธิ์/ขอบเขตชุดเดียวของระบบ
-import {provinceTH, segTH} from "./lib.js";
+import {provinceTH, segTH, thDate} from "./lib.js";
 import {t} from "./i18n.js";
 import {rejectReasons} from "./master-api.js";
 
@@ -130,6 +130,13 @@ export function inboxView(n){
         `Imported ${p.filename||""} — ${p.ok||0} records${p.queued ? `, ${p.queued} awaiting review` : ""}`)};
   if(n.key==="export_done"){ const f = FORMAT_TH[p.format] || p.format || "";
     return {icon:"download", t:t(`ส่งออก ${p.filename||""}${f ? ` (${f})` : ""} เรียบร้อย`, `Exported ${p.filename||""}${f ? ` (${f})` : ""}`)}; }
+  if(n.key==="weekly"){
+    const range = (p.from && p.to) ? thDate(p.from)+" – "+thDate(p.to) : "";
+    const gap = p.gapSeg ? t(` · ยังขาดมากสุด: ${segTH(p.gapSeg)} (${p.gapN} ราย)`, ` · biggest gap: ${segTH(p.gapSeg)} (${p.gapN})`) : "";
+    return {icon:"trend", go:"reports",
+      t:t(`สรุปสัปดาห์ ${range}: Lead ใหม่ ${p.leads||0} ราย · ลูกค้าใหม่ ${p.customers||0} ราย · เข้าพบ ${p.visits||0} ครั้ง${gap}`,
+          `Week of ${range}: ${p.leads||0} new Leads · ${p.customers||0} new customers · ${p.visits||0} visits${gap}`)};
+  }
   if(n.key==="deal_new") return {icon:"target", go:"data-leads",
     t:t(`ดีลใหม่รออนุมัติ: ${name}${p.by ? ` · ส่งโดย ${p.by}` : ""}`, `New deal awaiting approval: ${name}${p.by ? ` · sent by ${p.by}` : ""}`)};
   if(n.key==="deal_result"){

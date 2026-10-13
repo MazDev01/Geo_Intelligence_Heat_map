@@ -1,4 +1,5 @@
 import {NOTIF_KEYS} from './settings.mjs';
+import {withTransaction} from './db/pool.mjs';
 
 const fail = (status, message) => Object.assign(new Error(message), {status});
 const LIST_MAX = 30;
@@ -26,6 +27,48 @@ async function hiddenKeys(db, user) {
   const prefs = ((await db.query('select prefs from users where id = $1', [user.id])).rows[0] || {}).prefs || {};
   const off = prefs.notifOff || {};
   return NOTIF_KEYS.filter(k => (sys[k] && sys[k].on === false) || off[k] === true);
+}
+
+const WEEKLY_SCOPE = `select province from users where id = $1 and province is not null
+  union select split_part(key, '/', 1) from territory_assign where user_id = $1`;
+const WEEKLY_PLACES = `with scope as (${WEEKLY_SCOPE}),
+  p as (select type, segment, created_at, date_join from places
+        where deleted_at is null and ($2::boolean = false or province in (select province from scope)))`;
+const weeklyExists = async (db, userId, week) =>
+  !!(await db.query("select 1 from notifications where user_id = $1 and event_key = 'weekly' and payload ->> 'week' = $2 limit 1", [userId, week])).rowCount;
+
+export async function ensureWeekly(pool, user, opts) {
+  if (!Number.isInteger(user.id)) return false;
+  const w = (await pool.query(
+    `select to_char(ws, 'YYYY-MM-DD') as week, to_char(ws - interval '7 days', 'YYYY-MM-DD') as from_day,
+            to_char(ws - interval '1 day', 'YYYY-MM-DD') as to_day
+     from (select date_trunc('week', coalesce($1::timestamptz, now()) at time zone 'Asia/Bangkok') as ws) x`,
+    [(opts && opts.now) || null])).rows[0];
+  if ((await hiddenKeys(pool, user)).includes('weekly')) return false;
+  if (await weeklyExists(pool, user.id, w.week)) return false;
+  return withTransaction(pool, async tx => {
+    await tx.query('select pg_advisory_xact_lock(7301, $1)', [user.id]);
+    if (await weeklyExists(tx, user.id, w.week)) return false;
+    const own = user.role === 'Trade Coordinator';
+    const n = (await tx.query(
+      `${WEEKLY_PLACES}
+       select
+         (select count(*)::int from p where type = 'Prospect' and (created_at at time zone 'Asia/Bangkok')::date between $3::date and $4::date) as leads,
+         (select count(*)::int from p where type = 'Existing' and date_join between $3::date and $4::date) as customers,
+         (select count(*)::int from place_visits v where v.status = 'เสร็จสิ้น' and v.done_date between $3::date and $4::date
+            and ($2::boolean = false or v.tc_id = $1)) as visits`,
+      [user.id, own, w.from_day, w.to_day])).rows[0];
+    const gap = (await tx.query(
+      `${WEEKLY_PLACES}
+       select segment, sum(case when type = 'Prospect' then 1 else -1 end)::int as gap
+       from p where segment is not null group by 1 order by 2 desc, 1 limit 1`,
+      [user.id, own])).rows[0];
+    const payload = {week: w.week, from: w.from_day, to: w.to_day, leads: n.leads, customers: n.customers, visits: n.visits,
+      gapSeg: gap && gap.gap > 0 ? gap.segment : null, gapN: gap && gap.gap > 0 ? gap.gap : 0};
+    await notify(tx, user.id, 'weekly',
+      'สรุปสัปดาห์ ' + w.from_day + ' ถึง ' + w.to_day + ': Lead ใหม่ ' + n.leads + ' · ลูกค้าใหม่ ' + n.customers + ' · เข้าพบ ' + n.visits, payload);
+    return true;
+  });
 }
 
 export async function listNotifications(pool, user) {
