@@ -528,6 +528,7 @@ export function createZoneEditor(map, zones) {
       const props = { ...keep._layer.feature.properties };
       // รายชื่อเขต (fallback ตอนเรกคอร์ดไม่มีพิกัด) ต้องรวมกันด้วย ไม่งั้นเขตของโซนที่ถูกกลืนจะหาโซนไม่เจอ
       props.districts = [...new Set(picked.flatMap(z => z._layer.feature.properties.districts || []))];
+      props.merged_from = picked.map(z => roundCoords({ type: 'FeatureCollection', features: [clone(z._layer.toGeoJSON())] }).features[0]);
       const parts = picked.map(z => polysOf(z._layer.feature));
 
       // หลอมให้เป็นรูปเดียว (เส้นแบ่งเดิมหายไป) ถ้าโหลดไลบรารีได้
@@ -562,6 +563,33 @@ export function createZoneEditor(map, zones) {
       rebindPick(); restyleSelection();
       const after = geometry.type === 'MultiPolygon' ? geometry.coordinates.length : 1;
       return { ok: true, kept: props.zone_id, absorbed: want.slice(1), fused, parts: after, note };
+    },
+
+    mergedParts(zoneId) {
+      const z = api.zones().find(x => x.zone_id === zoneId);
+      const mf = z && z._layer.feature.properties.merged_from;
+      if (!Array.isArray(mf) || mf.length < 2) return [];
+      if (!mf.every(f => f && f.geometry && f.properties && f.properties.zone_id)) return [];
+      return mf.map(f => ({ zone_id: f.properties.zone_id, name: f.properties.zone_name || f.properties.zone_id }));
+    },
+
+    split(zoneId) {
+      const z = api.zones().find(x => x.zone_id === zoneId);
+      if (!z) return { ok: false, error: 'ไม่พบโซน ' + zoneId };
+      const parts = api.mergedParts(zoneId);
+      if (!parts.length) return { ok: false, error: 'โซนนี้ไม่ได้มาจากการรวม จึงแยกกลับไม่ได้' };
+      const others = api.zones().filter(x => x.zone_id !== zoneId).map(x => x.zone_id);
+      const clash = parts.find(p => others.includes(p.zone_id));
+      if (clash) return { ok: false, error: 'แยกไม่ได้ — มีโซนรหัส ' + clash.zone_id + ' อยู่แล้ว' };
+      const feats = clone(z._layer.feature.properties.merged_from);
+      pushHistory();
+      zones.layer.removeLayer(z._layer);
+      feats.forEach(f => { if (!Array.isArray(f.properties.merged_from)) f.properties.merged_from = []; zones.layer.addData(f); });
+      dirty = true;
+      selected.clear();
+      if (on) { api.disable(); api.enable(); }
+      rebindPick(); restyleSelection();
+      return { ok: true, restored: parts.map(p => p.name) };
     },
 
     /* ── เลือกโซนด้วยการคลิกบนแมพ (ใช้แทน dropdown เวลารวมโซน) ─────────────── */

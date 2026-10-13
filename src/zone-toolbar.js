@@ -77,6 +77,15 @@ if(typeof document!=="undefined" && !document.getElementById("ztb-css")){
 .ztb-zrow input[type=text]{flex:1;min-width:0;height:28px;border:1px solid var(--stroke2);border-radius:7px;
   background:var(--surface);color:var(--txt);font-family:var(--font);font-size:12.5px;padding:0 7px}
 .ztb-zrow .ztb-zid{font-size:11px;color:var(--dim);white-space:nowrap}
+.ztb .ztb-join{min-width:4.6em;justify-content:center}
+.modal:has(.ztb-ask){width:min(320px,92vw);border-radius:13px}
+.modal:has(.ztb-ask) .modal-h{padding:11px 12px 11px 16px}
+.modal:has(.ztb-ask) .modal-h h2{font-size:14.5px;line-height:1.35}
+.modal:has(.ztb-ask) .modal-h .icon-btn{width:26px !important;height:26px !important}
+.modal:has(.ztb-ask) .modal-b{padding:11px 16px}
+.modal:has(.ztb-ask) .modal-f{padding:9px 12px;gap:7px}
+.modal:has(.ztb-ask) .modal-f .btn{padding:6px 13px;font-size:12.5px;border-radius:8px}
+.modal:has(.ztb-ask) .modal-f .btn.primary{box-shadow:0 4px 10px rgba(230,0,35,.2)}
 .ztb-gpop{min-width:150px;padding:5px}
 .ztb-gopt{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:8px 10px;border-radius:8px;
   cursor:pointer;font-size:12.5px;color:var(--txt);white-space:nowrap}
@@ -172,6 +181,7 @@ export function ZoneToolbar({ed, onExit}){
 
   const s = ed.summary();
   const noSave = zonesSaveBlocked();
+  const splitParts = s.picking && s.picked.length===1 && ed.mergedParts ? ed.mergedParts(s.picked[0]) : [];
   const run = async (fn, okMsg)=>{
     setBusy(true); setMsg(null);
     try{
@@ -250,11 +260,22 @@ export function ZoneToolbar({ed, onExit}){
 
     <!-- อยู่ในโหมดเลือกแล้วค่อยโผล่: รวม (ต้อง ≥2 โซน) · ลบ (≥1 โซน)
          ใช้การเลือกบนแมพชุดเดียวกัน ไม่ต้องมี dropdown แยกให้จำว่าโซนไหนชื่ออะไร -->
-    ${s.picking && html`<button disabled=${busy || s.drawing || s.picked.length<2}
+    ${s.picking && (splitParts.length ? html`<button class="ztb-join ztb-split" disabled=${busy || s.drawing}
+      aria-label=${t("แยกโซนที่เคยรวมกลับเป็นโซนเดิม","Split a merged zone back into its original zones")}
+      title=${t("แยกกลับเป็น: ","Split back into: ")+splitParts.map(p=>p.name).join(" · ")}
+      onClick=${async ()=>{
+        const id = s.picked[0], z = ed.zones().find(x=>x.zone_id===id);
+        if(!(await confirmBox({title:t("แยกโซน ","Split zone ")+(z?z.name:id)+"?", ok:t("แยก","Split"),
+          body:t("กลับเป็น ","Back into ")+splitParts.length+" "+t("โซนเดิม: ","original zones: ")+splitParts.map(p=>p.name).join(" · ")
+            +"\n"+t("ขอบที่ลากหลังรวมจะกลับเป็นรูปก่อนรวม","Edges dragged after the merge go back to the shape before it")}))) return;
+        run(()=>ed.split(id), r=>`${t("แยกแล้ว","Split")}: ${r.restored.join(" · ")}`);
+      }}>
+      ${t("แยก","Split")}</button>`
+    : html`<button class="ztb-join" disabled=${busy || s.drawing || s.picked.length<2}
       aria-label=${t("รวมโซนที่เลือก","Merge the selected zones")}
-      title=${t("รวมโซนที่เลือกเป็นโซนเดียว (ต้องเลือกอย่างน้อย 2 โซน)","Merge the selected zones into one (pick at least 2)")}
+      title=${t("เลือก 2 โซนขึ้นไปเพื่อรวม · เลือก 1 โซนที่เคยรวมเพื่อแยกกลับ","Pick 2 or more zones to merge · pick one merged zone to split it back")}
       onClick=${()=>run(()=>ed.merge(s.picked), r=>r.note)}>
-      ${t("รวม","Merge")}${s.picked.length>0?` (${s.picked.length})`:""}</button>`}
+      ${t("รวม","Merge")}${s.picked.length>0?` (${s.picked.length})`:""}</button>`)}
 
     ${s.picking && html`<button class="ztb-del ztb-ico" disabled=${busy || s.drawing || !s.picked.length}
       aria-label=${t("ลบโซนที่เลือก","Delete the selected zones")}
@@ -363,7 +384,7 @@ export function ZoneToolbar({ed, onExit}){
     ${ask && html`<${Modal} small title=${ask.title} onClose=${()=>answer(false)}
       footer=${html`<${Btn} variant="ghost" onClick=${()=>answer(false)}>${t("ยกเลิก","Cancel")}</${Btn}>
         <${Btn} variant=${ask.danger?"danger":"primary"} onClick=${()=>answer(true)}>${ask.ok}</${Btn}>`}>
-      <div class="ztb-ask" style=${{fontSize:"13px",lineHeight:1.8,whiteSpace:"pre-line"}}>${ask.body}</div>
+      <div class="ztb-ask" style=${{fontSize:"12.5px",lineHeight:1.6,whiteSpace:"pre-line"}}>${ask.body}</div>
     </${Modal}>`}
     ${noSave && html`<div class="ztb-msg bad" data-zones-blocked="1">${zonesBlockedText()}</div>`}
     ${msg && msg.tone==="bad" && !(noSave && msg.text===zonesBlockedText()) && html`<div class="ztb-msg bad">${msg.text}</div>`}
