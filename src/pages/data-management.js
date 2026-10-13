@@ -1319,6 +1319,7 @@ export function DataManagement(){
       <label class="op-lab">${t("หมวดธุรกิจ", "Business category")}
         <${Dropdown} value=${seg} onChange=${reset(setSeg)}
           options=${[["All",t("ทุกหมวด", "All categories")], ...SEGMENTS.map(s=>[s, segTH(s)])]}/></label>
+      ${(q||kind!=="all"||prov!=="All"||seg!=="All") && html`<button class="op-clear" onClick=${()=>{ setPage(1); setQ(""); setKind("all"); setProv("All"); setSeg("All"); }}>${t("ล้างตัวกรอง", "Clear filters")}</button>`}
     </div>
 
     <${Card} pad0=${true}>
