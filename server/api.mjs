@@ -13,7 +13,7 @@ import {cleanFilename, fileKind, MAX_FILE_BYTES} from './import-parse.mjs';
 import {readSettings, writeSettings, readPrefs, writePrefs, SETTING_PERMS} from './settings.mjs';
 import {readStats, STAT_FILES} from './stats.mjs';
 import {readMaster, writeMaster} from './master-data.mjs';
-import {notify, listNotifications, markRead} from './notifications.mjs';
+import {notify, listNotifications, markRead, ensureWeekly} from './notifications.mjs';
 import {MAX_BODY, MAX_ROWS, readRequest, checkSource, cleanName, dataRows, buildFile, disposition, sourceRows, sourceFilters} from './exports.mjs';
 
 const require = createRequire(import.meta.url);
@@ -80,6 +80,7 @@ async function readBytes(req, limit, discardUpTo = limit) {
 const readBody = async (req, limit) => (await readBytes(req, limit)).toString('utf8');
 
 export function makeApi({pool, authStore, zoneStore, demoPassword, perms, webBootstrap = true, runtime = {}, placesCache = null}) {
+  const weeklyOn = process.env.WEEKLY_SUMMARY ? process.env.WEEKLY_SUMMARY !== 'off' : process.env.NODE_ENV === 'production';
   const can = (user, key) => !perms || perms.effectivePerms(user.role, user.permOverrides || {}).has(key);
 
   async function auth(req, res) {
@@ -543,7 +544,7 @@ export function makeApi({pool, authStore, zoneStore, demoPassword, perms, webBoo
     if (req.method === 'GET') return send(res, 200, {ok: true, prefs: await readPrefs(pool, user)});
     const got = await readJson(req, res, 1e4);
     if (!got) return;
-    try { return send(res, 200, await writePrefs(pool, user, got.body)); }
+    try { return send(res, 200, await writePrefs(pool, user, got.body, auditCtx(req, user))); }
     catch (e) { if (e && [400, 404].includes(e.status)) return send(res, e.status, {error: e.message}); throw e; }
   }
 
@@ -551,7 +552,10 @@ export function makeApi({pool, authStore, zoneStore, demoPassword, perms, webBoo
     if (req.method !== 'GET' && req.method !== 'POST') return send(res, 405, {error: 'รองรับเฉพาะ GET กับ POST'});
     const user = await requireUser(req, res);
     if (!user) return;
-    if (req.method === 'GET') return send(res, 200, await listNotifications(pool, user));
+    if (req.method === 'GET') {
+      if (weeklyOn && can(user, 'report.view')) await ensureWeekly(pool, user).catch(e => console.error('[api] weekly summary:', e));
+      return send(res, 200, await listNotifications(pool, user));
+    }
     const got = await readJson(req, res, 1e4);
     if (!got) return;
     try { return send(res, 200, await markRead(pool, user, got.body)); }

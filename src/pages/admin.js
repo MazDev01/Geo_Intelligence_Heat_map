@@ -2,6 +2,7 @@ import {html, useState, useEffect, useMemo, useApp, Icon, num, pct, roleTH, prov
 import {SEGMENTS, SEG_COLOR, OTHER_COLOR, DISTRICT_TH, GAP_REF, demandGap, gapBySegment, SCORING_DEFAULT, getScoring, setScoring} from "../mock/geoData.js";
 import {LeafletMap} from "../lmap.js";   // แผนที่ความร้อนระดับประเทศ (ใช้ตัวเดียวกับหน้าอื่น)
 import {pushAudit} from "../audit.js";
+import {emailOk} from "../contact-rules.js";
 import {fetchAudit, AUDIT_GROUPS, eventLabel, eventIcon, eventTone, detailText} from "../audit-api.js";
 import {Card, Kpi, Btn, Badge, Toggle, Field, Table, Tabs, Modal, Meter, DateField, toast} from "../ui.js";
 import {Dropdown} from "../select.js";
@@ -194,19 +195,21 @@ function UserEditModal({edit, users, me, onClose, onSave}){
   const provOpts = [["", t("ยังไม่กำหนด", "Not assigned")], ...Object.keys(PROVINCE_TH).map(k=>[k, provinceTH(k)]).sort((a,b)=>String(a[1]).localeCompare(String(b[1]), t("th", "en")))];
   const emailKey = String(email||"").trim().toLowerCase();
   const emailTaken = !!emailKey && users.some(u=> String(u.id)!==String(edit.id) && String(u.email||"").trim().toLowerCase()===emailKey);
+  const emailBad = !!emailKey && !emailOk(emailKey);
   const submit = ()=>{
-    if(emailTaken) return;
+    if(emailTaken || emailBad) return;
     if(!isNew && isTC && color) setTcColor(edit.id, color);
     onSave({...edit, origEmail: edit.email, name, email, role, province: isTC ? (province||null) : null, password,
       status: isNew ? undefined : (active ? "Active" : "Suspended")});
   };
   return html`<${Modal} title=${isNew?t("เพิ่มผู้ใช้", "Add user"):t("แก้ไขผู้ใช้", "Edit user")} onClose=${onClose}
     footer=${html`<${Btn} variant="ghost" onClick=${onClose}>${t("ยกเลิก", "Cancel")}</${Btn}>
-      <${Btn} variant="outline" icon="check" disabled=${emailTaken} onClick=${submit}>${t("บันทึก", "Save")}</${Btn}>`}>
+      <${Btn} variant="outline" icon="check" disabled=${emailTaken || emailBad} onClick=${submit}>${t("บันทึก", "Save")}</${Btn}>`}>
     <div>
       <${Field} label=${t("ชื่อ-นามสกุล", "Full name")}><input class="input" value=${name} onInput=${e=>setName(e.target.value)}/></${Field}>
-      <${Field} label=${t("อีเมล", "Email")}><input class="input" value=${email} readOnly=${isSelf} aria-invalid=${emailTaken?"true":undefined}
-          style=${emailTaken?{borderColor:"var(--bad)"}:undefined} onInput=${e=>setEmail(e.target.value)}/>
+      <${Field} label=${t("อีเมล", "Email")}><input class="input" value=${email} readOnly=${isSelf} aria-invalid=${emailTaken||emailBad?"true":undefined}
+          style=${emailTaken||emailBad?{borderColor:"var(--bad)"}:undefined} onInput=${e=>setEmail(e.target.value)}/>
+        ${emailBad && html`<div role="alert" style=${{fontSize:"11.5px",marginTop:"5px",lineHeight:1.5,color:"var(--bad)",fontWeight:600}}>${t("อีเมลไม่ถูกต้อง เช่น name@company.co.th", "That email is not valid — for example name@company.co.th")}</div>`}
         ${emailTaken && html`<div class="um-email-err" role="alert" style=${{fontSize:"11.5px",marginTop:"5px",lineHeight:1.5,color:"var(--bad)",fontWeight:600}}>${t("อีเมลนี้มีบัญชีอยู่แล้ว", "This email already has an account")}</div>`}
         ${!isNew && html`<div class="dim" style=${{fontSize:"11.5px",marginTop:"5px",lineHeight:1.5}}>${isSelf
           ? t("เปลี่ยนอีเมลของตัวเองไม่ได้", "You cannot change your own email")

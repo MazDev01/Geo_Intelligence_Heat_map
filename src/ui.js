@@ -54,6 +54,17 @@ export function Btn({variant="ghost", size, icon, children, onClick, disabled, t
     ${icon&&html`<${Icon} name=${icon} size=${size==="sm"?14:size==="lg"?19:16}/>`}${children}</button>`;
 }
 
+export function PwInput({value, onInput, autocomplete, placeholder, name}){
+  const [show, setShow] = useState(false);
+  const has = String(value == null ? "" : value).length > 0;
+  useEffect(()=>{ if(!has) setShow(false); },[has]);
+  const label = show ? t("ซ่อนรหัสผ่าน","Hide password") : t("แสดงรหัสผ่าน","Show password");
+  return html`<div class="pw-wrap">
+    <input class="input" name=${name} type=${show && has?"text":"password"} autocomplete=${autocomplete} placeholder=${placeholder} value=${value} onInput=${onInput}/>
+    ${has && html`<button type="button" class="pw-eye" aria-pressed=${show} aria-label=${label} title=${label} onClick=${()=>setShow(!show)}><${Icon} name=${show?"eyeOff":"eye"} size=${18}/></button>`}
+  </div>`;
+}
+
 export function Toggle({on, onChange}){
   return html`<div class=${cx("toggle",on&&"on")} onClick=${()=>onChange&&onChange(!on)}></div>`;
 }

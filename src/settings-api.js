@@ -36,3 +36,5 @@ export const saveScoring = scoring => call("/api/settings", "PUT", {scoring});
 
 export const saveSystemNotif = notifications => call("/api/settings", "PUT", {notifications});
 export const saveMyNotifOff = notifOff => call("/api/me/prefs", "PUT", {notifOff});
+export const loadMyPrefs = () => call("/api/me/prefs");
+export const saveMyProfile = profile => call("/api/me/prefs", "PUT", {profile});

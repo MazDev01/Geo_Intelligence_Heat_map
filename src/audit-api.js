@@ -23,6 +23,7 @@ const EV = {
   login_fail:          [()=>t("เข้าสู่ระบบไม่สำเร็จ","Sign-in failed"), "shield", "bad"],
   logout:              [()=>t("ออกจากระบบ","Sign out"), "logout", "neutral"],
   password_change:     [()=>t("เปลี่ยนรหัสผ่าน","Changed password"), "shield", "info"],
+  profile_update:      [()=>t("แก้ไขข้อมูลส่วนตัว","Edited own profile"), "user", "info"],
   user_create:         [()=>t("สร้างบัญชี","Created an account"), "user", "good"],
   user_update:         [()=>t("แก้ไขบัญชี","Edited an account"), "user", "info"],
   user_remove:         [()=>t("ลบบัญชี","Deleted an account"), "user", "bad"],
@@ -61,7 +62,7 @@ const EV = {
 
 export const AUDIT_GROUPS = {
   auth:    {label:()=>t("เข้า/ออกระบบ","Sign-in & out"),        events:["login","login_fail","logout","password_change"]},
-  users:   {label:()=>t("บัญชีผู้ใช้","User accounts"),          events:["user_create","user_update","user_remove","user_password_reset"]},
+  users:   {label:()=>t("บัญชีผู้ใช้","User accounts"),          events:["user_create","user_update","user_remove","user_password_reset","profile_update"]},
   places:  {label:()=>t("ลูกค้าและ Lead","Customers & Leads"),   events:["place_create","place_update","place_delete"]},
   imports: {label:()=>t("นำเข้าข้อมูล","Data import"),           events:["import_upload","import_mapping","import_confirm","import_withdraw","import_queue_import","import_queue_merge","import_queue_skip","import_queue_unskip"]},
   areas:   {label:()=>t("เขตและโซน","Territories & zones"),      events:["territory_assign","zone_draft_save","zone_publish","zone_approve","zone_discard","zone_restore"]},

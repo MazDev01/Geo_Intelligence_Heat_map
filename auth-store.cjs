@@ -77,6 +77,7 @@ function readToken(token, secret) {
 }
 
 /* ── ร้านค้าข้อมูลผู้ใช้ ─────────────────────────────────────────────── */
+const EMAIL_RE = /^[a-z0-9_%+-]+(?:\.[a-z0-9_%+-]+)*@(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}$/i;
 const publicUser = u => ({ id: u.id, name: u.name, email: u.email, role: u.role, province: u.province || null,
                            status: u.status || 'Active', mustChange: !!u.mustChange,
                            scope: u.scope || (u.role === 'Trade Coordinator' ? 'own_area' : 'national'),
@@ -209,7 +210,7 @@ function makeAuthStore(adapter, opts) {
       const name = rec && rec.name, email = rec && rec.email, role = rec && rec.role;
       const taken = { ok: false, code: 409, error: 'อีเมลนี้มีบัญชีอยู่แล้ว' };
       if (!name || !String(name).trim()) return { ok: false, code: 400, error: 'ต้องใส่ชื่อ' };
-      if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(String(email || ''))) return { ok: false, code: 400, error: 'อีเมลไม่ถูกต้อง' };
+      if (!EMAIL_RE.test(String(email || ''))) return { ok: false, code: 400, error: 'อีเมลไม่ถูกต้อง' };
       if (await find(email)) return taken;
       if (ROLES.indexOf(role) < 0) return { ok: false, code: 400, error: 'บทบาทไม่ถูกต้อง' };
       const pw = (rec && rec.password) || tempPassword();
@@ -246,7 +247,7 @@ function makeAuthStore(adapter, opts) {
         const ne = String(p.email).trim().toLowerCase();
         if (ne !== String(u.email).toLowerCase()) {
           if (isSelf) return { ok: false, code: 400, error: 'เปลี่ยนอีเมลของตัวเองไม่ได้' };
-          if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(ne)) return { ok: false, code: 400, error: 'อีเมลไม่ถูกต้อง' };
+          if (!EMAIL_RE.test(ne)) return { ok: false, code: 400, error: 'อีเมลไม่ถูกต้อง' };
           const clash = await find(ne);
           if (clash && clash.id !== u.id) return { ok: false, code: 409, error: 'อีเมลนี้มีบัญชีอยู่แล้ว' };
           next.email = ne;

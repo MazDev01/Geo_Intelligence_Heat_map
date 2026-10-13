@@ -1,5 +1,6 @@
 import {withTransaction} from './db/pool.mjs';
 import {writeAudit} from './audit.mjs';
+import {phoneOk} from '../src/contact-rules.js';
 import {SCORING_DEFAULT} from '../src/mock/geoData.js';
 
 const fail = (status, message) => Object.assign(new Error(message), {status});
@@ -90,10 +91,31 @@ export async function writeSettings(pool, body, user, ctx) {
   });
 }
 
+const PROFILE_MAX = {name: 80, phone: 30, department: 80, title: 80};
+const PROFILE_TH = {name: 'ชื่อ-นามสกุล', phone: 'เบอร์โทรศัพท์', department: 'แผนก', title: 'ตำแหน่ง'};
+const CONTROL_RE = /[\u0000-\u001f\u007f]/;
+
+function checkProfile(v) {
+  if (!plainObject(v)) throw fail(400, 'รูปแบบข้อมูลส่วนตัวไม่ถูกต้อง');
+  const out = {};
+  for (const [k, x] of Object.entries(v)) {
+    if (!Object.hasOwn(PROFILE_MAX, k)) throw fail(400, 'ไม่รู้จักช่องข้อมูลส่วนตัว: ' + String(k).slice(0, 40));
+    if (typeof x !== 'string') throw fail(400, PROFILE_TH[k] + 'ต้องเป็นข้อความ');
+    const text = x.trim();
+    if (CONTROL_RE.test(text)) throw fail(400, PROFILE_TH[k] + 'มีอักขระที่ใช้ไม่ได้');
+    if (text.length > PROFILE_MAX[k]) throw fail(400, PROFILE_TH[k] + 'ยาวได้ไม่เกิน ' + PROFILE_MAX[k] + ' ตัวอักษร');
+    out[k] = text;
+  }
+  if (out.name !== undefined && !out.name) throw fail(400, 'ต้องใส่ชื่อ');
+  if (out.phone && !phoneOk(out.phone)) throw fail(400, 'เบอร์โทรศัพท์ไม่ถูกต้อง เช่น 081 234 5678 หรือ 02 123 4567');
+  return out;
+}
+
 function checkPrefs(body) {
   if (!plainObject(body)) throw fail(400, 'อ่านคำขอไม่ได้');
   const out = {};
   for (const [k, v] of Object.entries(body)) {
+    if (k === 'profile') { out.profile = checkProfile(v); continue; }
     if (k !== 'notifOff') throw fail(400, 'ไม่รู้จักการตั้งค่า: ' + String(k).slice(0, 40));
     if (!plainObject(v)) throw fail(400, 'รูปแบบการตั้งค่าการแจ้งเตือนไม่ถูกต้อง');
     const off = {};
@@ -112,10 +134,26 @@ export async function readPrefs(pool, user) {
   return r.rows[0] ? r.rows[0].prefs || {} : {};
 }
 
-export async function writePrefs(pool, user, body) {
+export async function writePrefs(pool, user, body, ctx) {
   if (!Number.isInteger(user.id)) throw fail(400, 'บัญชีนี้บันทึกการตั้งค่าไม่ได้');
   const clean = checkPrefs(body);
-  const r = await pool.query('update users set prefs = prefs || $2::jsonb where id = $1 returning prefs', [user.id, JSON.stringify(clean)]);
-  if (!r.rowCount) throw fail(404, 'ไม่พบบัญชี');
-  return {ok: true, prefs: r.rows[0].prefs};
+  const profile = clean.profile;
+  if (!profile) {
+    const r = await pool.query('update users set prefs = prefs || $2::jsonb where id = $1 returning prefs', [user.id, JSON.stringify(clean)]);
+    if (!r.rowCount) throw fail(404, 'ไม่พบบัญชี');
+    return {ok: true, prefs: r.rows[0].prefs};
+  }
+  return withTransaction(pool, async tx => {
+    const cur = (await tx.query('select name, prefs from users where id = $1 for update', [user.id])).rows[0];
+    if (!cur) throw fail(404, 'ไม่พบบัญชี');
+    const {name, ...rest} = profile;
+    const before = (cur.prefs || {}).profile || {};
+    const after = {...before, ...rest};
+    const changed = Object.keys(rest).filter(k => (before[k] || '') !== after[k]);
+    if (name !== undefined && name !== cur.name) changed.unshift('name');
+    const r = await tx.query('update users set name = $2, prefs = prefs || $3::jsonb, updated_at = now() where id = $1 returning name, prefs',
+      [user.id, name === undefined ? cur.name : name, JSON.stringify({...clean, profile: after})]);
+    if (changed.length && ctx) await writeAudit(tx, ctx, 'profile_update', user.email, {fields: changed});
+    return {ok: true, prefs: r.rows[0].prefs, name: r.rows[0].name, changed};
+  });
 }

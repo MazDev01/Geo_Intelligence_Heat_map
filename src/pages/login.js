@@ -4,7 +4,7 @@
 // ตอนนี้ตรวจจริง และถ้าบัญชีถูกแอดมินตั้ง/รีเซ็ตรหัสมาให้ จะบังคับตั้งรหัสใหม่ก่อนเข้าใช้งาน
 import {html, useState, useEffect, Icon, brandMark, roleTH} from "../lib.js";
 import {Globe} from "../globe.js";
-import {LangToggle} from "../ui.js";
+import {LangToggle, PwInput} from "../ui.js";
 import {t} from "../i18n.js";   // สลับภาษา TH/EN — ดู src/i18n.js
 import * as auth from "../auth.js";
 
@@ -143,11 +143,11 @@ export function Login({db, onLogin}){
           ${pending ? html`<br/><b>${pending.email}</b>` : ""}</p>
 
         <div class="field"><label>${t("รหัสผ่านใหม่", "New password")}</label>
-          <input class="input" type="password" autocomplete="new-password" value=${pw1}
+          <${PwInput} autocomplete="new-password" value=${pw1}
             onInput=${e=>{setPw1(e.target.value); setErr("");}}/>
           <div class="lg-hint">${t("อย่างน้อย 8 ตัวอักษร และต้องมีทั้งตัวอักษรและตัวเลข", "At least 8 characters, with both letters and digits")}</div></div>
         <div class="field"><label>${t("ยืนยันรหัสผ่านใหม่", "Confirm new password")}</label>
-          <input class="input" type="password" autocomplete="new-password" value=${pw2}
+          <${PwInput} autocomplete="new-password" value=${pw2}
             onInput=${e=>{setPw2(e.target.value); setErr("");}}/></div>
 
         ${err && html`<div class="lg-err" role="alert">${err}</div>`}

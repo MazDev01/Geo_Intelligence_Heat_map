@@ -3,6 +3,7 @@ const EVENT = {
   login_fail: ['เข้าสู่ระบบไม่สำเร็จ', 'Sign-in failed'],
   logout: ['ออกจากระบบ', 'Sign out'],
   password_change: ['เปลี่ยนรหัสผ่าน', 'Changed password'],
+  profile_update: ['แก้ไขข้อมูลส่วนตัว', 'Edited own profile'],
   user_create: ['สร้างบัญชี', 'Created an account'],
   user_update: ['แก้ไขบัญชี', 'Edited an account'],
   user_remove: ['ลบบัญชี', 'Deleted an account'],
