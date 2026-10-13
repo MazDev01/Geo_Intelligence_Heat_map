@@ -107,7 +107,13 @@ export function GeoStage({db, mode, activeCountry, flyTarget, globeUnder, onArri
     return ()=>ro.disconnect();
   },[zoneEdit, mode]);
 
-  const featuredCards = FEATURED_PROVINCES.map(f=>({...f, area:areaByProvince[f.province] || (db.areasReady ? {customerCount:0, prospectCount:0, center:f.center} : null)}));
+  const areasLoaded = !!db.areasReady || Object.keys(areaByProvince).length>0;
+  const sizeOf = a => (a.customerCount||0)+(a.prospectCount||0);
+  const rankedAreas = Object.values(areaByProvince).filter(a=>a && a.center && sizeOf(a)>0)
+    .sort((a,b)=> sizeOf(b)-sizeOf(a) || (b.customerCount||0)-(a.customerCount||0) || String(a.province).localeCompare(String(b.province)))
+    .slice(0,4).map(a=>({province:a.province, center:a.center, area:a}));
+  const featuredCards = rankedAreas.concat(FEATURED_PROVINCES.filter(f=>!rankedAreas.some(r=>r.province===f.province))
+    .map(f=>({...f, area:areaByProvince[f.province] || (areasLoaded ? {customerCount:0, prospectCount:0, center:f.center} : null)}))).slice(0,4);
 
   // ── หน้าเลือกจังหวัด: การ์ดคงที่ 2 ฝั่งซ้าย-ขวา (ไม่ขยับตามการหมุนของลูกโลก) ──
   const [hoverId, setHoverId]   = useState(null);   // การ์ดที่ชี้อยู่ → ส่งให้ลูกโลกหมุนโฟกัสจังหวัดนั้น
