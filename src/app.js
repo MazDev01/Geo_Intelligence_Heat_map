@@ -1,6 +1,6 @@
 import {React, html, useState, useEffect, useMemo, useRef, createRoot, AppCtx, Icon, brandMark, num, roleTH, countryTH, provinceTH} from "./lib.js";
 import {t, useLang, getLang, setLang} from "./lib.js";   // สลับภาษา TH/EN — ดู src/i18n.js
-import {getLayerOpacity, subscribeLayerOpacity} from "./layer-opacity.js";   // ความทึบ = ตั้งที่แอดมินที่เดียว
+import {getLayerOpacity, getLayerOn, subscribeLayerOpacity} from "./layer-opacity.js";   // ความทึบ = ตั้งที่แอดมินที่เดียว
 import {loadCountries, loadWorld, loadAreas, loadProvincesGeo, loadDetail, clearDetail, clearAggregates, writePlaces, placeVisitsApi, leadRequestsApi, dealFileError, fileBase64, loadCountry, loadDistricts, defaultFilters} from "./data.js";
 import {LoadingScreen, ToastHost, Badge, Btn, toast, LangToggle} from "./ui.js";
 import {Login} from "./pages/login.js";
@@ -167,10 +167,10 @@ function App(){
   // (lmap.js still falls back to light canvas dots automatically when a viewport gets too dense — see dotMode.)
   // zoomModes:true = เปิดโหมดแสดงผลตามระดับซูม 3 ขั้น (ซูมออก=Heat / กลาง=Cluster / ใกล้=Marker) เฉพาะแผนที่หลัก
   // existing/prospect เริ่มต้นเปิด เพราะเมื่อซูมเข้าถึงชั้น Cluster/Marker ต้องมีหมุดให้เห็น (ไม่งั้นซูมเข้าแล้วว่างเปล่า)
-  const [layers,setLayers] = useState({heat:true,cluster:false,existing:true,prospect:true,province:false,zoomModes:true,route:true,
-    op:getLayerOpacity()});   // ความทึบมาจาก "ตั้งค่าระบบ › การจัดการเลเยอร์" (แอดมิน) — ผู้ใช้ปรับเองไม่ได้แล้ว
+  const [layers,setLayers] = useState(()=>({cluster:false,province:false,zoomModes:true,...getLayerOn(),
+    op:getLayerOpacity()}));   // ความทึบมาจาก "ตั้งค่าระบบ › การจัดการเลเยอร์" (แอดมิน) — ผู้ใช้ปรับเองไม่ได้แล้ว
   // แอดมินกดบันทึกที่หน้าตั้งค่า → แผนที่ปรับความทึบทันที ไม่ต้องรีเฟรช
-  useEffect(()=>subscribeLayerOpacity(op=>setLayers(x=>({...x, op}))), []);
+  useEffect(()=>subscribeLayerOpacity((op,on)=>setLayers(x=>({...x, ...on, op}))), []);
   const [selectedProvince,setSelectedProvince] = useState(null);
   const [selectedCustomer,setSelectedCustomer] = useState(null);
   const [collapsed,setCollapsed] = useState(()=>{ try{ return window.matchMedia("(max-width:640px)").matches; }catch(e){ return false; } });

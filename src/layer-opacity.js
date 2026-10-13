@@ -13,7 +13,10 @@ const KEY = "geointel_layer_opacity";
 
 /* ค่าตั้งต้น = ที่ผู้ใช้เห็นตอนเข้าระบบครั้งแรก
    ลูกค้า 90% (ทึบชัด) · Lead 40% (จาง) — ตัวเลขเดิมที่แผนที่ใช้อยู่ก่อนถอดแถบเลื่อน */
-export const DEFAULT_LAYER_OPACITY = {existing:90, prospect:40, heat:80, province:100};
+export const DEFAULT_LAYER_OPACITY = {existing:90, prospect:40, heat:80, province:100, route:100};
+export const DEFAULT_LAYER_ON = {existing:true, prospect:true, heat:true, route:true};
+export const LAYER_KEYS = ["existing","prospect","heat","route"];
+const KEY_ON = "geointel_layer_on";
 
 function load(){
   try{
@@ -22,9 +25,38 @@ function load(){
   }catch(e){}   // localStorage ถูกปิด (private mode) — ใช้ค่าตั้งต้น
   return {...DEFAULT_LAYER_OPACITY};
 }
+function loadOn(){
+  try{
+    const s = JSON.parse(localStorage.getItem(KEY_ON));
+    if(s && typeof s === "object") return {...DEFAULT_LAYER_ON, ...Object.fromEntries(LAYER_KEYS.filter(k=>typeof s[k]==="boolean").map(k=>[k,s[k]]))};
+  }catch(e){}
+  return {...DEFAULT_LAYER_ON};
+}
 
 let cur = load();
+let on = loadOn();
 const subs = new Set();
+const tell = () => subs.forEach(fn => fn({...cur}, {...on}));
+
+export const getLayerOn = () => ({...on});
+
+export const layerSettings = () => Object.fromEntries(LAYER_KEYS.map(k=>[k,{on:on[k], opacity:cur[k]}]));
+
+export function setLayerSettings(layers){
+  const v = layers && typeof layers === "object" ? layers : {};
+  LAYER_KEYS.forEach(k=>{ const x = v[k];
+    if(!x || typeof x !== "object") return;
+    if(typeof x.on === "boolean") on[k] = x.on;
+    if(Number.isInteger(x.opacity) && x.opacity>=10 && x.opacity<=100) cur[k] = x.opacity; });
+  cur = {...cur}; on = {...on};
+  try{ localStorage.setItem(KEY, JSON.stringify(cur)); localStorage.setItem(KEY_ON, JSON.stringify(on)); }catch(e){}
+  tell();
+}
+
+export function applyServerLayers(layers){
+  cur = {...DEFAULT_LAYER_OPACITY}; on = {...DEFAULT_LAYER_ON};
+  setLayerSettings(layers);
+}
 
 /* ค่าปัจจุบัน — คืนสำเนา กันผู้เรียกแก้ของกลางโดยไม่ผ่าน setLayerOpacity() */
 export const getLayerOpacity = () => ({...cur});
@@ -33,7 +65,7 @@ export const getLayerOpacity = () => ({...cur});
 export function setLayerOpacity(next){
   cur = {...cur, ...next};
   try{ localStorage.setItem(KEY, JSON.stringify(cur)); }catch(e){}
-  subs.forEach(fn => fn({...cur}));
+  tell();
 }
 
 export function subscribeLayerOpacity(fn){

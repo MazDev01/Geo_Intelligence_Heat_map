@@ -4,6 +4,7 @@ import {localData} from "./data.js";
 import {applyServerNotif} from "./notifications.js";
 import {setScoring} from "./mock/geoData.js";
 import {loadMaster} from "./master-api.js";
+import {applyServerLayers} from "./layer-opacity.js";
 
 async function call(path, method="GET", body){
   if(localData()) return {ok:true, local:true};
@@ -29,8 +30,11 @@ export async function loadSettings(){
   if(!s.ok || !p.ok) return {ok:false, error:(s.ok ? p : s).error};
   applyServerNotif((s.settings||{}).notifications, (p.prefs||{}).notifOff);
   setScoring((s.settings||{}).scoring);
+  applyServerLayers((s.settings||{}).layers);
   return {ok:true};
 }
+
+export const saveLayers = layers => call("/api/settings", "PUT", {layers});
 
 export const saveScoring = scoring => call("/api/settings", "PUT", {scoring});
 

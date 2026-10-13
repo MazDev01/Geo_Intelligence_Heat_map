@@ -47,9 +47,26 @@ function checkScoring(v) {
   return out;
 }
 
-const SYSTEM = {notifications: checkNotifications, scoring: checkScoring};
-const WITH_VALUES = new Set(['scoring']);
-export const SETTING_PERMS = {notifications: 'settings.manage', scoring: 'settings.manage_scoring'};
+export const LAYER_KEYS = ['existing', 'prospect', 'heat', 'route'];
+
+function checkLayers(v) {
+  if (!plainObject(v)) throw fail(400, 'รูปแบบการตั้งค่าเลเยอร์ไม่ถูกต้อง');
+  for (const k of Object.keys(v)) if (!LAYER_KEYS.includes(k)) throw fail(400, 'ไม่รู้จักเลเยอร์: ' + String(k).slice(0, 40));
+  const out = {};
+  for (const k of LAYER_KEYS) {
+    const x = v[k];
+    if (!plainObject(x)) throw fail(400, 'ต้องส่งเลเยอร์ให้ครบ (ขาด ' + k + ')');
+    for (const f of Object.keys(x)) if (f !== 'on' && f !== 'opacity') throw fail(400, 'ไม่รู้จักค่าของเลเยอร์ ' + k + ': ' + String(f).slice(0, 40));
+    if (typeof x.on !== 'boolean') throw fail(400, 'ค่าเปิด/ปิดของเลเยอร์ ' + k + ' ไม่ถูกต้อง');
+    if (!Number.isInteger(x.opacity) || x.opacity < 10 || x.opacity > 100) throw fail(400, 'ความทึบของเลเยอร์ ' + k + ' ต้องเป็นจำนวนเต็ม 10 ถึง 100');
+    out[k] = {on: x.on, opacity: x.opacity};
+  }
+  return out;
+}
+
+const SYSTEM = {notifications: checkNotifications, scoring: checkScoring, layers: checkLayers};
+const WITH_VALUES = new Set(['scoring', 'layers']);
+export const SETTING_PERMS = {notifications: 'settings.manage', scoring: 'settings.manage_scoring', layers: 'settings.manage_layer'};
 
 export async function readScoring(db) {
   const r = await db.query("select value from settings where key = 'scoring'");

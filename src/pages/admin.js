@@ -13,8 +13,8 @@ import {areaCoverage, leadRequestsApi} from "../data.js";
 import {canExportSource, exportFromServer, beStamp} from "../export-api.js";
 import * as auth from "../auth.js";   // บัญชีจริง + รหัสผ่าน (api/auth.js · auth-store.cjs)
 import {NOTIF_EVENTS, PRIORITY_TH, getSysNotif, setSysNotif} from "../notifications.js";
-import {saveSystemNotif, saveScoring} from "../settings-api.js";
-import {getLayerOpacity, setLayerOpacity} from "../layer-opacity.js";
+import {saveSystemNotif, saveScoring, saveLayers} from "../settings-api.js";
+import {layerSettings, setLayerSettings} from "../layer-opacity.js";
 import {tcColorOf, setTcColor} from "../tc-colors.js";   // สีประจำตัว TC — ย้ายมาจากแท็บข้อมูลหลัก   // ความทึบของแผนที่ — ตั้งที่นี่ที่เดียว
 import {ROLES, SCOPES, DEFAULT_SCOPE, PERM_MODULES, PERM_INDEX, PERM_COUNT, GUARD_KEY,
   permByRole, roleGrants, roleForbids, effectivePerms, realOverrides} from "../permissions.js";
@@ -533,18 +533,18 @@ export function Config(){
   // 1) Map layers (reorderable, toggle, opacity)
   // ⚠ ความทึบของ 3 ตัวแรกคือค่าที่ "แผนที่ใช้จริง" — อ่านจากสโตร์กลาง ไม่ใช่เลขฝังตายคนละชุด
   //   (เดิมการ์ดนี้ตั้ง Lead ไว้ 85 แต่แผนที่ใช้ 40 กดบันทึกทีเดียวหมุดจางจะเปลี่ยนเป็นทึบทันที)
-  const _op0 = getLayerOpacity();
-  const DEF_LAYERS=[
-    {id:"existing",name:t("ลูกค้าปัจจุบัน", "Existing customers"),color:"#2563eb",on:true,opacity:_op0.existing},
-    {id:"prospect",name:"Lead",color:"#38bdf8",on:true,opacity:_op0.prospect},
-    {id:"heat",name:t("แผนที่ความร้อน (Lead)", "Heatmap (Lead)"),color:"#ff5a3c",on:true,opacity:_op0.heat},
-    {id:"boundary",name:t("ขอบเขตบริการ", "Service boundaries"),color:"#34e0d0",on:false,opacity:50},
-    {id:"route",name:t("เส้นทางเดินทาง", "Travel routes"),color:"#8a7bff",on:false,opacity:80},
+  const LAYER_META=[
+    {id:"existing",name:t("ลูกค้าปัจจุบัน", "Existing customers"),color:"#2563eb"},
+    {id:"prospect",name:"Lead",color:"#38bdf8"},
+    {id:"heat",name:t("แผนที่ความร้อน (Lead)", "Heatmap (Lead)"),color:"#ff5a3c"},
+    {id:"boundary",name:t("ขอบเขตบริการ", "Service boundaries"),color:"#34e0d0",soon:true},
+    {id:"route",name:t("เส้นทางเดินทาง", "Travel routes"),color:"#8a7bff"},
   ];
+  const layerRows=()=>{ const s=layerSettings(); return LAYER_META.map(m=>m.soon ? {...m, on:false, opacity:50} : {...m, on:s[m.id].on, opacity:s[m.id].opacity}); };
+  const layerPayload=list=>Object.fromEntries(list.filter(l=>!l.soon).map(l=>[l.id,{on:l.on, opacity:l.opacity}]));
+  const DEF_LAYERS=layerRows();
   const [layers,setLayers]=useState(DEF_LAYERS.map(l=>({...l})));
-  const [drag,setDrag]=useState(null);
   const setLayer=(i,patch)=>setLayers(ls=>ls.map((l,j)=>j===i?{...l,...patch}:l));
-  const dropAt=i=>{ setLayers(ls=>{ if(drag==null||drag===i)return ls; const a=[...ls]; const [m]=a.splice(drag,1); a.splice(i,0,m); return a; }); setDrag(null); };
 
   // 2) Notifications
   // ระบบนำเข้าข้อมูลด้วยไฟล์ Excel/CSV ผ่านผู้ดูแลเท่านั้น ไม่ได้เชื่อมต่อระบบภายนอกแบบอัตโนมัติ
@@ -597,7 +597,8 @@ export function Config(){
     if(dirty) return;
     const fresh = NOTIF_EVENTS.map(e=>({...e, ...getSysNotif()[e.key]}));
     const freshSc = getScoring();
-    setNotif(fresh); setSc(freshSc); setSavedSnap(snapshot(layers, fresh, freshSc));
+    const freshLayers = layerRows();
+    setNotif(fresh); setSc(freshSc); setLayers(freshLayers); setSavedSnap(snapshot(freshLayers, fresh, freshSc));
   },[settingsVer]);
   const saveAll=async ()=>{
     if(saving) return;
@@ -619,9 +620,14 @@ export function Config(){
       if(!r.ok){ toast(r.error,"bad"); return; }
       setScoring(sc); scoringChanged();
     }
-    // ความทึบมีผลกับแผนที่ของทุกบทบาททันที (TC/ผู้บริหารปรับเองไม่ได้แล้ว)
-    const op = Object.fromEntries(layers.filter(l=>["existing","prospect","heat"].includes(l.id)).map(l=>[l.id, l.opacity]));
-    setLayerOpacity(op);
+    const lay = layerPayload(layers);
+    if(JSON.stringify(layerPayload(JSON.parse(savedSnap).เลเยอร์))!==JSON.stringify(lay)){
+      setSaving(true);
+      const r = await saveLayers(lay);
+      setSaving(false);
+      if(!r.ok){ toast(r.error,"bad"); return; }
+      setLayerSettings(lay);
+    }
     setSavedSnap(currentSnap); toast(t("บันทึกการตั้งค่าทั้งหมดแล้ว", "All settings saved"),"good"); };
   const cancelAll=()=>{ const s=JSON.parse(savedSnap);
     setLayers(s.เลเยอร์.map(l=>({...l}))); setNotif(s.แจ้งเตือน.map(n=>({...n}))); setSc(s.เกณฑ์);
@@ -644,20 +650,18 @@ export function Config(){
 
 
     <!-- SECTION 1 -->
-    ${Section("layers","layers",t("การจัดการเลเยอร์", "Layer management"),t("Map Layer Management — เปิด/ปิด, ความทึบ, ลำดับความสำคัญ (ลากเพื่อจัดลำดับ)", "Map layer management — on/off, opacity, priority (drag to reorder)"),
+    ${Section("layers","layers",t("การจัดการเลเยอร์", "Layer management"),t("ค่าตั้งต้นของแผนที่ทุกบัญชี — เปิด/ปิด และความทึบ", "Map defaults for every account — on/off and opacity"),
       // แต่ละเลเยอร์ยุบเหลือบรรทัดเดียว: [ลากจัดลำดับ][สี] ชื่อ [แถบเลื่อน][%][ตัวอย่าง][เปิด/ปิด]
-      html`${layers.map((l,i)=>html`<div key=${l.id} draggable=${true}
-        onDragStart=${()=>setDrag(i)} onDragOver=${e=>e.preventDefault()} onDrop=${()=>dropAt(i)}
-        class="row cfg-layer" style=${{border:"1px solid "+(drag===i?"var(--accent)":"var(--stroke)"),
-          background:drag===i?"rgba(230, 0, 35,.1)":"rgba(30,45,80,.05)"}}>
-        <${Icon} name="grid" size=${15} color="var(--dim)" style=${{flex:"none",cursor:"grab"}}/>
+      html`${layers.map((l,i)=>html`<div key=${l.id} data-layer=${l.id}
+        data-soon=${l.soon?"1":null} title=${l.soon?t("ยังไม่มีเลเยอร์นี้บนแผนที่", "This layer is not on the map yet"):null}
+        class="row cfg-layer" style=${{border:"1px solid var(--stroke)",background:"rgba(30,45,80,.05)",opacity:l.soon?.55:1}}>
         <span style=${{width:"14px",height:"14px",borderRadius:"50%",flex:"none",background:l.color,opacity:l.on?1:.35}}></span>
-        <span class="cfg-layer-nm">${i+1}. ${l.name}</span>
-        <input type="range" min="10" max="100" value=${l.opacity} aria-label=${t("ความทึบของ", "Opacity of")+l.name}
+        <span class="cfg-layer-nm">${l.name}${l.soon ? html` <${Badge} tone="neutral">${t("ยังไม่เปิดใช้", "Not available yet")}</${Badge}>` : null}</span>
+        <input type="range" min="10" max="100" value=${l.opacity} disabled=${!!l.soon} aria-label=${t("ความทึบของ", "Opacity of")+l.name}
           onInput=${e=>setLayer(i,{opacity:+e.target.value})} class="cfg-layer-rng"/>
         <span class="mono cfg-layer-pct">${l.opacity}%</span>
         <span class="cfg-layer-prev" style=${{background:`linear-gradient(90deg,transparent,${l.color})`,opacity:l.on?l.opacity/100:.15}}></span>
-        <${Toggle} on=${l.on} onChange=${v=>setLayer(i,{on:v})}/>
+        <${Toggle} on=${l.on} onChange=${l.soon ? null : v=>setLayer(i,{on:v})}/>
       </div>`)}`,
       html`<${Badge} tone="info">${layers.filter(l=>l.on).length}/${layers.length}</${Badge}>`)}
 

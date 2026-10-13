@@ -472,6 +472,7 @@ export function LeafletMap({db, filters, layers, country="Thailand", onPickArea,
 
   // Customer Visit Planning: highlight selected customers, and draw the suggested visit route
   // (line + numbered ①②③ sequence markers) once it has been calculated. Non-interactive overlay.
+  const routeOp = ((layers.op&&layers.op.route)??100)/100;
   useEffect(()=>{
     const m=M.current; if(!m.alive||!m.map) return;
     if(m.planLayer){ m.map.removeLayer(m.planLayer); m.planLayer=null; }
@@ -483,7 +484,7 @@ export function LeafletMap({db, filters, layers, country="Thailand", onPickArea,
     if(route && route.order && route.order.length){
       const o=office||{latitude:13.7563,longitude:100.5018};
       const pts=[[o.latitude,o.longitude],...route.order.map(s=>[s.latitude,s.longitude])];
-      L.polyline(pts,{color:"#38bdf8",weight:3,opacity:.92}).addTo(grp);
+      L.polyline(pts,{color:"#38bdf8",weight:3,opacity:.92*routeOp}).addTo(grp);
       L.marker(pts[0],{interactive:false,zIndexOffset:1000,
         icon:L.divIcon({className:"",iconSize:[30,30],iconAnchor:[15,15],html:'<div class="plan-office"><span>⌂</span></div>'})}).addTo(grp);
       route.order.forEach((s,i)=>L.marker([s.latitude,s.longitude],{interactive:false,zIndexOffset:1000,
@@ -491,7 +492,7 @@ export function LeafletMap({db, filters, layers, country="Thailand", onPickArea,
       if(!quietRoute) m.map.flyToBounds(L.latLngBounds(pts).pad(0.28),{duration:0.7});
     }
     grp.addTo(m.map); m.planLayer=grp;
-  },[plan, route, office, layers.route]);
+  },[plan, route, office, layers.route, routeOp]);
 
   // ── เลเยอร์ "เส้นทางดำเนินการ" — เส้นเชื่อมเส้นทางของแผนอื่นๆ ที่ TC บันทึกไว้ในระบบ (เปิด/ปิดด้วย layers.route) ──
   const ROUTE_COLORS = ["#8a7bff","#33d69f","#ffb02e","#ff7a2e","#f472b6","#ff5a5a"];
@@ -502,7 +503,7 @@ export function LeafletMap({db, filters, layers, country="Thailand", onPickArea,
     const grp=L.layerGroup();
     planRoutes.forEach((pr,gi)=>{ const col=ROUTE_COLORS[gi%ROUTE_COLORS.length];
       if(pr.pts && pr.pts.length>1){
-        L.polyline(pr.pts,{color:col,weight:2.5,opacity:.85,dashArray:"6 5",interactive:true})
+        L.polyline(pr.pts,{color:col,weight:2.5,opacity:.85*routeOp,dashArray:"6 5",interactive:true})
           .addTo(grp).bindTooltip(t("แผน: ", "Plan: ")+(pr.name||""),{sticky:true,direction:"top",className:"gc-tt"});
         // จุดสาขา (จุดเริ่มต้น) ของเส้นทางนี้
         L.circleMarker(pr.pts[0],{radius:5,color:"#fff",weight:2,fillColor:"#111",fillOpacity:1,interactive:false}).addTo(grp);
@@ -510,7 +511,7 @@ export function LeafletMap({db, filters, layers, country="Thailand", onPickArea,
       (pr.stops||[]).forEach(s=>L.circleMarker([s.lat,s.lng],{radius:4,color:"#fff",weight:1.5,fillColor:col,fillOpacity:1,interactive:false}).addTo(grp));
     });
     grp.addTo(m.map); m.routesLayer=grp;
-  },[planRoutes, layers.route]);
+  },[planRoutes, layers.route, routeOp]);
 
   useEffect(()=>{ // locate + pulse the selected customer marker on the SAME map
     const m=M.current; if(!m.alive||!m.map) return;
@@ -687,7 +688,7 @@ export function LeafletMap({db, filters, layers, country="Thailand", onPickArea,
     const areasLen = (db.areas||[]).length;
     // โหมดซูมอัตโนมัติ (แผนที่หลัก): สร้างเลเยอร์ heat ไว้เสมอ แล้วคุมการมองเห็นด้วยความทึบใน buildMarkers (fade ตามซูม)
     // โหมดแมนนวล (แผนที่สรุปหน้ารายงาน): สร้าง heat ตาม layers.heat เหมือนเดิม
-    const wantHeat = layers.zoomModes ? true : !!layers.heat;
+    const wantHeat = layers.zoomModes ? layers.heat!==false : !!layers.heat;
     const kde = !!layers.kde;   // โหมด KDE (รัศมีเมตร) สำหรับแผนที่สรุปหน้ารายงาน
     const kr = kde ? kdeRadiusPx(map) : 0;
     // heat = Lead สูง จึงคิดจาก "Lead" (อุปสงค์ที่ยังไม่ถูกเติม) เป็นหลัก
@@ -753,11 +754,12 @@ export function LeafletMap({db, filters, layers, country="Thailand", onPickArea,
     // ── โหมดแสดงผลตามระดับซูม (เฉพาะแผนที่หลักที่ส่ง layers.zoomModes) ──
     // heat = ซูมออก · cluster = ซูมกลาง · marker = ซูมใกล้ · โหมดคิดจาก map.getZoom() เท่านั้น (ไม่พึ่ง hover/hit-test → ไม่เกิด feedback loop)
     const auto = !!layers.zoomModes;
-    const mode = auto ? zoomModeOf(map.getZoom()) : null;
+    const zmode = auto ? zoomModeOf(map.getZoom()) : null;
+    const mode = zmode==="heat" && layers.heat===false ? "cluster" : zmode;
     // ความทึบของ heat: fade เข้า/ออกด้วย CSS transition (.25s) ที่ตั้งไว้ตอนสร้าง — เปลี่ยนโหมดจึงไม่กระพริบ
     if(M.current.heat && M.current.heat._canvas){
       const heatVis = auto ? (mode==="heat") : !!layers.heat;
-      const heatOp  = auto ? HEAT_OPACITY : (((layers.op&&layers.op.heat)??HEAT_OPACITY));
+      const heatOp  = ((layers.op&&layers.op.heat)??HEAT_OPACITY);
       M.current.heat._canvas.style.opacity = heatVis ? (heatOp/100) : 0;
       // KDE: อัปเดตรัศมี(พิกเซล)ให้ตรงกับ ~800ม.จริง ทุกครั้งที่ซูมเปลี่ยน เพื่อคงความหมายเชิงพื้นที่ + กันสีล้นพื้นที่ว่าง
       if(layers.kde && M.current.heat.setOptions){ const kr=kdeRadiusPx(map);
