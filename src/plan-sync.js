@@ -105,7 +105,7 @@ export function usePlanSync({user, db, visitPlans, setVisitPlans, setActivePlanI
         s.sid.set(sp.id, sp.id);
         if(customers.length!==sp.items.length) s.dirty.add(sp.id);
         return {id:sp.id, name:sp.name, customers, route:null, saved:!!sp.saved, savedAt:sp.savedAt||"", visitDate:sp.visitDate||"",
-          addedAt:Object.fromEntries(sp.items.map(it=>[it.placeId, it.addedAt||null])), fresh:{}};
+          addedAt:Object.fromEntries(sp.items.map(it=>[it.placeId, it.addedAt||null])), fresh:{}, fromServer:true};
       });
       if(plans.length){
         const mine = latest.current.filter(p=>s.dirty.has(p.id) && !s.sid.has(p.id));

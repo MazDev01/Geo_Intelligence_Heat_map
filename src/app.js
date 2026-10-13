@@ -204,8 +204,9 @@ function App(){
       addedAt[c.id] = isNew ? now : (p.addedAt||{})[c.id] || null;
       if(isNew || (p.fresh||{})[c.id]) fresh[c.id] = true;
     }
-    return {...p, customers, addedAt, fresh};
+    return {...p, customers, addedAt, fresh, fromServer:false};
   })); };
+  const pickPlan = id => { setVisitPlans(prev=>prev.map(p=>p.id===id && p.fromServer ? {...p, fromServer:false} : p)); setActivePlanId(id); };
   const setVisitRoute = route => setVisitPlans(prev => prev.map(p => p.id===activePlanId ? {...p, route} : p));
   const createPlan = name => { const id = "plan-"+Date.now(); planSync.touch(id); setVisitPlans(prev=>[...prev, {id, name, customers:[], route:null, saved:false, visitDate:""}]); setActivePlanId(id); };
   const deletePlan = id => { planSync.remove(id); setVisitPlans(prev=>{
@@ -711,6 +712,7 @@ function App(){
   const openInboxItem = n => {
     if(!n.read) readInbox([n.id]);
     const go = inboxView(n).go;
+    if(n.key==="weekly"){ setMenu(null); return navItem("reports"); }
     if(go && user && user.role==="Administrator") return navItem(go);
     if(n.key==="deal_result" && n.payload && n.payload.placeId) openPlaceById(n.payload.placeId);
   };
@@ -907,9 +909,10 @@ function App(){
     window.addEventListener("popstate", onPop);
     return ()=>window.removeEventListener("popstate", onPop);
   });
-  const ctx = {db,user,logout,nav,settingsVer,scoringChanged,placesChanged,masterVer,masterChanged,filters,setFilters,startZoneEdit,routeParams:{area:selectedProvince},profileTab,visitPlans,office:planOffice,tcProvinces,lang,setLang,
+  const updateMe = patch => setUser(u => u ? {...u, ...patch, initials: String(patch.name || u.name || "?").trim().slice(0,2)} : u);
+  const ctx = {db,user,updateMe,logout,nav,settingsVer,scoringChanged,placesChanged,masterVer,masterChanged,filters,setFilters,startZoneEdit,routeParams:{area:selectedProvince},profileTab,visitPlans,office:planOffice,tcProvinces,lang,setLang,
 
-    deletePlan,setActivePlanId,applyDealApproved,applyDealRejected,addToPlan,goMap,updateRecord,adminAddRecords,adminDeleteRecord,
+    deletePlan,setActivePlanId:pickPlan,applyDealApproved,applyDealRejected,addToPlan,goMap,updateRecord,adminAddRecords,adminDeleteRecord,
     selectedProvince,setSelectedProvince,selectedCustomer,setSelectedCustomer,selectedCountry:activeCountry};
 
   if(!user && restoring) return html`<${AppCtx.Provider} value=${ctx}><div class="login" style=${{display:"grid",placeItems:"center"}}><div class="dim">${t("กำลังตรวจสอบการเข้าสู่ระบบ…", "Checking your sign-in…")}</div></div><${ToastHost}/></${AppCtx.Provider}>`;
@@ -1118,7 +1121,7 @@ function App(){
               onOpenReports=${isBiz && canReport ? (()=>navItem("reports")) : undefined}
               focusProvince=${overlay==="area" || tcMany ? selectedProvince : null}
               highlightCustomer=${overlay==="customer"?selectedCustomer:null} tourPanel=${tourPanel} tourFocus=${tourFocus}
-              visitPlan=${visitPlan} visitRoute=${visitRoute} office=${planOffice} planRoutes=${savedPlanRoutes}
+              visitPlan=${visitPlan} visitRoute=${visitRoute} quietRoute=${!!(tcMany && activePlan && activePlan.fromServer)} office=${planOffice} planRoutes=${savedPlanRoutes}
               gsearch=${gsearch} setGsearch=${setGsearch} searchResults=${results}
               onPickProvinceZoom=${pickProvinceZoom} onPickCustomerNav=${p=>nav("customer",{id:p.id})}/>`}
 
@@ -1140,7 +1143,7 @@ function App(){
 
         ${isTC && view==="workspace" && mode==="map" && !onGlobe && html`<${VisitPlanner} db=${db} office=${planOffice}
           plan=${visitPlan} setPlan=${setVisitPlan} route=${visitRoute} setRoute=${setVisitRoute} savePlan=${savePlan}
-          plans=${visitPlans} activePlanId=${activePlanId} setActivePlanId=${setActivePlanId}
+          plans=${visitPlans} activePlanId=${activePlanId} setActivePlanId=${pickPlan}
           createPlan=${createPlan} deletePlan=${deletePlan} renamePlan=${renamePlan} onPickCustomers=${focusPickCustomers}
           visitDate=${activePlan?activePlan.visitDate:""} setVisitDate=${setVisitDate}/>`}
 

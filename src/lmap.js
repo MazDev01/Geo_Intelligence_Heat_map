@@ -88,7 +88,7 @@ function gapWeigher(cs, ps){
 // แปลงระดับซูมเป็นชื่อโหมด
 function zoomModeOf(z){ return z < ZOOM_HEAT_MAX ? "heat" : z < ZOOM_CLUSTER_MAX ? "cluster" : "marker"; }
 
-export function LeafletMap({db, filters, layers, country="Thailand", onPickArea, onPickCustomer, onMapMode, focusProvince, highlight, focusPoint, plan, route, office, planRoutes, clusters, territories, dark, lockProvinces, lockAreas, zoneMode, canEditZones, noMask, onZoneEditor, onPickZone}){
+export function LeafletMap({db, filters, layers, country="Thailand", onPickArea, onPickCustomer, onMapMode, focusProvince, highlight, focusPoint, plan, route, quietRoute, office, planRoutes, clusters, territories, dark, lockProvinces, lockAreas, zoneMode, canEditZones, noMask, onZoneEditor, onPickZone}){
   const lockKey = lockProvinces && lockProvinces.length ? lockProvinces.join("|") : "";
   const lockList = lockKey ? lockKey.split("|") : null;
   const ref = useRef();
@@ -488,7 +488,7 @@ export function LeafletMap({db, filters, layers, country="Thailand", onPickArea,
         icon:L.divIcon({className:"",iconSize:[30,30],iconAnchor:[15,15],html:'<div class="plan-office"><span>⌂</span></div>'})}).addTo(grp);
       route.order.forEach((s,i)=>L.marker([s.latitude,s.longitude],{interactive:false,zIndexOffset:1000,
         icon:L.divIcon({className:"",iconSize:[30,30],iconAnchor:[15,15],html:`<div class="plan-num">${i+1}</div>`})}).addTo(grp));
-      m.map.flyToBounds(L.latLngBounds(pts).pad(0.28),{duration:0.7});
+      if(!quietRoute) m.map.flyToBounds(L.latLngBounds(pts).pad(0.28),{duration:0.7});
     }
     grp.addTo(m.map); m.planLayer=grp;
   },[plan, route, office, layers.route]);
