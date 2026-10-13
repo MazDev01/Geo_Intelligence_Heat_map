@@ -28,6 +28,7 @@ function segGapOf(db, rec){
 
 const L = window.L;
 // derive Sales Owner + Sales History deterministically from the record (no extra API needed)
+const areaOwner=c=>c.areaTc?c.areaTc+t(" (TC พื้นที่)", " (area TC)"):"";
 const salesOwner=c=>c.tc_owner&&c.tc_owner!=="ยังไม่มอบหมาย"?c.tc_owner:t("ยังไม่มอบหมาย", "Unassigned");
 // (เดิมมี salesHistory() สร้างประวัติการซื้อขายจำลอง — ถอดออกแล้ว
 //  ข้อมูลลูกค้าจริงจาก Barter ไม่มียอดขาย/ประวัติการซื้อ จึงไม่แต่งตัวเลขขึ้นมาแสดง)
@@ -71,7 +72,7 @@ function recommendation(c, segGap){
   }
   // ลูกค้าปัจจุบัน: ข้อมูลจริงไม่มียอดขาย/สถานะการค้า จึงแนะนำจากสิ่งที่รู้จริง — อายุการเป็นลูกค้า และ TC ที่ดูแล
   const yrs = yearsWith(c.dateJoin);
-  if(!c.tc_owner) return t(`ยังไม่มี TC ดูแลพื้นที่${provinceTH(c.province)} — ควรมอบหมายผู้รับผิดชอบก่อน`,
+  if(!c.tc_owner && !c.areaTc) return t(`ยังไม่มี TC ดูแลพื้นที่${provinceTH(c.province)} — ควรมอบหมายผู้รับผิดชอบก่อน`,
     `No TC covers ${provinceTH(c.province)} yet — assign an owner first`);
   return yrs!=null && yrs>=10 ? t(`ลูกค้าเก่าแก่ ${yrs} ปี — รักษาความสัมพันธ์และเสนอบริการเพิ่มเติม`,
       `A ${yrs}-year customer — maintain the relationship and offer more services`)
@@ -228,7 +229,7 @@ function custReportRows(c, segGap){
   if(isCust){
     // ฟิลด์ตามไฟล์ข้อมูลลูกค้าจริง (ไม่รวมคอลัมน์ "สถานะ" ท้ายไฟล์)
     rows.push([t("เบอร์โทรศัพท์", "Phone"), c.phone||"-"], [t("เว็บไซต์", "Website"), c.website||"-"], [t("เฟซบุ๊ก", "Facebook"), c.facebook||"-"],
-      [t("วันที่เริ่มเป็นลูกค้า", "Customer since"), c.dateJoin||"-"], [t("ผู้ประสานงานการค้า (TC)", "Trade Coordinator (TC)"), c.tc_owner||t("ยังไม่มีผู้ดูแล","No owner yet")]);
+      [t("วันที่เริ่มเป็นลูกค้า", "Customer since"), c.dateJoin||"-"], [t("ผู้ประสานงานการค้า (TC)", "Trade Coordinator (TC)"), c.tc_owner||areaOwner(c)||t("ยังไม่มีผู้ดูแล","No owner yet")]);
   } else if(segGap){
     rows.push([t("เบอร์โทร", "Phone"), c.phone||"-"], [t("อีเมล", "Email"), c.email||"-"]);
     rows.push([t("หมวดที่ยังขาดในย่านนี้", "Category short in this neighbourhood"), segTH(c.segment)+t(" — ขาด ", " — short by ")+segGap.gap+t(" ราย", " businesses")],

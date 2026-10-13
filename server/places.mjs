@@ -11,12 +11,26 @@ select p.id, p.type, p.account_no, p.business_name, p.category, p.segment, p.cou
   p.facebook, to_char(p.date_join, 'YYYY-MM-DD') as date_join,
   to_char(p.created_at at time zone 'Asia/Bangkok', 'YYYY-MM-DD') as created_at,
   to_char(p.created_at at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as created_iso,
-  o.name as tc_owner, p.visit_status, v.rounds,
+  o.name as tc_owner, at.name as area_tc, p.visit_status, v.rounds,
   d.status as deal_status, d.payload->>'visitDate' as deal_visit_date, d.reject_reason as deal_reject_reason, d.reject_note as deal_reject_note,
   to_char(d.submitted_at at time zone 'Asia/Bangkok', 'YYYY-MM-DD') as deal_submitted, ds.name as deal_visitor,
   (select f.filename from lead_request_files f where f.request_id = d.id order by f.id limit 1) as deal_doc
 from places p
 left join users o on o.id = p.tc_owner_id
+left join lateral (
+  select case when p.type = 'Existing' and p.tc_owner_id is null then p.province || '/' || coalesce((
+    select z.zone_id from zones z
+    where z.state = 'live' and z.province = p.province
+      and st_covers(z.geom, st_setsrid(st_makepoint(p.longitude::float8, p.latitude::float8), 4326))
+    order by z.position, z.zone_id limit 1), '__rest') end as key
+) zk on true
+left join lateral (
+  select au.name
+  from territory_assign a
+  join users au on au.id = a.user_id
+  where zk.key is not null and a.key in (p.province, zk.key)
+  order by (a.key = p.province), a.key limit 1
+) at on true
 left join lateral (select id, status, payload, submitted_at, submitted_by, reject_reason, reject_note from lead_requests lr where lr.place_id = p.id order by lr.id desc limit 1) d on true
 left join users ds on ds.id = d.submitted_by
 left join (
@@ -72,6 +86,7 @@ const toCustomer = r => {
   };
   putIf(out, 'category', r.category);
   putIf(out, 'email', r.email);
+  putIf(out, 'areaTc', r.area_tc);
   putIf(out, 'visit_status', r.visit_status);
   if (r.rounds) out.visitRounds = r.rounds.map(toRound);
   putDeal(out, r);
