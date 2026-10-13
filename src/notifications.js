@@ -60,6 +60,11 @@ export const notifOn = key => {
   const s = sysStore()[key];
   return !!(s && s.on) && _USER_OFF[key] !== true;
 };
+const PRIORITY_RANK = {high:0, medium:1, low:2};
+export const PRIORITY_COLOR = {high:"var(--bad)", medium:"var(--warn)", low:"var(--muted)"};
+export const priorityOf = key => { const p = (sysStore()[key]||{}).priority; return Object.hasOwn(PRIORITY_RANK, p) ? p : "low"; };
+export const byPriority = list => list.map((x,i)=>[x,i])
+  .sort((a,b)=>PRIORITY_RANK[priorityOf(a[0].key)]-PRIORITY_RANK[priorityOf(b[0].key)] || a[1]-b[1]).map(x=>x[0]);
 /* เหตุการณ์ที่ระบบเปิดไว้ — โปรไฟล์แสดงเฉพาะรายการเหล่านี้ */
 export const sysEnabledEvents = () => NOTIF_EVENTS.filter(e => sysStore()[e.key].on);
 /* เหตุการณ์ที่ผู้ใช้ได้รับจริง — กระดิ่งมุมขวาบนกรองด้วยตัวนี้ */
@@ -118,7 +123,7 @@ export function buildNotifs(user, db){
          `${segTH(gapSeg)} ${where} is short by ${gapN} businesses`), skip:!gapSeg || gapN<=0},
   ];
   const allowed = new Set(roleEvents(role).map(e=>e.key));
-  return all.filter(x => !x.skip && allowed.has(x.key) && notifOn(x.key));
+  return byPriority(all.filter(x => !x.skip && allowed.has(x.key) && notifOn(x.key)));
 }
 
 const FORMAT_TH = {excel:"Excel", csv:"CSV", pdf:"PDF"};

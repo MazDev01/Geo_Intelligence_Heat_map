@@ -25,7 +25,7 @@ import {usePlanSync} from "./plan-sync.js";
 import {AddRecordsForm, USER_SOURCE} from "./add-records.js";
 import {OFFICE, officeFor, clusterCustomers, optimizeOrder} from "./visit.js";
 import {pushAudit} from "./audit.js";
-import {buildNotifs, applyServerNotif, inboxView, agoText} from "./notifications.js";
+import {buildNotifs, applyServerNotif, inboxView, agoText, byPriority, priorityOf, PRIORITY_COLOR, PRIORITY_TH} from "./notifications.js";
 import {loadInbox, markInboxRead} from "./notif-api.js";
 import {loadSettings} from "./settings-api.js";
 import {effectivePerms} from "./permissions.js";
@@ -1035,18 +1035,20 @@ function App(){
                   ${inbox.unread ? html`<button type="button" data-inbox-all="1" onClick=${()=>readInbox(null)}
                     style=${{border:"none",background:"none",padding:0,color:"var(--accent)",fontFamily:"var(--font)",fontSize:"12px",fontWeight:600,cursor:"pointer"}}>${t("อ่านทั้งหมด", "Mark all read")}</button>` : ""}
                   ${count? html`<${Badge} tone="bad">${count}</${Badge}>`:""}</div></div>
-              ${inbox.items.map(n=>{ const v = inboxView(n); const at = Date.parse(n.at);
-                return html`<div key=${"i"+n.id} class="dd-item" data-inbox-id=${n.id} data-read=${n.read?"1":"0"} role="button" tabindex="0"
+              ${byPriority(inbox.items).map(n=>{ const v = inboxView(n); const at = Date.parse(n.at); const pr = priorityOf(n.key);
+                return html`<div key=${"i"+n.id} class="dd-item" data-inbox-id=${n.id} data-read=${n.read?"1":"0"} data-priority=${pr} role="button" tabindex="0"
+                  title=${t("ความสำคัญ: ","Priority: ")+PRIORITY_TH[pr]}
                   onClick=${()=>openInboxItem(n)} onKeyDown=${e=>{ if(e.key==="Enter"||e.key===" "){ e.preventDefault(); openInboxItem(n); } }}
                   style=${{alignItems:"flex-start",opacity:n.read?.6:1}}>
-                <${Icon} name=${v.icon} size=${15} color="var(--accent2)"/>
+                <${Icon} name=${v.icon} size=${15} color=${PRIORITY_COLOR[pr]}/>
                 <div style=${{flex:1}}><div style=${{fontSize:"12.5px",color:"var(--txt)",fontWeight:n.read?400:600}}>${v.t}</div>
                   ${Number.isFinite(at) ? html`<div class="dim" style=${{fontSize:"12px",marginTop:"2px"}}>${agoText(at)}</div>` : ""}</div>
                 ${n.read ? "" : html`<span style=${{width:"8px",height:"8px",borderRadius:"50%",background:"var(--accent)",flex:"none",marginTop:"5px"}}></span>`}</div>`; })}
               ${shown.length ? html`<div data-inbox-summary="1" style=${{padding:"10px 10px 4px",fontSize:"11px",fontWeight:700,letterSpacing:".6px",color:"var(--muted)",
                   borderTop:inbox.items.length?"1px solid var(--stroke)":"none",marginTop:inbox.items.length?"6px":0}}>${t("สรุปพื้นที่", "Area summary")}</div>` : ""}
-              ${shown.map((n,i)=>html`<div key=${n.key} class="dd-item" style=${{alignItems:"flex-start",cursor:"default"}}>
-                <${Icon} name=${n.icon} size=${15} color="var(--accent2)"/>
+              ${shown.map((n,i)=>html`<div key=${n.key} class="dd-item" data-summary-key=${n.key} data-priority=${priorityOf(n.key)}
+                title=${t("ความสำคัญ: ","Priority: ")+PRIORITY_TH[priorityOf(n.key)]} style=${{alignItems:"flex-start",cursor:"default"}}>
+                <${Icon} name=${n.icon} size=${15} color=${PRIORITY_COLOR[priorityOf(n.key)]}/>
                 <div style=${{flex:1}}><div style=${{fontSize:"12.5px",color:"var(--txt)"}}>${n.t}</div>
                   ${n.time ? html`<div class="dim" style=${{fontSize:"12px",marginTop:"2px"}}>${n.time}</div>` : ""}</div></div>`)}
               ${!shown.length && !inbox.items.length ? html`<div class="dim" style=${{padding:"14px 10px",fontSize:"12.5px",textAlign:"center"}}>${t("ไม่มีการแจ้งเตือน", "No notifications")}</div>` : ""}
