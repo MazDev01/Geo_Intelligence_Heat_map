@@ -1,4 +1,4 @@
-import {html, useState, useEffect, useMemo, useApp, Icon, num, pct, roleTH, provinceTH, PROVINCE_TH, segTH, STATUS_COLOR, thDate, thDateTime, thMonth, gapTH} from "../lib.js";
+import {html, useState, useEffect, useMemo, useRef, useApp, Icon, num, pct, roleTH, provinceTH, PROVINCE_TH, segTH, STATUS_COLOR, thDate, thDateTime, thMonth, gapTH} from "../lib.js";
 import {SEGMENTS, SEG_COLOR, OTHER_COLOR, DISTRICT_TH, GAP_REF, demandGap, gapBySegment, SCORING_DEFAULT, getScoring, setScoring} from "../mock/geoData.js";
 import {LeafletMap} from "../lmap.js";   // แผนที่ความร้อนระดับประเทศ (ใช้ตัวเดียวกับหน้าอื่น)
 import {pushAudit} from "../audit.js";
@@ -15,8 +15,8 @@ import {canExportSource, exportFromServer, beStamp} from "../export-api.js";
 import * as auth from "../auth.js";   // บัญชีจริง + รหัสผ่าน (api/auth.js · auth-store.cjs)
 import {NOTIF_EVENTS, PRIORITY_TH, getSysNotif, setSysNotif} from "../notifications.js";
 import {saveSystemNotif, saveScoring, saveLayers} from "../settings-api.js";
-import {layerSettings, setLayerSettings} from "../layer-opacity.js";
-import {tcColorOf, setTcColor} from "../tc-colors.js";   // สีประจำตัว TC — ย้ายมาจากแท็บข้อมูลหลัก   // ความทึบของแผนที่ — ตั้งที่นี่ที่เดียว
+import {tcColorOf} from "../tc-colors.js";
+import {layerSettings, setLayerSettings} from "../layer-opacity.js";   // ความทึบของแผนที่ — ตั้งที่นี่ที่เดียว
 import {ROLES, SCOPES, DEFAULT_SCOPE, PERM_MODULES, PERM_INDEX, PERM_COUNT, GUARD_KEY,
   permByRole, roleGrants, roleForbids, effectivePerms, realOverrides} from "../permissions.js";
 import {t} from "../i18n.js";   // สลับภาษา TH/EN — ดู src/i18n.js
@@ -38,23 +38,24 @@ export const SEED_USERS = [
 ];
 export function Users(){
   const {user:me}=useApp();
-  const [users,setUsers]=useState(SEED_USERS);
+  const [users,setUsers]=useState(null);
   const [edit,setEdit]=useState(null);
   const [perm,setPerm]=useState(null);
-  const [delUser,setDelUser]=useState(null);   // บัญชีที่รอยืนยันลบ
   const [roleF,setRoleF]=useState("All");   // ตัวกรองตามบทบาท
   const [search,setSearch]=useState("");    // ค้นหาชื่อ/อีเมล
   const [pwShow,setPwShow]=useState(null);     // {email,name,password} รหัสที่เพิ่งตั้ง/รีเซ็ต — แอดมินเห็นครั้งเดียว
   const [loadErr,setLoadErr]=useState("");
 
   // รายชื่อจริงมาจาก /api/auth (ไฟล์/Blob ฝั่งเซิร์ฟเวอร์) — ถ้าเรียกไม่ได้ค่อยใช้รายชื่อตั้งต้นเพื่อให้หน้าไม่ว่าง
-  useEffect(()=>{ let alive=true;
-    auth.listUsers().then(r=>{ if(!alive) return;
+  const alive = useRef(true);
+  const load = ()=>{ setLoadErr("");
+    return auth.listUsers().then(r=>{ if(!alive.current) return;
       if(r.ok && Array.isArray(r.users)) setUsers(r.users);
-      else setLoadErr(r.error||"");
-    });
-    return ()=>{ alive=false; };
-  },[]);
+      else setLoadErr(r.error||t("ไม่ทราบสาเหตุ","Unknown error"));
+    }); };
+  useEffect(()=>{ alive.current=true; load(); return ()=>{ alive.current=false; }; },[]);
+  const list = users || [];
+  const kpi = n => users ? n : "—";
   const refresh = async ()=>{ const r=await auth.listUsers(); if(r.ok) setUsers(r.users); };
 
   /** แอดมินตั้ง/รีเซ็ตรหัสให้ — เว้นว่าง = ระบบสุ่มรหัสชั่วคราวให้ แล้วโชว์ให้ส่งต่อ */
@@ -71,7 +72,8 @@ export function Users(){
 
   const save=async u=>{
     const r = u.id ? await auth.updateUser(u.origEmail||u.email, {name:u.name, role:u.role, province:u.province, status:u.status,
-                       ...((u.origEmail && u.email.trim().toLowerCase()!==u.origEmail.toLowerCase()) ? {email:u.email} : {})})
+                       ...((u.origEmail && u.email.trim().toLowerCase()!==u.origEmail.toLowerCase()) ? {email:u.email} : {}),
+                       ...(u.color!==undefined ? {color:u.color} : {})})
                    : await auth.createUser({name:u.name, email:u.email, role:u.role, province:u.province, password:u.password||undefined});
     if(!r.ok) return toast(r.error||t("บันทึกไม่สำเร็จ","Could not save"),"bad");
     setEdit(null); await refresh();
@@ -80,6 +82,23 @@ export function Users(){
     if(!u.id && r.password) setPwShow({email:r.user.email, name:r.user.name, password:r.password});
   };
   const del=async u=>{
+    const im = await auth.userImpact(u.email);
+    const n = k => (im && im.ok ? Number(im[k])||0 : 0);
+    const lost = [n("plans") && t("แผนเข้าพบ ","visit plans ")+n("plans"), n("areas") && t("พื้นที่ที่มอบหมาย ","assigned areas ")+n("areas")].filter(Boolean);
+    const body = [u.name+" ("+u.email+")",
+      !im || !im.ok ? t("ตรวจผลกระทบไม่ได้","Could not check what is linked") : "",
+      lost.length ? t("จะหายไปด้วย: ","Also removed: ")+lost.join(" · ") : "",
+      n("places") ? t("ร้าน ","")+n("places").toLocaleString()+t(" รายการจะไม่มีคนดูแล"," places will have no owner") : "",
+      t("ย้อนกลับไม่ได้ · แค่ไม่ให้เข้าระบบ ให้ระงับแทน","This cannot be undone · to just block sign-in, suspend instead")].filter(Boolean).join("\n");
+    const canSuspend = u.status!=="Suspended" && !(me && me.email===u.email);
+    const a = await confirmBox({title:t("ลบบัญชีนี้?","Delete this account?"), body, danger:true,
+      ok:t("ลบถาวร","Delete for good"), alt: canSuspend ? t("ระงับแทน","Suspend instead") : null});
+    if(!a) return;
+    if(a==="alt"){
+      const s = await auth.updateUser(u.email, {status:"Suspended"});
+      if(!s.ok) return toast(s.error||t("ระงับไม่สำเร็จ","Could not suspend"),"bad");
+      await refresh(); return toast(t("ระงับบัญชีแล้ว","Account suspended"),"good");
+    }
     const r = await auth.removeUser(u.email);
     if(!r.ok) return toast(r.error||t("ลบไม่สำเร็จ","Could not delete"),"bad");
     await refresh(); toast(t("ลบผู้ใช้แล้ว", "User deleted"),"bad");
@@ -95,7 +114,7 @@ export function Users(){
     toast(changes.length? `${t("บันทึกสิทธิ์แล้ว", "Permissions saved")} ${changes.length} ${t("รายการ", "records")}` : t("ไม่มีการเปลี่ยนแปลง", "Nothing changed"), changes.length?"good":"info");
   };
   const q = search.trim().toLowerCase();
-  const shown = users.filter(u=> (roleF==="All" || u.role===roleF)
+  const shown = list.filter(u=> (roleF==="All" || u.role===roleF)
     && (!q || u.name.toLowerCase().includes(q) || u.email.toLowerCase().includes(q)));
   const initials = s => (s||"").trim().split(/\s+/).map(w=>w[0]||"").slice(0,2).join("");
   const roleCls = r => r==="Administrator" ? "adm" : r==="Management" ? "mgr" : "tc";
@@ -105,16 +124,20 @@ export function Users(){
       <div><h1>${t("จัดการผู้ใช้", "User management")}</h1>
         <div class="sub">${t("จัดการบัญชีและสิทธิ์การเข้าถึงระบบ", "Manage accounts and system access")}</div></div>
       <div class="ph-right">
-        <${Btn} variant="primary" icon="plus"
+        <${Btn} variant="primary" icon="plus" disabled=${!users}
           onClick=${()=>setEdit({name:"",email:"",role:"Trade Coordinator"})}>${t("เพิ่มผู้ใช้", "Add user")}</${Btn}></div>
     </div>
 
+    ${loadErr && html`<div class="um-err" role="alert"><${Icon} name="info" size=${15}/>
+      <span>${t("โหลดรายชื่อผู้ใช้ไม่สำเร็จ","Could not load the user list")} · ${loadErr}</span>
+      <button class="um-btn" onClick=${load}>${t("ลองใหม่","Try again")}</button></div>`}
+
     <!-- สรุปจำนวนตามบทบาท — การ์ดเตี้ยกว่าปกติ ไม่ให้แย่งพื้นที่ไปจากตาราง -->
     <div class="grid g4 um-kpis">
-      <${Kpi} label=${t("ผู้ใช้ทั้งหมด", "All users")} value=${users.length} icon="users"/>
-      <${Kpi} label=${t("ผู้ดูแลระบบ", "System Administrator")} value=${users.filter(u=>u.role==="Administrator").length} icon="shield"/>
-      <${Kpi} label=${t("ผู้ประสานงานการค้า (TC)", "Trade Coordinator (TC)")} value=${users.filter(u=>u.role==="Trade Coordinator").length} icon="user"/>
-      <${Kpi} label=${t("ผู้บริหาร", "Management")} value=${users.filter(u=>u.role==="Management").length} icon="check"/>
+      <${Kpi} label=${t("ผู้ใช้ทั้งหมด", "All users")} value=${kpi(list.length)} icon="users"/>
+      <${Kpi} label=${t("ผู้ดูแลระบบ", "System Administrator")} value=${kpi(list.filter(u=>u.role==="Administrator").length)} icon="shield"/>
+      <${Kpi} label=${t("ผู้ประสานงานการค้า (TC)", "Trade Coordinator (TC)")} value=${kpi(list.filter(u=>u.role==="Trade Coordinator").length)} icon="user"/>
+      <${Kpi} label=${t("ผู้บริหาร", "Management")} value=${kpi(list.filter(u=>u.role==="Management").length)} icon="check"/>
     </div>
 
     <!-- แถบเครื่องมือ: ค้นหา + กรองบทบาท อยู่แถวเดียวกัน · ห่อบรรทัดเองเมื่อจอแคบ -->
@@ -128,7 +151,8 @@ export function Users(){
 
     <!-- ตารางเป็นตัวเอกของหน้า — Table วาดกรอบการ์ดให้อยู่แล้ว จึงไม่ต้องมี Card ซ้อนอีกชั้น -->
     <div class="um-table">
-      <${Table} empty=${t("ไม่พบบัญชีตามเงื่อนไขนี้", "No accounts match these filters")} cols=${[
+      <${Table} empty=${!users ? (loadErr ? t("ยังไม่มีรายชื่อ — กดลองใหม่ด้านบน","No list yet — press Try again above") : t("กำลังโหลด…","Loading…"))
+        : t("ไม่พบบัญชีตามเงื่อนไขนี้", "No accounts match these filters")} cols=${[
         {h:t("ผู้ใช้", "User"), render:u=>html`<div class="um-user">
           <span class=${"um-av "+roleCls(u.role)}>${initials(u.name)}</span>
           <div style=${{minWidth:0}}>
@@ -143,7 +167,7 @@ export function Users(){
           <button class="um-btn" onClick=${()=>setPerm(u)}><${Icon} name="key" size=${14}/>${t("สิทธิ์", "Permissions")}</button>
           <button class="um-btn" onClick=${()=>resetPw(u)} title=${t("ตั้งรหัสผ่านใหม่ให้ผู้ใช้คนนี้ (ใช้ตอนลืมรหัส)","Set a new password for this user (use when they forget it)")}>
             <${Icon} name="refresh" size=${14}/>${t("รีเซ็ตรหัส", "Reset password")}</button>
-          <button class="um-del" onClick=${()=>setDelUser(u)} title=${t("ลบบัญชี", "Delete account")}
+          <button class="um-del" onClick=${()=>del(u)} title=${t("ลบบัญชี", "Delete account")}
             aria-label=${t("ลบบัญชี ", "Delete account ")+u.name}><${Icon} name="trash" size=${15}/></button>
         </div>`},
       ]} rows=${shown}/>
@@ -169,15 +193,9 @@ export function Users(){
       </div>
     </${Modal}>`}
 
-    ${edit && html`<${UserEditModal} edit=${edit} users=${users} me=${me} onClose=${()=>setEdit(null)} onSave=${save}/>`}
+    ${edit && html`<${UserEditModal} edit=${edit} users=${list} me=${me} onClose=${()=>setEdit(null)} onSave=${save}/>`}
 
-    ${delUser && html`<${Modal} title=${t("ยืนยันการลบบัญชี", "Confirm account deletion")} small=${true} onClose=${()=>setDelUser(null)}
-      footer=${html`<${Btn} variant="ghost" onClick=${()=>setDelUser(null)}>${t("ยกเลิก", "Cancel")}</${Btn}>
-        <${Btn} variant="danger" icon="trash" onClick=${()=>{ del(delUser); setDelUser(null); }}>${t("ยืนยันลบ", "Confirm deletion")}</${Btn}>`}>
-      <div style=${{fontSize:"13px",lineHeight:1.8}}>${t("ลบ", "Delete")} <b>${delUser.name}</b> (${delUser.email}${t(") ออกจากระบบ?", ") from the system?")}</div>
-    </${Modal}>`}
-
-    ${perm && html`<${PermissionDialog} key=${perm.id} target=${perm} users=${users} me=${me}
+    ${perm && html`<${PermissionDialog} key=${perm.id} target=${perm} users=${list} me=${me}
       onClose=${()=>setPerm(null)} onSave=${savePerm}/>`}
     <style>${PERM_CSS}</style>
   </div>`;
@@ -192,23 +210,30 @@ function UserEditModal({edit, users, me, onClose, onSave}){
   const [province,setProvince] = useState(edit.province||"");
   const [password,setPassword] = useState("");
   const [active,setActive] = useState(edit.status!=="Suspended");
-  const [color,setColor] = useState(()=> isNew ? "" : tcColorOf(edit.id, users.filter(u=>u.role==="Trade Coordinator").findIndex(u=>u.id===edit.id)));
+  const [color,setColor] = useState(edit.color||"");
+  const autoColor = isNew ? "" : tcColorOf(edit.id, users.filter(u=>u.role==="Trade Coordinator").findIndex(u=>u.id===edit.id));
   const isTC = role==="Trade Coordinator";
   const provOpts = [["", t("ยังไม่กำหนด", "Not assigned")], ...Object.keys(PROVINCE_TH).map(k=>[k, provinceTH(k)]).sort((a,b)=>String(a[1]).localeCompare(String(b[1]), t("th", "en")))];
   const emailKey = String(email||"").trim().toLowerCase();
   const emailTaken = !!emailKey && users.some(u=> String(u.id)!==String(edit.id) && String(u.email||"").trim().toLowerCase()===emailKey);
   const emailBad = !!emailKey && !emailOk(emailKey);
+  const nameBad = !String(name||"").trim();
+  const [tried,setTried] = useState(false);
+  const nameErr = nameBad && (!isNew || tried);
   const submit = ()=>{
-    if(emailTaken || emailBad) return;
-    if(!isNew && isTC && color) setTcColor(edit.id, color);
+    if(nameBad) setTried(true);
+    if(emailTaken || emailBad || nameBad) return;
     onSave({...edit, origEmail: edit.email, name, email, role, province: isTC ? (province||null) : null, password,
-      status: isNew ? undefined : (active ? "Active" : "Suspended")});
+      status: isNew ? undefined : (active ? "Active" : "Suspended"),
+      color: !isNew && isTC && (color||null)!==(edit.color||null) ? (color||null) : undefined});
   };
   return html`<${Modal} title=${isNew?t("เพิ่มผู้ใช้", "Add user"):t("แก้ไขผู้ใช้", "Edit user")} onClose=${onClose}
     footer=${html`<${Btn} variant="ghost" onClick=${onClose}>${t("ยกเลิก", "Cancel")}</${Btn}>
-      <${Btn} variant="outline" icon="check" disabled=${emailTaken || emailBad} onClick=${submit}>${t("บันทึก", "Save")}</${Btn}>`}>
+      <${Btn} variant="outline" icon="check" disabled=${emailTaken || emailBad || (!isNew && nameBad)} onClick=${submit}>${t("บันทึก", "Save")}</${Btn}>`}>
     <div>
-      <${Field} label=${t("ชื่อ-นามสกุล", "Full name")}><input class="input" value=${name} onInput=${e=>setName(e.target.value)}/></${Field}>
+      <${Field} label=${t("ชื่อ-นามสกุล", "Full name")}><input class="input" value=${name} onInput=${e=>setName(e.target.value)}
+          aria-invalid=${nameErr ? "true" : undefined} style=${nameErr ? {borderColor:"var(--bad)"} : undefined}/>
+        ${nameErr && html`<div class="um-name-err" role="alert" style=${{fontSize:"11.5px",marginTop:"5px",lineHeight:1.5,color:"var(--bad)",fontWeight:600}}>${t("ต้องใส่ชื่อ", "A name is required")}</div>`}</${Field}>
       <${Field} label=${t("อีเมล", "Email")}><input class="input" value=${email} readOnly=${isSelf} aria-invalid=${emailTaken||emailBad?"true":undefined}
           style=${emailTaken||emailBad?{borderColor:"var(--bad)"}:undefined} onInput=${e=>setEmail(e.target.value)}/>
         ${emailBad && html`<div role="alert" style=${{fontSize:"11.5px",marginTop:"5px",lineHeight:1.5,color:"var(--bad)",fontWeight:600}}>${t("อีเมลไม่ถูกต้อง เช่น name@company.co.th", "That email is not valid — for example name@company.co.th")}</div>`}
@@ -237,11 +262,12 @@ function UserEditModal({edit, users, me, onClose, onSave}){
           <span class="dim" style=${{fontSize:"11.5px"}}>${active ? t("ใช้งานได้ปกติ", "Can sign in") : t("ระงับ — เข้าสู่ระบบไม่ได้", "Suspended — cannot sign in")}</span>
         </div>
       </${Field}>`}
-      ${!isNew && isTC && html`<${Field} label=${t("สีประจำตัว (ใช้ระบายพื้นที่ในแผนที่ขอบเขต)", "Personal colour (shades their territory on the map)")}>
+      ${!isNew && isTC && html`<${Field} label=${t("สีประจำตัว (ระบายพื้นที่ในแผนที่ขอบเขต)", "Personal colour (shades their territory on the map)")}>
         <div class="row" style=${{gap:"9px",alignItems:"center"}}>
-          <input type="color" value=${color||"#888888"} onInput=${e=>setColor(e.target.value)}
+          <input type="color" class="um-color" value=${color||autoColor||"#888888"} onInput=${e=>setColor(e.target.value)} aria-label=${t("สีประจำตัว","Personal colour")}
             style=${{width:"46px",height:"32px",padding:0,border:"1px solid var(--stroke2)",borderRadius:"7px",background:"none",cursor:"pointer"}}/>
-          <span class="dim" style=${{fontSize:"11.5px"}}>${t("ไม่ตั้งก็ใช้สีจากจานสีตามลำดับบัญชี", "Leave it and the palette assigns one by account order")}</span>
+          ${color ? html`<button class="um-btn um-color-auto" onClick=${()=>setColor("")}>${t("ใช้สีอัตโนมัติ","Use automatic colour")}</button>`
+            : html`<span class="dim" style=${{fontSize:"11.5px"}}>${t("สีอัตโนมัติตามลำดับบัญชี", "Automatic, by account order")}</span>`}
         </div>
       </${Field}>`}
     </div>
@@ -424,6 +450,9 @@ const UM_CSS = `
 .um-clear{border:none;background:none;cursor:pointer;font-family:var(--font);font-size:12.5px;
   color:var(--muted);padding:8px 6px;text-decoration:underline;text-underline-offset:3px}
 .um-clear:hover{color:var(--accent-deep)}
+.um-err{display:flex;align-items:center;gap:9px;margin-bottom:12px;padding:10px 13px;border-radius:10px;font-size:12.5px;
+  background:rgba(220,38,38,.08);border:1px solid rgba(220,38,38,.3);color:#b30019}
+.um-err span{flex:1;min-width:0}
 
 /* ตาราง: แถวสูงพอดี เส้นคั่นบางลง */
 .um-table .table td{padding:12px 14px}

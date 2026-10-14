@@ -73,5 +73,6 @@ export const listUsers      = () => call("users.list");
 export const createUser     = rec => call("users.create", rec);
 export const updateUser     = (email, patch) => call("users.update", { email, patch });
 export const removeUser     = email => call("users.remove", { email });
+export const userImpact     = email => call("users.impact", { email });
 export const resetPassword  = (email, password) => call("users.password", { email, password });
 export const bootstrap      = (email, password) => call("bootstrap", { email, password });

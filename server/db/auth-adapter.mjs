@@ -1,6 +1,6 @@
 import {withTransaction} from './pool.mjs';
 
-const COLS = `id, name, email, role, province, scope, overrides, status, pw_hash, pw_salt, pw_iter, must_change, fails,
+const COLS = `id, name, email, role, province, scope, overrides, status, color, pw_hash, pw_salt, pw_iter, must_change, fails,
   (extract(epoch from lock_until) * 1000)::bigint as lock_until_ms,
   (extract(epoch from tokens_valid_after) * 1000)::bigint as tokens_valid_after_ms,
   to_char(last_login_at at time zone 'Asia/Bangkok', 'YYYY-MM-DD HH24:MI') as last`;
@@ -9,7 +9,7 @@ const LAST_RE = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/;
 
 const toUser = r => ({
   id: r.id, name: r.name, email: r.email, role: r.role, province: r.province, status: r.status,
-  scope: r.scope, overrides: r.overrides || {},
+  scope: r.scope, overrides: r.overrides || {}, color: r.color || null,
   pw: r.pw_hash ? {salt: r.pw_salt, hash: r.pw_hash, iter: r.pw_iter} : null,
   mustChange: r.must_change, fails: r.fails,
   lockUntil: r.lock_until_ms ? Number(r.lock_until_ms) : 0,
@@ -29,6 +29,7 @@ const SETTERS = {
   scope:      v => [['scope', v]],
   overrides:  v => [['overrides', JSON.stringify(v || {})]],
   status:     v => [['status', v]],
+  color:      v => [['color', v || null]],
   mustChange: v => [['must_change', !!v]],
   fails:      v => [['fails', Number(v) || 0]],
   lockUntil:  v => [['lock_until', lockValue(v)]],

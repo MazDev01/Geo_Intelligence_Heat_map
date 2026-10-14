@@ -82,6 +82,7 @@ const publicUser = u => ({ id: u.id, name: u.name, email: u.email, role: u.role,
                            status: u.status || 'Active', mustChange: !!u.mustChange,
                            scope: u.scope || (u.role === 'Trade Coordinator' ? 'own_area' : 'national'),
                            permOverrides: u.overrides || {},
+                           color: u.color || null,
                            hasPassword: !!(u.pw && u.pw.hash), last: u.last || '—' });
 
 const findBy = (users, email) => users.find(u => String(u.email || '').toLowerCase() === String(email || '').toLowerCase());
@@ -234,9 +235,18 @@ function makeAuthStore(adapter, opts) {
       if (p.role && ROLES.indexOf(p.role) < 0) return { ok: false, code: 400, error: 'บทบาทไม่ถูกต้อง' };
       if (p.status && STATUSES.indexOf(p.status) < 0) return { ok: false, code: 400, error: 'สถานะไม่ถูกต้อง' };
       const next = {};
-      if (p.name !== undefined) next.name = String(p.name).trim() || u.name;
+      if (p.name !== undefined) {
+        const nm = String(p.name).trim();
+        if (!nm) return { ok: false, code: 400, error: 'ต้องใส่ชื่อ' };
+        next.name = nm;
+      }
       if (p.role) next.role = p.role;
       if (p.province !== undefined) next.province = p.province || null;
+      if (p.color !== undefined) {
+        const c = p.color === null || p.color === '' ? null : String(p.color).trim().toLowerCase();
+        if (c !== null && !/^#[0-9a-f]{6}$/.test(c)) return { ok: false, code: 400, error: 'สีไม่ถูกต้อง ต้องเป็นแบบ #rrggbb' };
+        if (c !== (u.color || null)) next.color = c;
+      }
       if (p.status) next.status = p.status;
       const role = next.role || u.role, status = next.status || u.status || 'Active';
       const isSelf = !!actorEmail && String(u.email).toLowerCase() === String(actorEmail).toLowerCase();
@@ -285,7 +295,7 @@ function makeAuthStore(adapter, opts) {
         const roleChanged = role !== u.role, ovChanged = !sameOv(nextOv, curOv), scopeChanged = nextScope !== curScope;
         const statusChanged = status !== (u.status || 'Active');
         const infoChanged = (next.name !== undefined && next.name !== u.name) || (next.province !== undefined && next.province !== (u.province || null))
-          || next.email !== undefined;
+          || next.email !== undefined || next.color !== undefined;
 
         const actor = actorEmail ? await find(actorEmail) : null;
         if (actor) {

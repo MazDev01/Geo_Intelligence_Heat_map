@@ -129,6 +129,7 @@ const SUB = {
   facebook: ['Facebook', 'Facebook'],
   website: ['เว็บไซต์', 'Website'],
   name: ['ชื่อ', 'Name'],
+  color: ['สีประจำตัว', 'Personal colour'],
   overrides: ['สิทธิ์รายคน', 'Personal permissions'],
   role: ['บทบาท', 'Role'],
   scope: ['ขอบเขตข้อมูล', 'Data scope'],

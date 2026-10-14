@@ -1758,7 +1758,7 @@ export function TerritoryManager(){
   const [assign,setAssign] = useState({});   // { ชื่อจังหวัด(อังกฤษ): id ของ TC }
   const [tcUsers,setTcUsers] = useState([]);
   const tcById = useMemo(()=>Object.fromEntries(tcUsers.map(u=>[u.id,u])),[tcUsers]);
-  const tcColor = id => tcColorOf(id, tcUsers.findIndex(u=>u.id===id));
+  const tcColor = id => tcColorOf(id, tcUsers.findIndex(u=>u.id===id), (tcById[id]||{}).color);
   const [geo,setGeo]       = useState(()=>db.provincesGeo||null);
   const [focus,setFocus]   = useState(null);            // จังหวัดที่คลิกจากแผนที่ (null = ยังไม่ได้เลือก)
   const [legendAll,setLegendAll] = useState(false);     // กางคำอธิบายสีให้ครบทุกคน

@@ -137,10 +137,20 @@ export function makeApi({pool, authStore, zoneStore, demoPassword, perms, webBoo
 
     const admin = await authStore.auth(req.headers, 'Administrator');
     if (!admin.ok) return send(res, admin.code, admin);
-    const USER_PERM = {'users.list': 'user.view', 'users.create': 'user.manage', 'users.remove': 'user.manage', 'users.password': 'user.manage'};
+    const USER_PERM = {'users.list': 'user.view', 'users.create': 'user.manage', 'users.remove': 'user.manage', 'users.password': 'user.manage', 'users.impact': 'user.manage'};
     if (Object.hasOwn(USER_PERM, action) && !can(admin.user, USER_PERM[action]))
       return send(res, 403, {ok: false, error: 'ไม่มีสิทธิ์ทำรายการนี้ (' + USER_PERM[action] + ')'});
     if (action === 'users.list') return send(res, 200, {ok: true, users: await authStore.list()});
+    if (action === 'users.impact') {
+      const email = String(body.email || '').trim().toLowerCase();
+      if (!email) return send(res, 400, {ok: false, error: 'ต้องระบุอีเมล'});
+      const r = await pool.query(`select (select count(*)::int from visit_plans where owner_id = u.id) as plans,
+          (select count(*)::int from territory_assign where user_id = u.id) as areas,
+          (select count(*)::int from places where tc_owner_id = u.id and deleted_at is null) as places
+        from users u where lower(u.email) = $1`, [email]);
+      if (!r.rowCount) return send(res, 404, {ok: false, error: 'ไม่พบบัญชี'});
+      return send(res, 200, {ok: true, ...r.rows[0]});
+    }
     const ctx = auditCtx(req, admin.user);
     const done = async (r, event, target, detail) => {
       if (r && r.ok) await writeAudit(pool, ctx, event, target, detail);
