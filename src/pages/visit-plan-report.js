@@ -390,7 +390,7 @@ export function VisitPlanReport(){
               </div>`
              : tg.status==="cancelled" ? html`<div class="vp-tc-flag">${t("นัดถูกยกเลิก", "Appointment cancelled")}</div>`
              : html`<div class="vp-tc-flag">${t("ไม่ได้เข้าพบ — หลุดออกจากแผนเมื่อสิ้นวัน", "Not visited — dropped from the plan at the end of the day")}</div>`}
-            <div class="vp-tc-dist">${t("ระยะจากจุดก่อนหน้า", "Distance from the previous stop")} ${fmtKm(tg.distFromPrev)} <span class="vp-dim">${t("(เส้นตรง)", "(straight line)")}</span></div>
+            <div class="vp-tc-dist">${i===0 ? t("ระยะจากสาขา", "Distance from the branch") : t("ระยะจากจุดก่อนหน้า", "Distance from the previous stop")} ${fmtKm(tg.distFromPrev)} <span class="vp-dim">${t("(เส้นตรง)", "(straight line)")}</span></div>
           </div>`)}
         </div>` : html`<div class="emptybox">${t("เลือกแผนจากตารางเพื่อดูรายละเอียด", "Pick a plan from the table to see its details")}</div>`}
       </div>
