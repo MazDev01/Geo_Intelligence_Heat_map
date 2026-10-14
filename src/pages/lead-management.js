@@ -7,9 +7,9 @@ import {rejectReasons} from "../master-api.js";
 // สถานะ: รอตรวจสอบ · ข้อมูลซ้ำ · รออนุมัติ · อนุมัติแล้ว · ปฏิเสธ · เปลี่ยนเป็นลูกค้าแล้ว
 // วันที่ทุกจุดเป็นพุทธศักราช · ตัวอักษร slate-900/700/600 บนพื้นขาว · ทุกการตัดสินเขียน audit log
 // ═══════════════════════════════════════════════════════════════════════════
-import {html, useState, useEffect, useApp, Icon, num, provinceTH, thDate, segTH, gapTH} from "../lib.js";
+import {html, useState, useEffect, useApp, Icon, num, provinceTH, thDate, segTH, gapTH, PROVINCE_TH} from "../lib.js";
 import {Btn, Badge, Table, Modal, DateField, toast} from "../ui.js";
-import {SEGMENTS, PROVINCE_KEYS} from "../mock/geoData.js";
+import {SEGMENTS} from "../mock/geoData.js";
 import {leadRequestsApi} from "../data.js";
 import {canExportSource, exportFromServer, downloadLeadFile, beStamp} from "../export-api.js";
 import * as auth from "../auth.js";
@@ -19,7 +19,6 @@ import {createPortal} from "react-dom";
 
 const beD = thDate;   // ใช้ตัวแปลงกลาง
 
-const PROV_TH = PROVINCE_KEYS;
 const CUST_TYPES=["ลูกค้าองค์กร","ลูกค้ารายย่อย","คู่ค้า/พันธมิตร"];
 // ค่าที่บันทึกลงเรกคอร์ดคือ "รหัส" (dup/evidence/…) ป้ายจึงแปลได้อย่างปลอดภัย
 // ป้ายเป็นฟังก์ชัน ไม่ใช่สตริง — ค่าคงที่ระดับโมดูลจะถูกประเมินครั้งเดียวตอนโหลดไฟล์
@@ -119,7 +118,7 @@ export function LeadManagement({onCounts}){
   };
 
   const CHIPS=[["all",t("ทั้งหมด", "All")],["pending",t("รออนุมัติ", "Awaiting approval")],["rejected",t("ปฏิเสธ", "Rejected")],["converted",t("เปลี่ยนเป็นลูกค้าแล้ว", "Converted to customer")]];
-  const provOpts=[["all",t("ทุกจังหวัด", "All provinces")],...PROV_TH.map(p=>[p,provinceTH(p)])];
+  const provOpts=[["all",t("ทุกจังหวัด", "All provinces")],...Object.keys(PROVINCE_TH).map(k=>[k,provinceTH(k)]).sort((a,b)=>String(a[1]).localeCompare(String(b[1]),"th"))];
   const subOpts=[["all",t("ผู้ส่งทั้งหมด", "All submitters")],...(res.submitters||[]).map(x=>[String(x.id),x.name])];
 
   const onAction=l=>setDrawer(l);
