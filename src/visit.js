@@ -40,13 +40,6 @@ export function computeRoute(office, ordered){
   return { order:ordered, legs, totalKm:total, minutes:Math.round(total/AVG_KMH*60) };
 }
 
-// Compare two computed routes (previous → next).
-export function compareRoutes(prev, next){
-  if(!prev||!next) return null;
-  const dist=prev.totalKm-next.totalKm, time=prev.minutes-next.minutes;
-  return { prev, next, distSaved:dist, timeSaved:time, shorter: dist>0.05 };
-}
-
 // ── Geographic clustering of the SELECTED customers (Client Cluster) ──
 // Single-linkage agglomerative: every customer starts as its own cluster; repeatedly merge the two
 // clusters whose closest members are within thresholdKm, until no pair is that close. Same idea as the

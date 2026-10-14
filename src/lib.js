@@ -208,14 +208,6 @@ export function segIconSVG(seg, {size=18, color="currentColor", stroke=2}={}){
   return `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="${color}" `
     + `stroke-width="${stroke}" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${SEG_SVG[k]}</svg>`;
 }
-// ป้ายหมวดธุรกิจสำหรับตาราง/การ์ด: ไอคอน + ชื่อไทย (token design-system: bg สำรอง / เส้นขอบ / มุมโค้งเล็ก)
-export function SegmentBadge({seg, size=15, style}){
-  const k=segKey(seg);
-  return html`<span style=${{display:"inline-flex",alignItems:"center",gap:"6px",padding:"3px 9px 3px 7px",
-    borderRadius:"var(--radius-sm)",background:"var(--surface2)",border:"1px solid var(--stroke)",
-    fontSize:"12.5px",color:"var(--txt)",fontWeight:600,lineHeight:1.2,whiteSpace:"nowrap",...(style||{})}}>
-    <${SegmentIcon} seg=${k} size=${size} color="var(--muted)"/><span>${segTH(k)}</span></span>`;
-}
 export const brandMark = (s=19)=>html`<svg width=${s} height=${s} viewBox="0 0 24 24" fill="none">
   <path d="M12 2C7 8 7 14 12 22 17 14 17 8 12 2Z" fill="#04121a"/>
   <circle cx="12" cy="9" r="2.6" fill="#eafff9"/></svg>`;

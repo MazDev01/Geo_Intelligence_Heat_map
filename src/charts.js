@@ -260,11 +260,3 @@ export function LineChart({series, height=190, format=(v)=>v, labels=[], animate
     </svg>
   </div>`;
 }
-
-export function Sparkline({points, color="#ff3b5c", w=120, h=26}){
-  const max=Math.max(...points), min=Math.min(...points);
-  const d=points.map((p,i)=>`${i?"L":"M"}${i*(w/(points.length-1))},${h-2-((p-min)/(max-min||1))*(h-4)}`).join(" ");
-  return html`<svg width=${w} height=${h} viewBox=${`0 0 ${w} ${h}`} preserveAspectRatio="none">
-    <path d=${d} fill="none" stroke=${color} stroke-width="1.8"/>
-    <path d=${`${d} L${w},${h} L0,${h} Z`} fill=${color} opacity="0.12"/></svg>`;
-}

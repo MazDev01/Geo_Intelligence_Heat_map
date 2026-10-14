@@ -32,7 +32,6 @@ export const NOTIF_EVENTS = [
   { key:"deal_new",    get label(){ return t("มีดีลใหม่รออนุมัติ","New deal awaiting approval"); },             priority:"high",   roles:["Administrator"] },
   { key:"deal_result", get label(){ return t("ผลการพิจารณาดีลที่ส่ง","Decision on a deal you submitted"); },     priority:"high",   roles:["Trade Coordinator"] },
 ];
-export const NOTIF_INDEX = Object.fromEntries(NOTIF_EVENTS.map(e=>[e.key,e]));
 export const PRIORITY_TH = {
   get high(){ return t("สูง","High"); }, get medium(){ return t("กลาง","Medium"); }, get low(){ return t("ต่ำ","Low"); } };
 
@@ -65,10 +64,6 @@ export const PRIORITY_COLOR = {high:"var(--bad)", medium:"var(--warn)", low:"var
 export const priorityOf = key => { const p = (sysStore()[key]||{}).priority; return Object.hasOwn(PRIORITY_RANK, p) ? p : "low"; };
 export const byPriority = list => list.map((x,i)=>[x,i])
   .sort((a,b)=>PRIORITY_RANK[priorityOf(a[0].key)]-PRIORITY_RANK[priorityOf(b[0].key)] || a[1]-b[1]).map(x=>x[0]);
-/* เหตุการณ์ที่ระบบเปิดไว้ — โปรไฟล์แสดงเฉพาะรายการเหล่านี้ */
-export const sysEnabledEvents = () => NOTIF_EVENTS.filter(e => sysStore()[e.key].on);
-/* เหตุการณ์ที่ผู้ใช้ได้รับจริง — กระดิ่งมุมขวาบนกรองด้วยตัวนี้ */
-export const activeEvents = () => NOTIF_EVENTS.filter(e => notifOn(e.key));
 
 /* ── ชั้นที่ 0 · บทบาท — เหตุการณ์ที่บทบาทนี้ "มีสิทธิ์ได้รับ" เลย ──
    ต่างจาก 2 ชั้นบน: ชั้นระบบ/ผู้ใช้ = เปิด-ปิดเอง · ชั้นนี้ = ไม่มีสิทธิ์ ปิดตายไม่มีให้เลือก */

@@ -189,9 +189,6 @@ export function loadDetail(country="Thailand"){
   return p;
 }
 
-// Back-compat: the "globe" bundle is now just the tiny country aggregates.
-export async function loadGlobe(){ return { countries: await loadCountries() }; }
-
 // Back-compat full working set (used by ensureData / deep-links that need everything at once).
 export async function loadCountry(country="Thailand"){
   const [areas, provincesGeo, detail, districts] = await Promise.all([loadAreas(), loadProvincesGeo(), loadDetail(country), loadDistricts()]);

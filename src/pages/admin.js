@@ -1,19 +1,18 @@
-import {html, useState, useEffect, useMemo, useRef, useApp, Icon, num, pct, roleTH, provinceTH, PROVINCE_TH, segTH, STATUS_COLOR, thDate, thDateTime, thMonth, gapTH} from "../lib.js";
+import {html, useState, useEffect, useMemo, useRef, useApp, Icon, num, pct, roleTH, provinceTH, PROVINCE_TH, segTH, thDate, thDateTime, thMonth, gapTH} from "../lib.js";
 import {SEGMENTS, SEG_COLOR, OTHER_COLOR, DISTRICT_TH, GAP_REF, demandGap, gapBySegment, SCORING_DEFAULT, getScoring, setScoring} from "../mock/geoData.js";
-import {LeafletMap} from "../lmap.js";   // แผนที่ความร้อนระดับประเทศ (ใช้ตัวเดียวกับหน้าอื่น)
 import {pushAudit} from "../audit.js";
 import {emailOk} from "../contact-rules.js";
 import {fetchAudit, AUDIT_GROUPS, eventLabel, eventIcon, eventTone, detailText} from "../audit-api.js";
-import {Card, Kpi, Btn, Badge, Toggle, Field, Table, Tabs, Modal, Meter, DateField, toast} from "../ui.js";
+import {Card, Kpi, Btn, Badge, Toggle, Field, Table, Tabs, Modal, DateField, toast} from "../ui.js";
 import {confirmBox} from "../confirm.js";
 import {Dropdown} from "../select.js";
-import {LineChart, BarChart, Donut, Sparkline} from "../charts.js";
+import {LineChart, Donut} from "../charts.js";
 import {calcView, RANGES} from "../timefilter.js";   // thDate มาจาก lib.js โดยตรงแล้ว
 import {ExportDialog, runExport, exportName} from "./reports.js";   // ป็อปอัพส่งออก (ใช้ร่วมกับหน้ารายงาน)
 import {areaCoverage, leadRequestsApi} from "../data.js";
 import {canExportSource, exportFromServer, beStamp} from "../export-api.js";
 import * as auth from "../auth.js";   // บัญชีจริง + รหัสผ่าน (api/auth.js · auth-store.cjs)
-import {NOTIF_EVENTS, PRIORITY_TH, getSysNotif, setSysNotif} from "../notifications.js";
+import {NOTIF_EVENTS, getSysNotif, setSysNotif} from "../notifications.js";
 import {saveSystemNotif, saveScoring, saveLayers} from "../settings-api.js";
 import {tcColorOf} from "../tc-colors.js";
 import {layerSettings, setLayerSettings} from "../layer-opacity.js";   // ความทึบของแผนที่ — ตั้งที่นี่ที่เดียว
@@ -489,67 +488,6 @@ const UM_CSS = `
   .um-search{flex:1 1 100%}
 }
 `;
-
-/* ================= เชื่อมต่อข้อมูล ================= */
-export function Integration(){
-  // ปุ่ม "อัปโหลดไฟล์ใหม่" ถูกย้าย/รวมไว้ที่หน้า "จัดการข้อมูล" แล้ว จึงตัดออกจากหน้านี้ (กันซ้ำซ้อน)
-  // แหล่งไฟล์นำเข้า 2 แหล่ง (แทนการเชื่อมต่อระบบภายนอกเดิม)
-  const sources=[
-    {name:t("ไฟล์จากลูกค้า","Customer files"),type:"db",status:t("นำเข้าแล้ว","Imported"),detail:t("อัปโหลดล่าสุด: 11 ก.ค. 2026 · 2,301 รายการ", "Last upload: 11 Jul 2026 · 2,301 records"),tone:"good"},
-    {name:t("ข้อมูลสาธารณะ (MAZ)","Public data (MAZ)"),type:"api",status:t("นำเข้าแล้ว","Imported"),detail:t("กลุ่มธุรกิจ Hospitality · อัปเดตล่าสุด: 09 ก.ค. 2026", "Hospitality category · last updated: 09 Jul 2026"),tone:"good"},
-  ];
-  const mapping=[
-    ["customer_id","id","string","✓"],["company_name","businessName","string","✓"],
-    ["gps_lat","latitude","float","✓"],["gps_lng","longitude","float","✓"],
-    ["industry_code","segment","enum","✓"],["phone","phone","string","✓"],["date_join","dateJoin","date","✓"]];
-  // ประวัติการนำเข้าไฟล์ (ชื่อไฟล์, แหล่งที่มา, วันที่อัปโหลด, จำนวนแถวที่นำเข้าสำเร็จ, สถานะ)
-  const imports=[
-    ["customers_2026-07-11.xlsx",t("ลูกค้า", "Customers"),t("11 ก.ค. 2026", "11 Jul 2026"),"2,301",t("สำเร็จ", "Success")],
-    ["maz_hospitality_2026-07-09.csv","MAZ",t("09 ก.ค. 2026", "09 Jul 2026"),"6,862",t("สำเร็จ", "Success")],
-    ["customers_2026-07-05.xlsx",t("ลูกค้า", "Customers"),t("05 ก.ค. 2026", "05 Jul 2026"),"2,254",t("มีข้อผิดพลาด", "Has errors")]];
-
-  return html`<div class="page fade-in">
-    <div class="page-head"><div><h1>${t("เชื่อมต่อข้อมูล", "Data connections")}</h1></div></div>
-
-    <div class="grid g2" style=${{marginBottom:"16px"}}>
-      ${sources.map(c=>html`<${Card} key=${c.name} className="hoverable">
-        <div class="row between">
-          <div class="row" style=${{gap:"12px"}}>
-            <div style=${{width:"42px",height:"42px",borderRadius:"11px",display:"grid",placeItems:"center",background:"rgba(230, 0, 35,.14)"}}>
-              <${Icon} name=${c.type==="db"?"db":"api"} size=${20} color="#e60023"/></div>
-            <div><div style=${{fontWeight:700,fontSize:"14px"}}>${c.name}</div>
-              <div class="dim" style=${{fontSize:"13px",marginTop:"2px"}}>${c.detail}</div></div></div>
-          <${Badge} tone=${c.tone}>${c.status}</${Badge}></div>
-      </${Card}>`)}
-    </div>
-
-    <div class="grid g2" style=${{marginBottom:"16px"}}>
-      <${Card} title=${t("การจับคู่ข้อมูล", "Field mapping")} sub=${t("คอลัมน์ในไฟล์ Excel → โครงสร้างแพลตฟอร์ม", "Excel columns → platform schema")} pad0=${true}>
-        <${Table} cols=${[
-          {h:t("ฟิลด์ต้นทาง", "Source field"), render:r=>html`<span class="mono" style=${{fontSize:"12px"}}>${r[0]}</span>`},
-          {h:t("เป้าหมาย", "Target"), render:r=>html`<span class="mono" style=${{fontSize:"12px",color:"#e60023"}}>${r[1]}</span>`},
-          {h:t("ชนิด", "Type"), render:r=>r[2]},
-          {h:t("ถูกต้อง", "Valid"), render:r=>html`<${Badge} tone="good">${r[3]}</${Badge}>`},
-        ]} rows=${mapping}/>
-      </${Card}>
-      <${Card} title=${t("การตรวจสอบข้อมูล", "Data validation")}>
-        ${[[t("ความถูกต้องของพิกัด", "Coordinate accuracy"),98],[t("การจับคู่กลุ่มธุรกิจ", "Business-category matching"),100],[t("การตรวจจับข้อมูลซ้ำ", "Duplicate detection"),96],[t("ความครบถ้วนของที่อยู่", "Address completeness"),89]].map(([l,v])=>
-          html`<div key=${l} style=${{marginBottom:"12px"}}><div class="row between" style=${{fontSize:"12.5px",marginBottom:"5px"}}>
-            <span>${l}</span><b>${v}%</b></div><${Meter} value=${v} color=${v>=95?"linear-gradient(90deg,#33d69f,#34e0d0)":"linear-gradient(90deg,#ffb02e,#ff5a3c)"}/></div>`)}
-      </${Card}>
-    </div>
-
-    <${Card} title=${t("ประวัติการนำเข้า", "Import history")} sub=${t("ไฟล์ที่นำเข้าล่าสุดโดยผู้ดูแลระบบ", "Files most recently imported by an administrator")} pad0=${true}>
-      <${Table} cols=${[
-        {h:t("ชื่อไฟล์", "File name"), render:r=>html`<span class="mono" style=${{fontSize:"12.5px"}}>${r[0]}</span>`},
-        {h:t("แหล่งที่มา", "Source"), render:r=>r[1]},
-        {h:t("วันที่อัปโหลด", "Uploaded"), render:r=>r[2]},
-        {h:t("นำเข้าสำเร็จ", "Imported"), render:r=>r[3]+t(" แถว", " rows")},
-        {h:t("สถานะ", "Status"), render:r=>html`<${Badge} tone=${r[4]==="สำเร็จ"?"good":"warn"}>${r[4]}</${Badge}>`},
-      ]} rows=${imports}/>
-    </${Card}>
-  </div>`;
-}
 
 /* ================= ตั้งค่าระบบ ================= */
 export function Config(){
@@ -1573,6 +1511,3 @@ const EXD_CSS = `
 .mg-seg-n{font-weight:800;font-size:12px;text-align:right;white-space:nowrap}
 .mg-seg-n.up{color:#0f7a3d}.mg-seg-n.down{color:var(--accent)}
 `;
-
-function syncRow(k,v){ return html`<div class="row between" style=${{padding:"10px 0",borderBottom:"1px solid var(--stroke)",fontSize:"13px"}}>
-  <span class="muted">${k}</span><span class="mono" style=${{fontWeight:600}}>${v}</span></div>`; }

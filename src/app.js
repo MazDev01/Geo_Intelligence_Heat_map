@@ -1,12 +1,11 @@
 import {React, html, useState, useEffect, useMemo, useRef, createRoot, AppCtx, Icon, brandMark, num, roleTH, countryTH, provinceTH} from "./lib.js";
-import {t, useLang, getLang, setLang} from "./lib.js";   // สลับภาษา TH/EN — ดู src/i18n.js
+import {t, useLang, setLang} from "./lib.js";   // สลับภาษา TH/EN — ดู src/i18n.js
 import {getLayerOpacity, getLayerOn, subscribeLayerOpacity} from "./layer-opacity.js";   // ความทึบ = ตั้งที่แอดมินที่เดียว
 import {loadCountries, loadWorld, loadAreas, loadProvincesGeo, loadDetail, clearDetail, clearAggregates, writePlaces, placeVisitsApi, leadRequestsApi, dealFileError, fileBase64, loadCountry, loadDistricts, defaultFilters} from "./data.js";
-import {LoadingScreen, ToastHost, Badge, Btn, toast, LangToggle} from "./ui.js";
+import {ToastHost, Badge, toast, LangToggle} from "./ui.js";
 import {Login} from "./pages/login.js";
 import * as auth from "./auth.js";   // โทเคน/บัญชีจริง (ดู api/auth.js · auth-store.cjs)
 import {GeoStage} from "./stage.js";
-import {Dashboard} from "./pages/dashboard.js";
 import {AreaPanel, CustomerPanel} from "./panels.js";
 import {Reports} from "./pages/reports.js";
 import {Profile} from "./pages/profile.js";
@@ -23,7 +22,7 @@ import {HelpTips} from "./help.js";
 import {VisitPlanner} from "./visit-planner.js";
 import {usePlanSync} from "./plan-sync.js";
 import {AddRecordsForm, USER_SOURCE} from "./add-records.js";
-import {OFFICE, officeFor, clusterCustomers, optimizeOrder} from "./visit.js";
+import {officeFor, clusterCustomers, optimizeOrder} from "./visit.js";
 import {pushAudit} from "./audit.js";
 import {buildNotifs, applyServerNotif, inboxView, agoText, byPriority, priorityOf, PRIORITY_COLOR, PRIORITY_TH} from "./notifications.js";
 import {loadInbox, markInboxRead} from "./notif-api.js";
@@ -65,8 +64,6 @@ const TITLES = () => ({...Object.fromEntries(NAV().flatMap(g=>g.items).flatMap(i
   "visit-plans":t("รายงานแผนการเข้าพบ","Visit Plan Report"), profile:t("โปรไฟล์","Profile")});
 const ROUTE_EXTRA = ["from","to","dist","status","plan"];
 const THAILAND_CENTER = [13.2, 101];   // hardcoded fly-in target for the post-login intro (no search/query)
-const INTRO_KEY = "geointel_intro";    // sessionStorage flag — the globe intro plays once per session
-
 const LOCAL_ONLY = new Set(["id","source","created_at","clientId","country","visit_status","visitRounds"]);
 const PLACE_KEYS = ["latitude","longitude","province","district"];
 function changedFields(cur, next){
@@ -1129,9 +1126,7 @@ function App(){
 
       <!-- Business Overview (แดชบอร์ด)  OR  Geo Intelligence Workspace (แผนที่วิเคราะห์) -->
       <div class="workspace" style=${{position:"relative",flex:1,minHeight:0,display:"flex"}}>
-        ${(view==="dashboard" && user.role==="Administrator")
-          ? html`<${Dashboard}/>`
-          : html`<${GeoStage} db=${db} mode=${mode} activeCountry=${activeCountry} flyTarget=${flyTarget} globeUnder=${globeUnder}
+        <${GeoStage} db=${db} mode=${mode} activeCountry=${activeCountry} flyTarget=${flyTarget} globeUnder=${globeUnder}
               lockProvinces=${isTC ? tcProvinces : null} lockAreas=${isTC ? tcAreas : null}
               zoneMode=${isTC && tcZoned ? "lock" : user.role==="Management" ? "outline" : null}
               canEditZones=${isAdmin} noMask=${isAdmin} zoneEdit=${zoneEdit && isAdmin} onExitZoneEdit=${exitZoneEdit} zoneEdRef=${zoneEdRef}
@@ -1143,7 +1138,7 @@ function App(){
               highlightCustomer=${overlay==="customer"?selectedCustomer:null} tourPanel=${tourPanel} tourFocus=${tourFocus}
               visitPlan=${visitPlan} visitRoute=${visitRoute} quietRoute=${!!(tcMany && activePlan && activePlan.fromServer)} office=${planOffice} planRoutes=${savedPlanRoutes}
               gsearch=${gsearch} setGsearch=${setGsearch} searchResults=${results}
-              onPickProvinceZoom=${pickProvinceZoom} onPickCustomerNav=${p=>nav("customer",{id:p.id})}/>`}
+              onPickProvinceZoom=${pickProvinceZoom} onPickCustomerNav=${p=>nav("customer",{id:p.id})}/>
 
         ${view==="workspace" && overlay==="area" && selectedProvince && !isTC && !isAdmin && html`<${AreaPanel} key=${selectedProvince} db=${db} filters=${filters}
           province=${selectedProvince} onClose=${()=>setOverlay(null)}

@@ -172,8 +172,6 @@ export const PROVINCES = [
   { key:"Chiang Mai",         th:"เชียงใหม่",     prospects:260, topSegment:"FoodBeverage", center:[98.99,18.79] },
 ];
 export const PROVINCE_KEYS = PROVINCES.map(p=>p.key);
-export const provinceSpec = key => PROVINCES.find(p=>p.key===key);
-
 // ── อำเภอ/เขต ต่อจังหวัด (≥6 ทุกจังหวัด เพื่อให้ "อันดับพื้นที่โอกาส" แสดง top-5 ได้จริง) ──
 // [ชื่ออังกฤษ, ชื่อไทย, น้ำหนักกระจายข้อมูล, lat, lng]
 // พัทยา: ใช้ชื่อย่านจริงในเขตพัทยา/บางละมุง+อำเภอชายฝั่ง (ทุกชื่อเป็นย่าน/อำเภอในพื้นที่ ไม่มีชื่อจังหวัดปน)
@@ -236,11 +234,6 @@ export const BKK_ZONES = [
 /* ข้อมูลจริงจาก Barter สะกดชื่อเขตหลายแบบ — เทียบโดยตัดช่องว่าง/ตัวพิมพ์ก่อน
    ("Wang Thong Lang" = "Wang Thonglang" จัดการได้ด้วยการตัดช่องว่าง)
    เหลืออีก 3 ตัวที่เป็นคนละระบบถอดเสียง ไม่ใช่พิมพ์ผิด จึงต้องแม็ปตรง ๆ */
-const _norm = s => String(s ?? "").toLowerCase().replace(/[^a-z]/g, "");
-const _ALIAS = {watthana:"vadhana", bangsu:"bangsue", bungkum:"buengkum"};
-const _ZONE_BY_DISTRICT = Object.fromEntries(BKK_ZONES.flatMap(z=>z.districts.map(d=>[_norm(d), z.key])));
-/* เขตในกรุงเทพฯ → คีย์โซน (SL/LP/TL) · null ถ้าเขตนั้นยังไม่ได้อยู่ในโซนไหน (อีก 23 เขตที่เหลือ) */
-export const bkkZoneOf = district => { const n = _norm(district); return _ZONE_BY_DISTRICT[_ALIAS[n] ?? n] || null; };
 /* ชื่อโซนตามภาษาปัจจุบัน — คีย์ (SL/LP/TL) เป็นค่าข้อมูล ไม่แปล */
 export const zoneName = key => { const z = BKK_ZONES.find(x=>x.key===key); return z ? (isEN()?z.en:z.th) : key; };
 

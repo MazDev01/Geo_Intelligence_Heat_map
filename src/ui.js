@@ -30,25 +30,6 @@ export function Badge({tone="neutral", children, icon}){
   return html`<span class=${"badge b-"+tone}>${icon&&html`<${Icon} name=${icon} size=${12}/>`}${children}</span>`;
 }
 
-// Small "i" info affordance with a tooltip. Works on hover (desktop) AND click/tap (mobile, no hover);
-// a click toggles it and an outside click closes it. `side="right"` opens the bubble leftward (use near
-// a right edge). `text` may be a string or an html`` fragment.
-export function InfoTip({text, side}){
-  const [open,setOpen]=useState(false);
-  const ref=useRef();
-  useEffect(()=>{ if(!open) return;
-    const away=e=>{ if(ref.current && !ref.current.contains(e.target)) setOpen(false); };
-    document.addEventListener("mousedown",away);
-    return ()=>document.removeEventListener("mousedown",away);
-  },[open]);
-  return html`<span class=${"infotip"+(side==="right"?" itp-right":"")} ref=${ref}
-    onMouseEnter=${()=>setOpen(true)} onMouseLeave=${()=>setOpen(false)}>
-    <button class="infotip-i" type="button" aria-label=${t("คำอธิบายที่มาของคะแนน", "How this score is derived")}
-      onClick=${e=>{e.stopPropagation();e.preventDefault();setOpen(o=>!o);}}>i</button>
-    ${open && html`<span class="infotip-pop" role="tooltip">${text}</span>`}
-  </span>`;
-}
-
 export function Btn({variant="ghost", size, icon, children, onClick, disabled, type}){
   return html`<button type=${type||"button"} class=${cx("btn",variant,size)} onClick=${onClick} disabled=${disabled}>
     ${icon&&html`<${Icon} name=${icon} size=${size==="sm"?14:size==="lg"?19:16}/>`}${children}</button>`;
@@ -72,11 +53,6 @@ export function Toggle({on, onChange}){
 export function Field({label, children}){
   return html`<div class="field">${label&&html`<label>${label}</label>`}${children}</div>`;
 }
-export function Input(props){ return html`<input class="input" ...${props}/>`; }
-export function Select({value,onChange,children,...rest}){
-  return html`<select class="input" value=${value} onChange=${onChange} ...${rest}>${children}</select>`;
-}
-
 export function Tabs({tabs, active, onChange}){
   return html`<div class="tabs">${tabs.map(t=>{
     const v=typeof t==="string"?t:t.value, l=typeof t==="string"?t:t.label;
@@ -101,18 +77,6 @@ export function Modal({title, onClose, children, footer, wide, small}){
     </div></div>`;
   // render ที่ <body> โดยตรง → escape .slide-panel ในหน้าแอดมิน จึงคลุมเต็มจอ (แถบเมนูไม่โผล่หลังป็อปอัพ)
   return (typeof document!=="undefined") ? createPortal(node, document.body) : node;
-}
-
-export function Skeleton({h=16, w="100%", style}){
-  return html`<div class="skeleton" style=${{height:h+"px", width:typeof w==="number"?w+"px":w, ...style}}></div>`;
-}
-export function LoadingScreen({label="Loading geospatial data…"}){
-  return html`<div style=${{display:"grid",placeItems:"center",height:"100%",gap:"18px"}}>
-    <div style=${{width:"46px",height:"46px",borderRadius:"50%",border:"3px solid rgba(120,160,220,.2)",
-      borderTopColor:"var(--accent2)",animation:"spin 1s linear infinite"}}></div>
-    <div class="muted" style=${{fontSize:"13px"}}>${label}</div>
-    <style>@keyframes spin{to{transform:rotate(360deg)}}</style>
-  </div>`;
 }
 
 export function Table({cols, rows, onRow, empty="No records", rowClass}){

@@ -6,15 +6,13 @@ import {t} from "../i18n.js";   // สลับภาษา TH/EN — ดู src
 // สแตกจริงของโปรเจกต์ = buildless htm/React (ไม่ใช่ Next.js/Tailwind/Supabase ตามหัว prompt) ใช้ token/คอมโพเนนต์เดิม
 // ทุกข้อความเป็นภาษาไทย · ทุก action ที่เปลี่ยนข้อมูลบันทึกลง Audit Log (src/audit.js)
 // ═══════════════════════════════════════════════════════════════════════════
-import {html, useState, useEffect, useMemo, useRef, useApp, Icon, num, provinceTH, districtTH, PROVINCE_TH, thDate, thDateTime, segTH, getLang, useLang, gapTH} from "../lib.js";
-import {basemap} from "../basemap.js";
-import {Card, Kpi, Btn, Badge, Toggle, Table, Tabs, Modal, Meter, toast} from "../ui.js";
-import {SEGMENTS, PROVINCE_KEYS, tcLabel, BKK, BKK_ZONES} from "../mock/geoData.js";
+import {html, useState, useEffect, useMemo, useRef, useApp, Icon, num, provinceTH, districtTH, PROVINCE_TH, thDate, thDateTime, segTH, getLang} from "../lib.js";
+import {Card, Kpi, Btn, Badge, Table, Modal, Meter, toast} from "../ui.js";
+import {SEGMENTS, PROVINCE_KEYS, BKK, BKK_ZONES} from "../mock/geoData.js";
 import {loadZoneRegistry, zoneRegistry, zonesOf, zoneLabel, zoneColor, saveZoneRegistry, nextColor, ZONE_REST, subscribeZones}
   from "../zone-registry.js";   // ทะเบียนโซน — แหล่งความจริงเดียวของ id/ชื่อ/สี/จังหวัด
 import {pushAudit} from "../audit.js";
 import {ExportDialog, runExport, exportName} from "./reports.js";   // ป็อปอัพส่งออกตัวเดียวกับหน้ารายงาน
-import {canExportKind} from "../export-api.js";
 import {downloadCSV, importsApi} from "../data.js";
 import {loadTerritory, saveTerritory} from "../territory-store.js";
 import {listUsers, token} from "../auth.js";
@@ -33,25 +31,7 @@ const fmtBytes=b=> b>=1048576 ? (b/1048576).toFixed(1)+" MB" : Math.round(b/1024
 /* ---------- RNG คงที่ (mock data เดิมทุกครั้ง) ---------- */
 function mulberry32(a){return function(){a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296;};}
 const PROV_TH = PROVINCE_KEYS;   // 4 จังหวัด
-const TC_NAMES = ["ธนพล ศรีวัฒน์","ณัฐริกา พงษ์ไพบูลย์","กิตติศักดิ์ อารยะกุล","ศุภมาส เจริญสุข","วีรภัทร ตันติพงศ์","ปิยะนุช วงศ์สกุล"];
 const BIZ = ["ครัวคุณย่า","เดอะโค้ชโฮเทล","บิวตี้เฮาส์","สปาเรือนไทย","มอเตอร์พลัส","โฮมสตูดิโอ","ติวเตอร์เฮาส์","ที่ปรึกษาธุรกิจสยาม","มาร์ทเฟรช","เทคโฟกัส","คลีนโปร","อีเวนต์เอเจนซี","คาเฟ่ริมคลอง","รีสอร์ทภูวิว","ร้านอะไหล่ยนต์","เฟอร์นิเจอร์ดีไซน์"];
-
-/* ---------- 35 รายการที่ TC/Admin กรอกเอง ---------- */
-const genTC = ()=>{ const R=mulberry32(778899); const rp=a=>a[Math.floor(R()*a.length)]; const ri=(a,b)=>Math.floor(a+R()*(b-a+1));
-  const CHECK=["รอตรวจสอบ","ตรวจสอบแล้ว","ตีกลับ"]; const out=[];
-  for(let i=0;i<35;i++){
-    const admin = R()<0.18;                    // ส่วนน้อยเป็น Admin กรอก (อาจเป็นลูกค้า)
-    const type = admin && R()<0.5 ? "Existing" : "Prospect";   // กติกา: TC กรอกได้เฉพาะLead
-    const prov = rp(PROV_TH); const bad = R()<0.12; const incomplete = R()<0.14;
-    const nm = rp(BIZ)+" "+rp(["สาขา 1","สาขา 2","สำนักงานใหญ่","ริมถนน","ในเมือง"]);
-    out.push({ id:"REC"+String(1001+i), name:nm,
-      type, segment:rp(SEGMENTS), province:prov, district:"",
-      lat: bad ? 45.2 : +(13+R()*6).toFixed(4), lng: bad ? 250 : +(98+R()*3).toFixed(4),
-      email: incomplete ? "" : "contact"+(1001+i)+"@"+rp(["gmail.com","hotmail.com","outlook.co.th"]),
-      tc: admin ? "System Administrator" : rp(TC_NAMES), date: `2026-0${ri(4,7)}-${String(ri(1,28)).padStart(2,"0")}`,
-      check: rp(CHECK), source: admin?"manual_admin":"manual_tc", incomplete, badCoord:bad });
-  }
-  return out; };
 
 /* ---------- 8 ไฟล์นำเข้า ---------- */
 const IMPORTS = (()=>{ const R=mulberry32(20260714); const ri=(a,b)=>Math.floor(a+R()*(b-a+1)); const rp=a=>a[Math.floor(R()*a.length)];
@@ -263,14 +243,6 @@ const ISSUE_META = {
   edited:    {tone:"good",    get label(){ return t("แก้ไขแล้ว","Edited"); }},
   skipped:   {tone:"neutral", get label(){ return t("ข้าม","Skipped"); }} };
 const SEG_TH_OF = s => segTH(s);
-const IMP_STATUS = { "สำเร็จ":"good", "สำเร็จบางส่วน":"warn", "ล้มเหลว":"bad", "กำลังประมวลผล":"info" };
-const CHECK_TONE = { "รอตรวจสอบ":"warn", "ตรวจสอบแล้ว":"good", "ตีกลับ":"bad" };
-const SRC_TH = {
-  get manual_tc(){ return t("TC กรอกเอง","Entered by a TC"); },
-  get manual_admin(){ return t("Admin กรอกเอง","Entered by an admin"); },
-  get import_file(){ return t("นำเข้าจากไฟล์","Imported from a file"); } };
-const SRC_TONE = { manual_tc:"info", manual_admin:"neutral", import_file:"warn" };
-
 // ── Drawer แก้ไขแถว (ขั้นตอนที่ 3) — ฟอร์มแก้ได้จริง + ไฮไลต์ฟิลด์ที่ผิด · แถวซ้ำ = ตารางเทียบ ──
 function EditRowDrawer({row, onClose, onSave, onSkip, onMerge, onNew}){
   const isDup = row.issue==="dup" && row.match;
@@ -1049,115 +1021,6 @@ function TriageReview({staging, setStaging, fileId, liveFile, onLeft}){
 
 /* ═══════════════════ แท็บ 4: ข้อมูลที่ TC กรอกเข้ามา ═══════════════════ */
 let _adding=false;
-function TCData(){
-  const {db, user, adminAddRecords}=useApp();
-  const canXlsx = canExportKind((user&&user.role)||"Administrator", "tc_records", "excel");
-  const [rows,setRows]=useState(genTC);
-  const [q,setQ]=useState(""); const [prov,setProv]=useState("All"); const [check,setCheck]=useState("All");
-  const [sel,setSel]=useState({}); const [page,setPage]=useState(1);
-  const [del,setDel]=useState(null); const [addOpen,setAddOpen]=useState(false); const [drawer,setDrawer]=useState(null); const [edit,setEdit]=useState(null);
-  const filtered=rows.filter(r=>(prov==="All"||r.province===prov)&&(check==="All"||r.check===check)&&(!q||r.name.includes(q)));
-  const PAGE=10; const totalPages=Math.max(1,Math.ceil(filtered.length/PAGE)); const pageRows=filtered.slice((page-1)*PAGE,page*PAGE);
-  const selIds=Object.keys(sel).filter(k=>sel[k]);
-  const bulk=how=>{ const lbl={verified:t("ทำเครื่องหมายว่าตรวจสอบแล้ว", "Marked as reviewed"),reject:t("ตีกลับ", "Returned"),del:t("ลบ", "Delete")}[how];
-    if(how==="del") setRows(rs=>rs.filter(r=>!sel[r.id])); else setRows(rs=>rs.map(r=>sel[r.id]?{...r,check:how==="verified"?t("ตรวจสอบแล้ว", "Reviewed"):t("ตีกลับ", "Returned")}:r));
-    pushAudit({action:t("จัดการข้อมูล TC (หลายรายการ)", "Handled TC records (bulk)"), category: how==="del"?t("ลบ", "Delete"):t("แก้ไข", "Edit"), detail:`${lbl} · ${selIds.length} ${t("รายการ", "records")}`});
-    toast(`${lbl} ${selIds.length} ${t("รายการแล้ว", "records")}`, how==="del"?"warn":"good"); setSel({}); };
-  const doDelete=r=>{ setRows(rs=>rs.filter(x=>x.id!==r.id)); setDel(null); setDrawer(null);
-    pushAudit({action:t("ลบข้อมูลที่กรอกเอง", "Deleted a manually entered record"), category:"ลบ", detail:`${r.name} (${r.id})`}); toast(t("ลบข้อมูลแล้ว", "Record deleted"),"warn"); };
-  const onAdd=async sent=>{ if(_adding) return; _adding=true;
-    let recs; try{ recs = adminAddRecords ? await adminAddRecords(sent) : sent; } finally { _adding=false; }
-    if(!recs) return;
-    const mapped=recs.map((r,i)=>({ id:"REC"+(9000+rows.length+i), name:r.businessName, type:r.status,
-      segment:r.segment, province:r.province, district:r.district, lat:r.latitude, lng:r.longitude,
-      email:r.email||"",
-      tc:"System Administrator", date:new Date().toISOString().slice(0,10), check:"ตรวจสอบแล้ว", source:"manual_admin"   /* check = ค่าข้อมูล ห้ามแปล */, incomplete:false, badCoord:false }));
-    setRows(rs=>[...mapped,...rs]); setAddOpen(false);
-    pushAudit({action:t("เพิ่มข้อมูลด้วยตนเอง (Admin)", "Added a record manually (admin)"), category:"เพิ่ม", detail:`${mapped.length} ${t("รายการ", "records")}`}); toast(`${t("เพิ่มข้อมูล", "Added")} ${mapped.length} ${t("รายการแล้ว", "records")}`,"good"); };
-  const exportXlsx=()=>{
-    if(!filtered.length){ toast(t("ไม่มีรายการให้ส่งออก", "Nothing to export"),"warn"); return; }
-    const area = prov==="All" ? t("ทุกจังหวัด","All provinces") : provinceTH(prov);
-    const rowsOut = [[t("ข้อมูลที่ TC กรอกเข้ามา (GeoIntel)", "Records entered by TCs (GeoIntel)")], [t("จัดทำเมื่อ","Prepared on"), thDate(Date.now())], [],
-      [t("รหัส","ID"), t("ชื่อธุรกิจ","Business name"), t("ประเภท","Type"), t("หมวดธุรกิจ","Business category"), t("จังหวัด","Province"),
-       t("อำเภอ/เขต","District"), t("พิกัด","Coordinates"), t("อีเมล","Email"), "TC", t("วันที่","Date"), t("การตรวจสอบ","Review")],
-      ...filtered.map(r=>[r.id, r.name||"", r.type==="Existing"?t("ลูกค้า","Customer"):"Lead", segTH(r.segment)||"", provinceTH(r.province)||"",
-        districtTH(r.district)||r.district||"", (r.lat&&r.lng) ? r.lat+", "+r.lng : "", r.email||"", r.tc||"", r.date||"", r.check||""])];
-    runExport({kind:"tc_records", format:"excel", filename:exportName("", {areaName:area}), rows:rowsOut, count:filtered.length,
-      scope:{areaLabel:area, segLabel:check==="All"?t("ทุกสถานะ","All statuses"):check}});
-  };
-  // แก้ไข: ใช้ฟอร์มร่วมกับฟอร์มเพิ่มข้อมูล (AddRecordsForm โหมด editRecord) — Admin แก้ได้ทุก field
-  const toRecord = r => ({ id:r.id, status:r.type, businessName:r.name, address:"", email:r.email||"", latitude:r.lat, longitude:r.lng,
-    segment:r.segment, tc_owner:r.tc });
-  const onEditSave = recs => { const rec=recs[0]; if(!rec){ setEdit(null); return; }
-    setRows(rs=>rs.map(x=> x.id===edit.id ? {...x, name:rec.businessName, type:rec.status, segment:rec.segment,
-      province:rec.province||x.province, district:rec.district||x.district, lat:rec.latitude, lng:rec.longitude,
-      email:rec.email||x.email||"", incomplete:false, badCoord:false } : x));
-    setEdit(null);
-    pushAudit({action:t("แก้ไขข้อมูลที่กรอกเอง", "Edited a manually entered record"), category:"แก้ไข", detail:`${rec.businessName} (${edit.id})`});
-    toast(t("บันทึกการแก้ไขแล้ว", "Changes saved"),"good"); };
-  const hasFilter = q||prov!=="All"||check!=="All";
-  const allSel = pageRows.length>0 && pageRows.every(r=>sel[r.id]);
-  return html`<div>
-    <div class="dm-toolbar">
-      <input class="dm-input" placeholder=${t("ค้นหาชื่อธุรกิจ…", "Search business names…")} value=${q} onInput=${e=>{setQ(e.target.value);setPage(1);}}/>
-      <select class="dm-sel" value=${prov} onChange=${e=>{setProv(e.target.value);setPage(1);}}>
-        <option value="All">${t("ทุกจังหวัด", "All provinces")}</option>${PROV_TH.map(p=>html`<option key=${p} value=${p}>${provinceTH(p)}</option>`)}</select>
-      <select class="dm-sel" value=${check} onChange=${e=>{setCheck(e.target.value);setPage(1);}}>
-        ${["All",t("รอตรวจสอบ", "Awaiting review"),t("ตรวจสอบแล้ว", "Reviewed"),t("ตีกลับ", "Returned")].map(s=>html`<option key=${s} value=${s}>${s==="All"?t("ทุกสถานะตรวจสอบ", "All review statuses"):s}</option>`)}</select>
-      <div style=${{marginLeft:"auto"}} class="row">${canXlsx && html`<${Btn} size="sm" variant="ghost" icon="download" onClick=${exportXlsx}>${t("ส่งออก Excel", "Export to Excel")}</${Btn}>`}
-        <${Btn} size="sm" variant="outline" icon="plus" onClick=${()=>setAddOpen(true)}>${t("เพิ่มข้อมูลด้วยตนเอง", "Add a record manually")}</${Btn}></div>
-    </div>
-    ${selIds.length?html`<div class="dm-bulk"><b>${t("เลือก", "Selected")} ${selIds.length} ${t("รายการ", "records")}</b>
-      <${Btn} size="sm" variant="ghost" onClick=${()=>bulk("verified")}>${t("ทำเครื่องหมายว่าตรวจสอบแล้ว", "Marked as reviewed")}</${Btn}>
-      <${Btn} size="sm" variant="ghost" onClick=${()=>bulk("reject")}>${t("ตีกลับ", "Returned")}</${Btn}>
-      <${Btn} size="sm" variant="ghost" onClick=${()=>bulk("del")}>${t("ลบ", "Delete")}</${Btn}></div>`:""}
-    <${Table} empty=${t("ไม่พบข้อมูลตามเงื่อนไขที่เลือก", "Nothing matches the current filters")} cols=${[
-      {h:html`<input type="checkbox" checked=${allSel} onChange=${e=>{const c=e.target.checked;setSel(s=>{const n={...s};pageRows.forEach(r=>n[r.id]=c);return n;});}}/>`,
-        render:r=>html`<input type="checkbox" checked=${!!sel[r.id]} onChange=${e=>setSel(s=>({...s,[r.id]:e.target.checked}))}/>`},
-      {h:t("ชื่อธุรกิจ", "Business name"), render:r=>html`<button class="dm-link" onClick=${()=>setDrawer(r)}>${r.name}</button>
-        ${r.incomplete?html` <${Badge} tone="warn">${t("ไม่ครบ", "Incomplete")}</${Badge}>`:""}${r.badCoord?html` <${Badge} tone="bad">${t("พิกัดผิด", "Bad coords")}</${Badge}>`:""}`},
-      {h:t("ประเภท", "Type"), render:r=>html`<${Badge} tone=${r.type==="Existing"?"good":"info"}>${r.type==="Existing"?t("ลูกค้า", "Customers"):"Lead"}</${Badge}>`},
-      {h:t("หมวดหมู่", "Category"), render:r=>segTH(r.segment)},
-      {h:t("จังหวัด", "Province"), render:r=>provinceTH(r.province)},
-      {h:t("อีเมล", "Email"), render:r=> r.email?html`<span class="mono" style=${{fontSize:"11.5px"}}>${r.email}</span>`:html`<span class="dim">—</span>`},
-      {h:t("ผู้กรอก", "Entered by"), render:r=>html`<div>${tcLabel(r.tc)}<div class="dim" style=${{fontSize:"11px"}}>${SRC_TH[r.source]}</div></div>`},
-      {h:t("วันที่กรอก", "Entered on"), render:r=>beDate(r.date)},
-      {h:t("สถานะตรวจสอบ", "Review status"), render:r=>html`<${Badge} tone=${CHECK_TONE[r.check]}>${r.check}</${Badge}>`},
-      {h:t("จัดการ", "Actions"), render:r=>html`<div class="row" style=${{gap:"6px"}}>
-        <${Btn} size="sm" variant="ghost" onClick=${()=>setEdit(r)}>${t("แก้ไข", "Edit")}</${Btn}>
-        <${Btn} size="sm" variant="ghost" onClick=${()=>setDel(r)}>${t("ลบ", "Delete")}</${Btn}></div>`},
-    ]} rows=${pageRows}/>
-    ${filtered.length===0 && hasFilter ? html`<div class="dm-empty" style=${{padding:"30px 20px"}}>
-      <div class="dim">${t("ไม่พบข้อมูลตามเงื่อนไขที่เลือก", "Nothing matches the current filters")}</div></div>`:""}
-    ${totalPages>1?html`<div class="dm-pager"><span class="dim">${t("แสดง", "Showing")} ${(page-1)*PAGE+1}–${Math.min(page*PAGE,filtered.length)} ${t("จาก", "of")} ${filtered.length} ${t("รายการ", "records")}</span>
-      <div class="row" style=${{gap:"5px"}}>${Array.from({length:totalPages},(_,i)=>i+1).map(p=>html`<button key=${p} class=${"dm-pg"+(p===page?" on":"")} onClick=${()=>setPage(p)}>${p}</button>`)}</div></div>`:""}
-
-    ${addOpen?html`<${AddRecordsForm} db=${db} allowImport=${true} onClose=${()=>setAddOpen(false)} onSave=${onAdd}/>`:""}
-    ${edit?html`<${AddRecordsForm} db=${db} editRecord=${toRecord(edit)} onClose=${()=>setEdit(null)} onSave=${onEditSave}/>`:""}
-    ${del?html`<${Modal} title=${t("ยืนยันการลบ", "Confirm deletion")} onClose=${()=>setDel(null)}
-      footer=${html`<div class="row" style=${{gap:"10px",justifyContent:"flex-end"}}>
-        <${Btn} variant="ghost" onClick=${()=>setDel(null)}>${t("ยกเลิก", "Cancel")}</${Btn}>
-        <${Btn} variant="outline" onClick=${()=>doDelete(del)}>${t("ยืนยันลบ", "Confirm deletion")}</${Btn}></div>`}>
-      <p>${t("ต้องการลบ", "Delete")} <b>${del.name}</b> ${t("หรือไม่? ข้อมูลจะหายจากแผนที่และรายงานด้วย · การกระทำนี้บันทึกลงบันทึกการตรวจสอบ", "? It will disappear from the map and reports too · this action is written to the audit log")}</p>
-    </${Modal}>`:""}
-    ${drawer?html`<${Modal} title=${drawer.name} onClose=${()=>setDrawer(null)}>
-        <div class="dm-kv"><span>${t("ประเภท", "Type")}</span><b>${drawer.type==="Existing"?t("ลูกค้า", "Customers"):"Lead"}</b></div>
-        <div class="dm-kv"><span>${t("หมวดหมู่", "Category")}</span><b>${segTH(drawer.segment)}</b></div>
-        <div class="dm-kv"><span>${t("จังหวัด", "Province")}</span><b>${provinceTH(drawer.province)}</b></div>
-        <div class="dm-kv"><span>${t("พิกัด", "Coordinates")}</span><b>${drawer.lat}, ${drawer.lng}</b></div>
-        <div class="dm-kv"><span>${t("อีเมล", "Email")}</span><b>${drawer.email||"—"}</b></div>
-        <div class="dm-kv"><span>${t("ผู้กรอก", "Entered by")}</span><b>${tcLabel(drawer.tc)} · ${SRC_TH[drawer.source]}</b></div>
-        <div class="dm-kv"><span>${t("วันที่กรอก", "Entered on")}</span><b>${beDate(drawer.date)}</b></div>
-        <div class="dm-kv"><span>${t("สถานะตรวจสอบ", "Review status")}</span><${Badge} tone=${CHECK_TONE[drawer.check]}>${drawer.check}</${Badge}></div>
-        <div class="dm-alert" style=${{marginTop:"12px"}}><${Icon} name="pin" size=${14}/> ${t("พิกัดกรอกจากแหล่งข้อมูลของท่าน — ระบบไม่ได้ดึงจากแหล่งภายนอก", "Coordinates come from your own source — the system does not fetch them externally")}</div>
-      </${Modal}>`:""}
-  </div>`;
-}
-
-/* ═══════════════════ หน้าหลัก ═══════════════════ */
-const BASE_TABS=[{value:"import", get label(){ return t("นำเข้าไฟล์ Excel","Import an Excel file"); }},
-  {value:"files", get label(){ return t("จัดการไฟล์นำเข้า","Import files"); }},
-  {value:"leads", get label(){ return t("จัดการ Lead","Lead management"); }}];
 
 /* ═══════════════════════════════════════════════════════════════════════════
    หน้า "จัดการข้อมูล" แยกเป็น 4 หน้าตามเมนูซ้าย (เดิมเป็นแท็บอยู่ในหน้าเดียว)
@@ -1586,7 +1449,6 @@ const REGION_TH_OF = k => (_REGION[k] ? _REGION[k]() : k);
 
 // 77 จังหวัด เรียงตามชื่อไทย (ชุดคีย์เดียวกับ provincesGeo — ตรวจแล้วว่าตรงกันทุกชื่อ)
 const ALL_PROVINCES = Object.keys(PROVINCE_TH).sort((a,b)=>provinceTH(a).localeCompare(provinceTH(b),"th"));
-const TR_PAGE = 12;
 
 /* ── หน่วยของขอบเขต (unit) ───────────────────────────────────────────────────
    ปกติ 1 จังหวัด = 1 หน่วย · ยกเว้นกรุงเทพฯ ที่ซอยเป็น 3 โซนตามแผนที่ขอบเขตของลูกค้า
