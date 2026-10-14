@@ -1100,7 +1100,8 @@ export function Monitoring({defaultTab, reportNav}={}){
               ...(fProv!=="all" && !distOpts.length ? [{value:"-none", disabled:true,
                 label: fSeg==="all" ? t("ยังไม่มีร้านในจังหวัดนี้", "No places in this province yet") : t("ยังไม่มีร้านหมวดนี้ในจังหวัดนี้", "No places of this category in this province yet")}] : [])]}/></div>
         <div class="mgf-f mgf-dd"><span>${t("หมวดธุรกิจ", "Business category")}</span>
-          <${Dropdown} value=${fSeg} onChange=${v=>setFSeg(v)}
+          <${Dropdown} value=${fSeg} onChange=${v=>{ setFSeg(v);
+            if(fDist!=="all" && !custs.concat(pros).some(r=>r.province===fProv && r.district===fDist && (v==="all"||r.segment===v))) setFDist("all"); }}
             options=${[["all",t("ทุกหมวด", "All categories")], ...SEGMENTS.map(s=>[s, segTH(s)])]}/></div>
         <div class="mgf-f mgf-dd"><span>${t("ช่วงเวลาด่วน", "Quick period")}</span>
           <${Dropdown} value=${customDate?"custom":range} onChange=${v=>{ if(v!=="custom"){ setRange(v); setFFrom(""); setFTo(""); } }}
