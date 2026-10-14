@@ -28,6 +28,7 @@ import {pushAudit} from "./audit.js";
 import {buildNotifs, applyServerNotif, inboxView, agoText, byPriority, priorityOf, PRIORITY_COLOR, PRIORITY_TH} from "./notifications.js";
 import {loadInbox, markInboxRead} from "./notif-api.js";
 import {loadSettings} from "./settings-api.js";
+import {confirmBox, ConfirmHost} from "./confirm.js";
 import {effectivePerms} from "./permissions.js";
 import {applyMaster, masterKey} from "./master-api.js";   // กระดิ่ง: กรองตามบทบาท + ขอบเขตพื้นที่ + สวิตช์จริง
 import {deriveVisitStatus, planTodayKey, planResultOf} from "./visit-rounds.js";
@@ -725,14 +726,16 @@ function App(){
     openCustomer(o);
   };
 
-  const leaveZoneEdit = ()=>{
+  const leaveZoneEdit = async ()=>{
     if(!zoneEditRef.current) return true;
     const ed = zoneEdRef.current;
-    if(ed && ed.isDirty && ed.isDirty() && !confirm(t("ยังไม่ได้เซฟการแก้ ออกเลยไหม?","You have unsaved changes. Leave anyway?"))) return false;
+    if(ed && ed.isDirty && ed.isDirty() && !(await confirmBox({title:t("ยังไม่ได้เซฟการแก้","Unsaved changes"), ok:t("ออก","Leave"), danger:true,
+      body:t("ออกตอนนี้การแก้ที่ยังไม่เซฟจะหาย","Leaving now discards your unsaved edits")}))) return false;
+    if(!zoneEditRef.current) return true;
     zoneEditRef.current = false; setZoneEdit(false); setZoneEditFrom(null);
     return true;
   };
-  const backToGlobe = ()=>{ if(!leaveZoneEdit()) return; setView("workspace"); setMode("globe"); setActiveCountry(null); setSelectedProvince(null); setFilters(f=>({...f,province:"All"})); setOverlay(null); setFlyTarget(null); };
+  const backToGlobe = async ()=>{ if(!(await leaveZoneEdit())) return; setView("workspace"); setMode("globe"); setActiveCountry(null); setSelectedProvince(null); setFilters(f=>({...f,province:"All"})); setOverlay(null); setFlyTarget(null); };
   // คลิกจังหวัด = กรองแผนที่ไปที่จังหวัดนั้น · แผงวิเคราะห์พื้นที่เปิดให้ "ผู้บริหาร" เท่านั้น
   //   TC    ดูแค่เขตที่รับผิดชอบ ไม่ต้องวิเคราะห์ภาพรวม
   //   แอดมิน งานคือดูแลระบบ/ขอบเขต/ผู้ใช้ ไม่ใช่วิเคราะห์ตลาด — แผงนี้บังแมพตอนลากขอบโซนด้วย
@@ -759,7 +762,7 @@ function App(){
   const [subShut, setSubShut] = useState({});
   const toggleSub = id => setSubShut(m=>({...m, [id]: !m[id]}));
   const navItem = async (id)=>{ setMenu(null);
-    if(!leaveZoneEdit()) return;
+    if(!(await leaveZoneEdit())) return;
     setSubShut(m=> m[id] ? {...m, [id]:false} : m);   // ไปหน้าไหน ให้กางเมนูย่อยของหน้านั้นเสมอ
     if(id==="dashboard") return navItem("workspace");   // 'แดชบอร์ด' landing removed → Business Overview now lives in 'แดชบอร์ดผู้บริหาร (monitoring)'
     if(id==="workspace") return backToGlobe();
@@ -902,8 +905,8 @@ function App(){
   },[user, overlay, view, mode, filters.province, flyTarget, routeTick]);
   useEffect(()=>{
     if(!user) return;
-    const onPop = ()=>{
-      if(zoneEditRef.current && !leaveZoneEdit()){ try{ history.pushState(null,"",routeUrl(routeOf())); }catch(e){} return; }
+    const onPop = async ()=>{
+      if(zoneEditRef.current && !(await leaveZoneEdit())){ try{ history.pushState(null,"",routeUrl(routeOf())); }catch(e){} return; }
       routePop.current = true; setMenu(null); applyRoute(user, true); setRouteTick(n=>n+1);
     };
     window.addEventListener("popstate", onPop);
@@ -969,6 +972,7 @@ function App(){
     location.href=u.pathname+u.search; };
 
   return html`<${AppCtx.Provider} value=${ctx}>
+  <${ConfirmHost}/>
   <div class=${"shell"+(isBiz?" no-nav":collapsed?" collapsed":"")}>
     ${!isBiz && html`<aside class="sidebar">
       <div class="sb-brand"><div class="mk">${brandMark()}</div><div class="nm">GeoIntel<small>GEO INTELLIGENCE</small></div></div>

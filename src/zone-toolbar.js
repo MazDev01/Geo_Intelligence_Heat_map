@@ -10,7 +10,7 @@
 import {html, useState, useEffect, useRef, Icon} from "./lib.js";
 import {t, getLang} from "./i18n.js";
 import {zonesSaveBlocked, zonesBlockedText, listZoneVersions, restoreZoneVersion} from "./zone-registry.js";
-import {Modal, Btn} from "./ui.js";
+import {confirmBox} from "./confirm.js";
 
 if(typeof document!=="undefined" && !document.getElementById("ztb-css")){
   const st=document.createElement("style"); st.id="ztb-css";
@@ -78,14 +78,6 @@ if(typeof document!=="undefined" && !document.getElementById("ztb-css")){
   background:var(--surface);color:var(--txt);font-family:var(--font);font-size:12.5px;padding:0 7px}
 .ztb-zrow .ztb-zid{font-size:11px;color:var(--dim);white-space:nowrap}
 .ztb .ztb-join{min-width:4.6em;justify-content:center}
-.modal:has(.ztb-ask){width:min(320px,92vw);border-radius:13px}
-.modal:has(.ztb-ask) .modal-h{padding:11px 12px 11px 16px}
-.modal:has(.ztb-ask) .modal-h h2{font-size:14.5px;line-height:1.35}
-.modal:has(.ztb-ask) .modal-h .icon-btn{width:26px !important;height:26px !important}
-.modal:has(.ztb-ask) .modal-b{padding:11px 16px}
-.modal:has(.ztb-ask) .modal-f{padding:9px 12px;gap:7px}
-.modal:has(.ztb-ask) .modal-f .btn{padding:6px 13px;font-size:12.5px;border-radius:8px}
-.modal:has(.ztb-ask) .modal-f .btn.primary{box-shadow:0 4px 10px rgba(230,0,35,.2)}
 .ztb-gpop{min-width:150px;padding:5px}
 .ztb-gopt{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:8px 10px;border-radius:8px;
   cursor:pointer;font-size:12.5px;color:var(--txt);white-space:nowrap}
@@ -154,9 +146,6 @@ export function ZoneToolbar({ed, onExit}){
     const onDoc = e => { if(gBtnRef.current && gBtnRef.current.contains(e.target)) return;
       if(gPopRef.current && gPopRef.current.contains(e.target)) return; setGapOpen(false); };
     document.addEventListener("mousedown", onDoc); return ()=>document.removeEventListener("mousedown", onDoc); },[gapOpen]);
-  const [ask, setAsk] = useState(null);
-  const confirmBox = opts => new Promise(res=>setAsk({...opts, res}));
-  const answer = v => { const a=ask; setAsk(null); if(a) a.res(v); };
   const [newColor, setNewColor] = useState("#0ea5e9");   // สีของโซนที่กำลังจะวาด — เลือกเองได้ก่อนกดวาด     // ยังไม่ได้ใส่ชื่อ → กรอบแดงที่ช่อง ไม่ใช่ข้อความบรรทัดใหม่
   const [gap, setGap] = useState(0);        // 0 = ยังไม่ได้เลือกระยะ (กันลดหมุดโดยไม่ได้ตั้งใจ)
   const redraw = ()=>bump(n=>n+1);
@@ -381,11 +370,6 @@ export function ZoneToolbar({ed, onExit}){
             <button disabled=${busy} onClick=${()=>restore(v)}>${t("ย้อนกลับ","Restore")}</button>
           </div>`)}
     </div>`}
-    ${ask && html`<${Modal} small title=${ask.title} onClose=${()=>answer(false)}
-      footer=${html`<${Btn} variant="ghost" onClick=${()=>answer(false)}>${t("ยกเลิก","Cancel")}</${Btn}>
-        <${Btn} variant=${ask.danger?"danger":"primary"} onClick=${()=>answer(true)}>${ask.ok}</${Btn}>`}>
-      <div class="ztb-ask" style=${{fontSize:"12.5px",lineHeight:1.6,whiteSpace:"pre-line"}}>${ask.body}</div>
-    </${Modal}>`}
     ${noSave && html`<div class="ztb-msg bad" data-zones-blocked="1">${zonesBlockedText()}</div>`}
     ${msg && msg.tone==="bad" && !(noSave && msg.text===zonesBlockedText()) && html`<div class="ztb-msg bad">${msg.text}</div>`}
   </div>`;

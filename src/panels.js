@@ -2,6 +2,7 @@ import {html, useState, useEffect, useRef, Icon, SegmentIcon, num, pct, SEG_COLO
   segTH, gapTH, provinceTH, districtTH, fetchDrivingRoute, useLang} from "./lib.js";
 import {basemap} from "./basemap.js";
 import {Btn, Badge, Meter, DateField, toast} from "./ui.js";
+import {confirmBox} from "./confirm.js";
 import {Donut, BarChart, Gauge, rampRed} from "./charts.js";
 import {analyzeArea, downloadCSV, dealFileError} from "./data.js";
 import {demandGap, gapBySegment, GAP_REF} from "./mock/geoData.js";
@@ -370,7 +371,8 @@ export function CustomerPanel({db, customer, onClose, onOpenArea, setCustomer, o
       <button onClick=${()=>onEditRecord&&onEditRecord(c)} style=${{flex:1,display:"inline-flex",alignItems:"center",justifyContent:"center",gap:"7px",
         padding:"11px",borderRadius:"11px",border:"1px solid var(--stroke2)",background:"transparent",color:"var(--txt)",cursor:"pointer",fontFamily:"var(--font)",fontSize:"13px",fontWeight:600}}>
         <${Icon} name="edit" size=${14}/>${t("แก้ไข", "Edit")}</button>
-      <button onClick=${()=>{ if(confirm(t('ลบรายการ "', "Delete \"")+c.businessName+'" ?')) onDeleteRecord&&onDeleteRecord(c); }} style=${{flex:1,display:"inline-flex",alignItems:"center",justifyContent:"center",gap:"7px",
+      <button data-act="delete-record" onClick=${async ()=>{ if(await confirmBox({title:t('ลบรายการ "', "Delete \"")+c.businessName+'"?', ok:t("ลบ","Delete"), danger:true,
+        body:t("รายการนี้จะหายจากแผนที่และรายงาน","It disappears from the map and the reports")})) onDeleteRecord&&onDeleteRecord(c); }} style=${{flex:1,display:"inline-flex",alignItems:"center",justifyContent:"center",gap:"7px",
         padding:"11px",borderRadius:"11px",border:"1px solid rgba(255,90,90,.35)",background:"rgba(255,90,90,.08)",color:"#ff5a5a",cursor:"pointer",fontFamily:"var(--font)",fontSize:"13px",fontWeight:600}}>
         <${Icon} name="trash" size=${14}/>${t("ลบรายการนี้", "Delete this record")}</button>
     </div>`}

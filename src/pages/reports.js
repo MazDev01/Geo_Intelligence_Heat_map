@@ -8,6 +8,7 @@ import {globalKpis, rankAreas, rankDistricts, analyzeArea, buildClusters, topGap
 import {demandGap, gapBySegment, gapLevelOf, GAP_REF} from "../mock/geoData.js";
 import {LeafletMap} from "../lmap.js";   // ใช้แผนที่ Leaflet ตัวเดียวกับหน้าหลักซ้ำ (ไม่สร้าง instance ใหม่)
 import {toast} from "../ui.js";
+import {confirmBox} from "../confirm.js";
 import {Dropdown} from "../select.js";   // dropdown กำหนดสไตล์เอง (โชว์ 6 ตัวเลือก+เลื่อน · hover แดงอ่อน · ที่เลือกพื้นขาวตัวอักษรแดงเข้ม)
 import {Monitoring} from "./admin.js";   // แดชบอร์ดผู้บริหาร (แดชบอร์ดภาพรวมธุรกิจ) — ใช้เป็นแดชบอร์ดของผู้บริหารในหน้ารายงาน
 import {canExportKind, exportReport} from "../export-api.js";
@@ -2345,7 +2346,8 @@ function renderReport(id, {db,f,k,rankOpp,rankCov,rankGap,rankOppDist,rankGapDis
                 onClick=${()=>{ if(setActivePlanId) setActivePlanId(p.id); nav("area",{province:(p.customers[0]&&p.customers[0].province)||undefined}); }}>
                 <${Icon} name="edit" size=${15}/><span>${t("แก้ไขแผน", "Edit plan")}</span></button>
               <button class="rp-btn rp-danger" title=${t("ลบแผนนี้", "Delete this plan")}
-                onClick=${()=>{ if(deletePlan && confirm(`${t("ต้องการลบแผน \"", "Delete the plan \"")}${p.name}${t("\" ใช่หรือไม่?", "\"?")}`)){ if(expandedPlanId===p.id) setExpandedPlanId(null); deletePlan(p.id); } }}>
+                onClick=${async ()=>{ if(deletePlan && await confirmBox({title:`${t("ลบแผน \"", "Delete the plan \"")}${p.name}"?`, ok:t("ลบ","Delete"), danger:true,
+                  body:t("แผนและลำดับการเข้าพบในแผนนี้จะถูกลบ","The plan and its visit order are removed")})){ if(expandedPlanId===p.id) setExpandedPlanId(null); deletePlan(p.id); } }}>
                 <${Icon} name="trash" size=${15}/><span>${t("ลบแผน", "Delete plan")}</span></button>
               <button class="rp-chev" title=${isOpen?t("ย่อ", "Collapse"):t("ขยาย", "Expand")} onClick=${()=>setExpandedPlanId(isOpen?null:p.id)}>
                 <${Icon} name="chevron" size=${16} style=${{transform:isOpen?"rotate(180deg)":"none",transition:"transform .2s"}}/></button>

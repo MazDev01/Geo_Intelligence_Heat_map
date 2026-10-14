@@ -7,6 +7,7 @@ import {html, useState, useEffect, useRef, Icon, segTH, provinceTH, districtTH, 
 import {basemap} from "./basemap.js";
 import {clusterCustomers, clusterRoute, computeRoute, optimizeOrder, haversine} from "./visit.js";
 import {planTodayKey, deriveStatus, overdueAppt, beDate} from "./visit-rounds.js";
+import {confirmBox} from "./confirm.js";
 import {DateField} from "./ui.js";   // ช่องเลือกวันที่แบบไทย
 
 // สรุป "งานเข้าพบวันนี้" ของ TC — derive สดจากรอบการเข้าพบของLeadในจังหวัดที่รับผิดชอบ (ไม่มี cron)
@@ -107,7 +108,8 @@ export function VisitPlanner({db, office, plan, setPlan, route, setRoute, savePl
             <span style=${{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>${p.name}</span>
             <span class="dim" style=${{fontSize:"11px",flex:"none"}}>${p.customers.length} ${t("ราย", "businesses ")}${p.saved?t(" · บันทึกแล้ว", " · saved"):""}</span>
           </button>
-          ${plans.length>1 && html`<button class="vp-plan-del" onClick=${()=>{ if(confirm(t('ลบแผน "', "Delete plan \"")+p.name+'" ?')) deletePlan(p.id); }} aria-label=${t("ลบแผน", "Delete plan")}>
+          ${plans.length>1 && html`<button class="vp-plan-del" onClick=${async ()=>{ if(await confirmBox({title:t('ลบแผน "', "Delete plan \"")+p.name+'"?', ok:t("ลบ","Delete"), danger:true,
+            body:t("แผนและลำดับการเข้าพบในแผนนี้จะถูกลบ","The plan and its visit order are removed")})) deletePlan(p.id); }} aria-label=${t("ลบแผน", "Delete plan")}>
             <${Icon} name="close" size=${13}/></button>`}
         </div>`)}
         <div class="vp-plan-new">

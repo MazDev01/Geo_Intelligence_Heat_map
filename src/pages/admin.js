@@ -5,6 +5,7 @@ import {pushAudit} from "../audit.js";
 import {emailOk} from "../contact-rules.js";
 import {fetchAudit, AUDIT_GROUPS, eventLabel, eventIcon, eventTone, detailText} from "../audit-api.js";
 import {Card, Kpi, Btn, Badge, Toggle, Field, Table, Tabs, Modal, Meter, DateField, toast} from "../ui.js";
+import {confirmBox} from "../confirm.js";
 import {Dropdown} from "../select.js";
 import {LineChart, BarChart, Donut, Sparkline} from "../charts.js";
 import {calcView, RANGES} from "../timefilter.js";   // thDate มาจาก lib.js โดยตรงแล้ว
@@ -58,8 +59,9 @@ export function Users(){
 
   /** แอดมินตั้ง/รีเซ็ตรหัสให้ — เว้นว่าง = ระบบสุ่มรหัสชั่วคราวให้ แล้วโชว์ให้ส่งต่อ */
   const resetPw = async (u)=>{
-    if(!confirm(t("ตั้งรหัสผ่านใหม่ให้ ","Set a new password for ")+u.name+t("?\nรหัสเดิมจะใช้ไม่ได้ทันที และเจ้าตัวต้องตั้งรหัสใหม่ตอนเข้าครั้งถัดไป",
-      "?\nThe old password stops working immediately and they must choose a new one at next sign-in"))) return;
+    if(!(await confirmBox({title:t("ตั้งรหัสผ่านใหม่ให้ ","Set a new password for ")+u.name+"?", ok:t("ตั้งรหัสใหม่","Reset password"), danger:true,
+      body:t("รหัสเดิมจะใช้ไม่ได้ทันที และเจ้าตัวต้องตั้งรหัสใหม่ตอนเข้าครั้งถัดไป",
+        "The old password stops working immediately and they must choose a new one at next sign-in")}))) return;
     const r = await auth.resetPassword(u.email);
     if(!r.ok) return toast(r.error||t("รีเซ็ตรหัสไม่สำเร็จ","Could not reset the password"),"bad");
     pushAudit({action:t("รีเซ็ตรหัสผ่าน","Reset password"), category:"แก้ไข", detail:u.name+" · "+u.email});
