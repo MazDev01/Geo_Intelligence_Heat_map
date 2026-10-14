@@ -1095,7 +1095,9 @@ export function Monitoring({defaultTab}={}){
         <div class="mgf-f mgf-dd"><span>${t("อำเภอ", "District")}</span>
           <${Dropdown} value=${fDist} disabled=${fProv==="all"}
             placeholder=${fProv==="all"?t("เลือกจังหวัดก่อน", "Pick a province first"):t("ทุกอำเภอ", "All districts")} onChange=${v=>setFDist(v)}
-            options=${[["all", fProv==="all"?t("เลือกจังหวัดก่อน", "Pick a province first"):t("ทุกอำเภอ", "All districts")], ...distOpts.map(d=>[d, DISTRICT_TH[d]||d])]}/></div>
+            options=${[["all", fProv==="all"?t("เลือกจังหวัดก่อน", "Pick a province first"):t("ทุกอำเภอ", "All districts")], ...distOpts.map(d=>[d, DISTRICT_TH[d]||d]),
+              ...(fProv!=="all" && !distOpts.length ? [{value:"-none", disabled:true,
+                label: fSeg==="all" ? t("ยังไม่มีร้านในจังหวัดนี้", "No places in this province yet") : t("ยังไม่มีร้านหมวดนี้ในจังหวัดนี้", "No places of this category in this province yet")}] : [])]}/></div>
         <div class="mgf-f mgf-dd"><span>${t("หมวดธุรกิจ", "Business category")}</span>
           <${Dropdown} value=${fSeg} onChange=${v=>setFSeg(v)}
             options=${[["all",t("ทุกหมวด", "All categories")], ...SEGMENTS.map(s=>[s, segTH(s)])]}/></div>
