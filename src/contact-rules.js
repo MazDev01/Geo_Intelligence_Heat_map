@@ -12,3 +12,8 @@ export const phoneOk = v => {
   const main = PHONE_EXT_RE.exec(s)[1].replace(/[\s\-().]/g, "");
   return PHONE_TH_RE.test(main) || PHONE_TH_INTL_RE.test(main) || PHONE_INTL_RE.test(main);
 };
+
+export const phonesOk = v => {
+  const parts = String(v == null ? "" : v).split(/[,;\/]/).map(s => s.trim());
+  return parts.every(Boolean) && parts.every(p => phoneOk(p.replace(/(\d)\s*-\s*\d{1,2}$/, "$1")));
+};

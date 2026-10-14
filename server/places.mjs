@@ -2,6 +2,7 @@ import {randomBytes} from 'node:crypto';
 import {withTransaction} from './db/pool.mjs';
 import {writeAudit} from './audit.mjs';
 import {isActive} from './master-data.mjs';
+import {phonesOk} from '../src/contact-rules.js';
 
 const FULL_ACCESS = new Set(['Administrator', 'Management']);
 
@@ -139,6 +140,11 @@ const UNASSIGNED = new Set(['', 'ยังไม่มอบหมาย', 'auto
 const bad = message => Object.assign(new Error(message), {status: 400});
 const has = (obj, key) => Object.hasOwn(obj, key);
 
+function checkPhone(f, before) {
+  if (!f.phone || f.phone === before) return;
+  if (!phonesOk(f.phone)) throw bad('เบอร์โทรไม่ถูกต้อง เช่น 081 234 5678 หรือ 02 123 4567');
+}
+
 function text(body, key, label, max, required) {
   const v = body[key];
   if (v !== null && v !== undefined && typeof v !== 'string') throw bad(label + 'ต้องเป็นข้อความ');
@@ -236,6 +242,7 @@ export async function createPlaces(pool, records, ctx) {
       try {
         f = readFields(body, false);
         if (f.type === 'Existing' && !f.account_no) throw bad('ต้องกรอกรหัสลูกค้า');
+        checkPhone(f, null);
         await resolveOwner(tx, body, f);
         await checkProvince(tx, f);
         await checkSegment(tx, f);
@@ -258,9 +265,10 @@ export async function createPlaces(pool, records, ctx) {
 
 export async function updatePlace(pool, id, body, ctx) {
   return withTransaction(pool, async tx => {
-    const cur = await tx.query('select type, account_no from places where id = $1 and deleted_at is null for update', [id]);
+    const cur = await tx.query('select type, account_no, phone from places where id = $1 and deleted_at is null for update', [id]);
     if (!cur.rowCount) return null;
     const f = readFields(body, true);
+    checkPhone(f, cur.rows[0].phone == null ? null : cur.rows[0].phone.trim());
     await resolveOwner(tx, body, f);
     await checkProvince(tx, f);
     await checkSegment(tx, f);

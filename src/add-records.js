@@ -12,6 +12,7 @@ import {Dropdown} from "./select.js";
 import {token} from "./auth.js";
 import {assignTC, provinceOf, zoneOf, TC_TEAM, GAP_TH as GAP_LV_TH} from "./mock/geoData.js";
 import {DateField} from "./ui.js";   // ช่องเลือกวันที่แบบไทย
+import {phonesOk} from "./contact-rules.js";
 
 export const USER_SOURCE = "ผู้ใช้เพิ่มเอง";
 const MAX_ROWS = 10;
@@ -173,6 +174,8 @@ export function AddRecordsForm({onClose, onSave, editRecord, db={}, prospectOnly
   // รายชื่อธุรกิจที่มีอยู่แล้ว (ไว้เตือนชื่อซ้ำในจังหวัดเดียวกัน)
   const existing = (db.customers||[]).concat(db.prospects||[]);
 
+  const phoneBad = r => { const p=r.phone.trim();
+    return r.type==="Existing" && !!p && !(isEdit && p===String(editRecord.phone||"").trim()) && !phonesOk(p); };
   // ── validation ต่อแถว ──
   const rowErrors = r => {
     const e=[]; const la=+r.lat, ln=+r.lng;
@@ -184,6 +187,7 @@ export function AddRecordsForm({onClose, onSave, editRecord, db={}, prospectOnly
     if(numOk && !provinceOf(la,ln)) e.push(t("พิกัดอยู่นอกพื้นที่ให้บริการ", "The coordinates are outside the service area"));
     if(r.type==="Existing" && !r.clientId.trim()) e.push(t("รหัสลูกค้า", "Customer ID"));
     if(r.email.trim() && !isEmail(r.email)) e.push(t("รูปแบบอีเมลไม่ถูกต้อง", "That email address is not valid"));
+    if(phoneBad(r)) e.push(t("เบอร์โทรไม่ถูกต้อง เช่น 081 234 5678 หรือ 02 123 4567", "That phone number is not valid — for example 081 234 5678 or 02 123 4567"));
     return e;
   };
   const errsByRow = rows.map(rowErrors);
@@ -262,7 +266,7 @@ export function AddRecordsForm({onClose, onSave, editRecord, db={}, prospectOnly
               <label class="ar-f">${t("รหัสลูกค้า (AccountNo) *", "Customer ID (AccountNo) *")}
                 <input class=${showRowErr&&!r.clientId.trim()?"ar-bad":""} value=${r.clientId} onInput=${e=>setField(i,"clientId",e.target.value)} placeholder=${t("เช่น 01180420", "e.g. 01180420")}/></label>
               <label class="ar-f">${t("เบอร์โทรศัพท์", "Phone")}
-                <input value=${r.phone} onInput=${e=>setField(i,"phone",e.target.value)} placeholder="081 234 5678"/></label>
+                <input class=${showRowErr&&phoneBad(r)?"ar-bad":""} value=${r.phone} onInput=${e=>setField(i,"phone",e.target.value)} inputmode="tel" placeholder="081 234 5678"/></label>
               <label class="ar-f">${t("วันที่เริ่มเป็นลูกค้า", "Customer since")}
                 <${DateField} value=${r.dateJoin} onChange=${v=>setField(i,"dateJoin",v)}/></label>
               <label class="ar-f">${t("เว็บไซต์", "Website")}
