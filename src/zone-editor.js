@@ -225,7 +225,8 @@ export function createZoneEditor(map, zones) {
   // รูปตั้งต้นสำหรับ "ลดหมุด" — ดู thin() · ล้างทุกครั้งที่มีการแก้รูปด้วยวิธีอื่น
   let thinBase = null;
   const resetThinBase = () => { thinBase = null; };
-  const markDirty = () => { dirty = true; resetThinBase(); };
+  let draftPending = false, onChange = null;
+  const markDirty = () => { dirty = true; resetThinBase(); if (onChange) { try { onChange(); } catch (e) { console.warn(e); } } };
   const EVENTS = ['pm:edit', 'pm:markerdragend', 'pm:vertexadded', 'pm:vertexremoved', 'pm:cut'];
 
   // ประวัติสำหรับ undo — เก็บ "ก่อนแก้" ทุกครั้งที่เริ่มลาก/เพิ่ม/ลบจุด
@@ -271,6 +272,33 @@ export function createZoneEditor(map, zones) {
         : { color: c, fillColor: c, weight: 1.5, dashArray: null, fillOpacity: 0.14 });
     });
     if (onSelChange) { try { onSelChange([...selected]); } catch (e) { console.warn(e); } }
+  }
+
+  let glowStop = null, focusWait = null;
+  function glow(l) {
+    if (glowStop) glowStop();
+    const L = window.L, c = (l.feature && l.feature.properties && l.feature.properties.color) || '#64748b';
+    const halo = L.geoJSON(l.toGeoJSON(), { pane: zones.paneName, renderer: zones.renderer, interactive: false, pmIgnore: true,
+      style: { color: c, weight: 16, opacity: 0, fill: false, lineJoin: 'round' } }).addTo(map);
+    const still = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const DUR = 1200, t0 = performance.now();
+    let raf = 0, done = false;
+    const stop = () => {
+      if (done) return;
+      done = true; cancelAnimationFrame(raf); map.removeLayer(halo);
+      if (glowStop === stop) glowStop = null;
+      restyleSelection();
+    };
+    const tick = now => {
+      const p = (now - t0) / DUR;
+      if (p >= 1) { stop(); return; }
+      const k = still ? 1 : Math.sin(Math.PI * 2 * p) ** 2;
+      halo.setStyle({ opacity: 0.45 * k });
+      l.setStyle({ weight: 1.5 + 3 * k, fillOpacity: 0.14 + 0.3 * k });
+      raf = requestAnimationFrame(tick);
+    };
+    glowStop = stop;
+    raf = requestAnimationFrame(tick);
   }
 
   /** ผูก click ของโหมดเลือกให้เลเยอร์ชุดปัจจุบัน — ต้องเรียกทุกครั้งที่สร้างเลเยอร์ใหม่
@@ -349,7 +377,7 @@ export function createZoneEditor(map, zones) {
     summary() {
       const s = statsOf(api.toGeoJSON());
       return { zones: api.zones().length, vertices: s.vertices, kb: s.kb,
-               dirty, over: s.overVertices || s.overKb, undo: history.length, redo: future.length,
+               dirty, pending: draftPending, over: s.overVertices || s.overKb, undo: history.length, redo: future.length,
                editing: on, picking: pickMode, picked: [...selected], drawing };
     },
 
@@ -565,6 +593,38 @@ export function createZoneEditor(map, zones) {
       return { ok: true, kept: props.zone_id, absorbed: want.slice(1), fused, parts: after, note };
     },
 
+    focus(zoneId, avoidEl) {
+      const z = api.zones().find(x => x.zone_id === zoneId);
+      if (!z) return false;
+      const tl = [40, 40], br = [40, 40];
+      if (avoidEl) {
+        const c = map.getContainer().getBoundingClientRect(), r = avoidEl.getBoundingClientRect();
+        const left = r.left - c.left, right = c.right - r.right, below = c.bottom - r.bottom;
+        const best = Math.max(left, right, below);
+        if (best >= 160) {
+          if (best === below) tl[1] = r.bottom - c.top + 16;
+          else {
+            tl[1] = Math.max(40, r.top - c.top);
+            if (best === right) tl[0] = r.right - c.left + 16; else br[0] = c.right - r.left + 16;
+          }
+        }
+      }
+      if (focusWait) focusWait();
+      let moved = false;
+      const onStart = () => { moved = true; };
+      map.on('movestart', onStart);
+      map.flyToBounds(z._layer.getBounds(), { paddingTopLeft: tl, paddingBottomRight: br, maxZoom: 13 });
+      map.off('movestart', onStart);
+      const l = z._layer;
+      let tm = 0;
+      const cancel = () => { map.off('moveend', arrive); clearTimeout(tm); if (focusWait === cancel) focusWait = null; };
+      const arrive = () => { cancel(); if (zones.layer.hasLayer(l)) glow(l); };
+      if (moved) map.on('moveend', arrive);
+      tm = setTimeout(arrive, moved ? 5000 : 50);
+      focusWait = cancel;
+      return true;
+    },
+
     mergedParts(zoneId) {
       const z = api.zones().find(x => x.zone_id === zoneId);
       const mf = z && z._layer.feature.properties.merged_from;
@@ -620,6 +680,7 @@ export function createZoneEditor(map, zones) {
     clearPicked() { selected.clear(); restyleSelection(); return api; },
     /** ให้แผงปุ่มรู้เมื่อรายการที่เลือกเปลี่ยน (คลิกบนแมพไม่ผ่านปุ่ม จึง refresh เองไม่ได้) */
     setPickHandler(fn) { onSelChange = fn; return api; },
+    setChangeHandler(fn) { onChange = fn; return api; },
 
     /** เพิ่มโซนใหม่โดย "วาด" รูป — คืน Promise ที่ resolve เมื่อวาดเสร็จ */
     async addByDraw({ zone_id, name, province, color }) {
@@ -629,7 +690,11 @@ export function createZoneEditor(map, zones) {
       // จึงต้องมีและห้ามเปลี่ยนทีหลัง แต่ไม่ควรให้แอดมินคิดเอง — สร้างให้อัตโนมัติ
       //   ชื่ออังกฤษ → ใช้ตัวอักษรจากชื่อ (READ ME → README)
       //   ชื่อไทย/ว่าง → Z1 Z2 Z3 … ตัวถัดไปที่ยังไม่ถูกใช้
-      const used = new Set(api.zones().map(z => z.zone_id));
+      const used = new Set();
+      const take = f => { const p = f && f.properties; if (!p) return;
+        if (p.zone_id) used.add(p.zone_id);
+        if (Array.isArray(p.merged_from)) p.merged_from.forEach(take); };
+      zones.layer.eachLayer(l => take(l.feature));
       if (!zone_id) {
         const fromName = String(name || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 12);
         if (fromName && !used.has(fromName)) zone_id = fromName;
@@ -687,7 +752,7 @@ export function createZoneEditor(map, zones) {
       if (s.overVertices || s.overKb)
         return { ok: false, error: `เกินเพดาน (${s.vertices} จุด · ${s.kb} KB) — กด "หมุดห่าง" ลดจุดก่อน` };
       const r = await saveZoneDraft(gj);
-      if (r.ok) dirty = false;
+      if (r.ok) { dirty = false; draftPending = true; }
       return r;
     },
 
@@ -699,7 +764,7 @@ export function createZoneEditor(map, zones) {
         return { ok: false, error: `เกินเพดาน (${s.vertices} จุด · ${s.kb} KB) — กด "หมุดห่าง" ลดจุดก่อน` };
       // ผ่าน zone-registry เพื่อให้แคชกลางกับหน้าอื่น (หน้ามอบหมาย · เมนู TC รายโซน) อัปเดตพร้อมกัน
       const r = await saveZoneRegistry(gj);
-      if (r.ok) { dirty = false; console.log('[zone-editor] เซฟขึ้นเซิร์ฟเวอร์แล้ว', r); }
+      if (r.ok) { dirty = false; draftPending = false; console.log('[zone-editor] เซฟขึ้นเซิร์ฟเวอร์แล้ว', r); }
       return r;
     },
 
@@ -710,6 +775,7 @@ export function createZoneEditor(map, zones) {
       reload(d);
       future.length = 0;
       dirty = false;
+      draftPending = true;
       return { ok: true, loaded: true, zones: d.features.length };
     },
 
@@ -718,6 +784,7 @@ export function createZoneEditor(map, zones) {
       history.length = 0;
       future.length = 0;
       dirty = false;
+      draftPending = false;
       console.log('[zone-editor] ย้อนกลับเป็นรูปตอนเปิดหน้าแล้ว');
       return api;
     },

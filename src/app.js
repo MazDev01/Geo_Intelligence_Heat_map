@@ -28,7 +28,8 @@ import {pushAudit} from "./audit.js";
 import {buildNotifs, applyServerNotif, inboxView, agoText, byPriority, priorityOf, PRIORITY_COLOR, PRIORITY_TH} from "./notifications.js";
 import {loadInbox, markInboxRead} from "./notif-api.js";
 import {loadSettings} from "./settings-api.js";
-import {confirmBox, ConfirmHost} from "./confirm.js";
+import {ConfirmHost} from "./confirm.js";
+import {askLeaveZones} from "./zone-toolbar.js";
 import {effectivePerms} from "./permissions.js";
 import {applyMaster, masterKey} from "./master-api.js";   // กระดิ่ง: กรองตามบทบาท + ขอบเขตพื้นที่ + สวิตช์จริง
 import {deriveVisitStatus, planTodayKey, planResultOf} from "./visit-rounds.js";
@@ -468,6 +469,7 @@ function App(){
         else if(go==="customer"){ setSelectedCustomer(cd.customers[0]); setOverlay("customer"); }
       }
       // รายงานแผนการเข้าพบเป็นของ TC เท่านั้น — admin/ผู้บริหารเข้า URL ตรง ถูกเปลี่ยนเส้นทางออก (คงอยู่หน้า workspace)
+      else if(go==="zones"){ if(admin){ startZoneEdit(); setZoneEditFrom("territory"); } }
       else if(go==="visit-plans"){ toast(t("หน้านี้สำหรับผู้ประสานงานการค้าเท่านั้น", "This page is for Trade Coordinators only"),"bad"); }
       // เปิดหน้าก่อนแล้วค่อยโหลดเบื้องหลัง ถ้ารอโหลดก่อนแล้วคำขอล้มเหลว หน้าจะไม่ถูกเปิดเลย
       // กันบทบาทที่ไม่ใช่ Administrator บังคับเปิดหน้าผู้ดูแลผ่าน ?go= (เช่น master-data) — ไม่ตั้ง overlay เลย (ไม่มีสิทธิ์)
@@ -729,8 +731,7 @@ function App(){
   const leaveZoneEdit = async ()=>{
     if(!zoneEditRef.current) return true;
     const ed = zoneEdRef.current;
-    if(ed && ed.isDirty && ed.isDirty() && !(await confirmBox({title:t("ยังไม่ได้เซฟการแก้","Unsaved changes"), ok:t("ออก","Leave"), danger:true,
-      body:t("ออกตอนนี้การแก้ที่ยังไม่เซฟจะหาย","Leaving now discards your unsaved edits")}))) return false;
+    if(!(await askLeaveZones(ed))) return false;
     if(!zoneEditRef.current) return true;
     zoneEditRef.current = false; setZoneEdit(false); setZoneEditFrom(null);
     return true;
@@ -848,6 +849,7 @@ function App(){
   const [routeTick,setRouteTick] = useState(0);
   const routeOf = ()=>{
     if(!user) return {go:null};
+    if(zoneEdit && user.role==="Administrator") return {go:"zones"};
     const tc = user.role==="Trade Coordinator";
     const modal = overlay && MODALS[overlay] && (!ADMIN.has(overlay) || user.role==="Administrator") && !(overlay==="visit-plans" && !tc) ? overlay : null;
     if(modal) return {go:modal};
@@ -866,6 +868,11 @@ function App(){
     const q = new URLSearchParams(location.search);
     const go = q.get("go"), province = q.get("province");
     const admin = u.role==="Administrator", tc = u.role==="Trade Coordinator";
+    if(go==="zones"){
+      if(admin){ if(!zoneEditRef.current){ startZoneEdit(); setZoneEditFrom("territory"); } }
+      else if(fromPop) setOverlay(null);
+      return;
+    }
     if(go==="map"){
       if(tc){ if(fromPop) setOverlay(null); return; }
       if(province){ setSelectedProvince(province); setFilters(f=>({...f, province})); }
@@ -902,7 +909,7 @@ function App(){
       try{ push ? history.pushState(null,"",routeUrl(r)) : history.replaceState(null,"",routeUrl(r)); }catch(e){}
     }
     routeLive.current = true; routePop.current = false;
-  },[user, overlay, view, mode, filters.province, flyTarget, routeTick]);
+  },[user, overlay, view, mode, filters.province, flyTarget, routeTick, zoneEdit]);
   useEffect(()=>{
     if(!user) return;
     const onPop = async ()=>{
@@ -912,6 +919,13 @@ function App(){
     window.addEventListener("popstate", onPop);
     return ()=>window.removeEventListener("popstate", onPop);
   });
+  useEffect(()=>{
+    if(!zoneEdit) return;
+    const onUnload = e => { const ed = zoneEdRef.current;
+      if(zoneEditRef.current && ed && ed.isDirty && ed.isDirty()){ e.preventDefault(); e.returnValue = ""; } };
+    window.addEventListener("beforeunload", onUnload);
+    return ()=>window.removeEventListener("beforeunload", onUnload);
+  },[zoneEdit]);
   const updateMe = patch => setUser(u => u ? {...u, ...patch, initials: String(patch.name || u.name || "?").trim().slice(0,2)} : u);
   const ctx = {db,user,updateMe,logout,nav,settingsVer,scoringChanged,placesChanged,masterVer,masterChanged,filters,setFilters,startZoneEdit,routeParams:{area:selectedProvince},profileTab,visitPlans,office:planOffice,tcProvinces,lang,setLang,
 
