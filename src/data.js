@@ -75,6 +75,21 @@ export async function writePlaces(method, id, body){
 
 let _noPlansApi = false;
 
+export async function teamPlansApi(ownerId){
+  const tk = token();
+  try{
+    const r = await fetch("/api/visit-plans"+(ownerId ? "?ownerId="+encodeURIComponent(ownerId) : ""),
+      {headers: tk ? {Authorization:"Bearer "+tk} : {}});
+    const data = await r.json().catch(()=>null);
+    if(r.status===404 && !(data && data.error)) return {ok:true, local:true};
+    if(r.status===401) return {ok:false, status:401, error:t("เซสชันหมดอายุ กรุณาเข้าสู่ระบบใหม่", "Your session has expired. Please sign in again")};
+    if(!r.ok) return {ok:false, status:r.status, error:(data && (data.message || data.error)) || t("โหลดแผนไม่สำเร็จ", "Could not load the plans")+` (${r.status})`};
+    return {...(data||{}), ok:true};
+  }catch(e){
+    return {ok:false, error:t("ติดต่อเซิร์ฟเวอร์ไม่ได้", "Could not reach the server")};
+  }
+}
+
 export async function visitPlansApi(method="GET", id, body){
   if(_noPlansApi || _noPlacesApi) return {ok:true, local:true};
   const tk = token();

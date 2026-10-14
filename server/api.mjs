@@ -6,7 +6,7 @@ import {auditCtx, clientIp, writeAudit, listAudit} from './audit.mjs';
 import {listPlaces, placesScope, createPlaces, updatePlace, deletePlace} from './places.mjs';
 import {importUpload, mapUpload, confirmUpload, listFiles, withdrawFile} from './imports.mjs';
 import {listQueue, actOnQueue} from './import-queue.mjs';
-import {listPlans, createPlan, updatePlan, deletePlan} from './visit-plans.mjs';
+import {listPlans, listTeam, listTeamPlans, createPlan, updatePlan, deletePlan} from './visit-plans.mjs';
 import {addPlaceVisit} from './place-visits.mjs';
 import {listRequests, submitRequest, approveRequest, rejectRequests, undoRequest, readRequestFile, MAX_DEAL_FILE_BYTES} from './lead-requests.mjs';
 import {cleanFilename, fileKind, MAX_FILE_BYTES} from './import-parse.mjs';
@@ -306,7 +306,17 @@ export function makeApi({pool, authStore, zoneStore, demoPassword, perms, webBoo
     const who = await authStore.auth(req.headers);
     if (!who.ok) return send(res, 401, {error: 'unauthenticated', message: 'ต้องเข้าสู่ระบบก่อน'});
     const user = who.user;
-    if (user.role !== 'Trade Coordinator') return send(res, 403, {error: 'forbidden', message: 'เฉพาะผู้ประสานงานการค้าเท่านั้น'});
+    if (user.role !== 'Trade Coordinator') {
+      if (req.method !== 'GET') return send(res, 403, {error: 'forbidden', message: 'เฉพาะผู้ประสานงานการค้าเท่านั้น'});
+      if (denied(res, user, 'visit.view_team')) return;
+      try {
+        const ownerId = query.get('ownerId');
+        return send(res, 200, ownerId ? await listTeamPlans(pool, ownerId) : await listTeam(pool));
+      } catch (e) {
+        if (e && [400, 404].includes(e.status)) return send(res, e.status, {error: e.message});
+        throw e;
+      }
+    }
     if (denied(res, user, 'visit.manage_own')) return;
     try {
       if (req.method === 'GET') {

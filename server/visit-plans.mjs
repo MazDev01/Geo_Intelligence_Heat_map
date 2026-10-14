@@ -131,6 +131,28 @@ export async function listPlans(pool, user) {
   return {ok: true, owner: user.email, province: user.province, plans: (await pool.query(PLAN_SQL, [user.id, null])).rows.map(toPlan)};
 }
 
+export async function listTeam(pool) {
+  const rows = (await pool.query(
+    `select u.id, u.name, u.province, u.status,
+       coalesce((select array_agg(distinct s.p order by s.p) from (
+         select u.province as p where u.province is not null
+         union select split_part(key, '/', 1) from territory_assign where user_id = u.id) s), '{}') as provinces,
+       (select count(*)::int from visit_plans v where v.owner_id = u.id and v.saved) as plans
+     from users u where u.role = 'Trade Coordinator' order by u.name, u.id`)).rows;
+  return {ok: true, team: rows.map(r => ({id: r.id, name: r.name, province: r.province,
+    provinces: r.provinces, status: r.status, plans: r.plans}))};
+}
+
+export async function listTeamPlans(pool, ownerId) {
+  const id = Number(ownerId);
+  if (!Number.isInteger(id) || id <= 0) throw fail(400, 'รหัสผู้ประสานงานการค้าไม่ถูกต้อง');
+  const tc = (await pool.query(`select id, name, province from users where id = $1 and role = 'Trade Coordinator'`, [id])).rows[0];
+  if (!tc) throw fail(404, 'ไม่พบผู้ประสานงานการค้าคนนี้');
+  const provinces = (await pool.query(SCOPE_SQL, [id])).rows.map(r => r.province).sort();
+  return {ok: true, ownerId: tc.id, ownerName: tc.name, province: tc.province, provinces,
+    plans: (await pool.query(PLAN_SQL, [id, null])).rows.filter(r => r.saved).map(toPlan)};
+}
+
 export async function createPlan(pool, user, body, ctx) {
   const plan = readPlan(body);
   return withTransaction(pool, async tx => {

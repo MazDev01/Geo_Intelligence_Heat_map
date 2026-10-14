@@ -17,7 +17,8 @@ import {toast, DateField, TCReportNav} from "../ui.js";
 import {Dropdown} from "../select.js";
 import {gapBySegment, gapLevelOf} from "../mock/geoData.js";
 import {officeFor, haversine, fmtKm} from "../visit.js";
-import {visitPlansApi} from "../data.js";
+import {visitPlansApi, teamPlansApi} from "../data.js";
+import {effectivePerms} from "../permissions.js";
 import {planResultOf, roundLabel, planTodayKey} from "../visit-rounds.js";
 import {ExportDialog, runExport, exportName} from "./reports.js";
 
@@ -160,14 +161,20 @@ const PAGE_SIZE = 20;
 export function VisitPlanReport(){
   const {db, user, nav, tcProvinces} = useApp();
   const isTC = !!(user && user.role==="Trade Coordinator" && user.province);
-  const province = isTC ? user.province : null;
-  const provKey = !isTC ? "" : (tcProvinces && tcProvinces.length ? tcProvinces : [province]).join("|");
+  const teamView = !!(user && user.role!=="Trade Coordinator" && effectivePerms(user.role, user.permOverrides||{}).has("visit.view_team"));
+  const readParams = ()=>{ const q=new URLSearchParams(location.search);
+    return {from:q.get("from")||"", to:q.get("to")||"", dist:q.get("dist")||"all", status:q.get("status")||"all", plan:q.get("plan")||"", tc:q.get("tc")||""}; };
+  const p0 = readParams();
+  const [team,setTeam] = useState(undefined);
+  const [tcId,setTcId] = useState(p0.tc);
+  const tcSel = teamView && team ? team.find(m=>String(m.id)===String(tcId)) || null : null;
+  const owner = isTC ? user : tcSel;
+  const province = isTC ? user.province : tcSel ? (tcSel.province || tcSel.provinces[0] || null) : null;
+  const provKey = isTC ? (tcProvinces && tcProvinces.length ? tcProvinces : [province]).join("|")
+    : tcSel ? (tcSel.provinces.length ? tcSel.provinces : province ? [province] : []).join("|") : "";
   const provText = provKey ? provKey.split("|").map(provinceTH).join(", ") : "";
 
   // ── สถานะตัวกรอง (init จาก URL เพื่อให้เปิด URL ตรง/รีเฟรช/ย้อนกลับได้) ──
-  const readParams = ()=>{ const q=new URLSearchParams(location.search);
-    return {from:q.get("from")||"", to:q.get("to")||"", dist:q.get("dist")||"all", status:q.get("status")||"all", plan:q.get("plan")||""}; };
-  const p0 = readParams();
   const [from,setFrom]     = useState(p0.from);
   const [to,setTo]         = useState(p0.to);
   const [dist,setDist]     = useState(p0.dist);
@@ -179,25 +186,37 @@ export function VisitPlanReport(){
   const firstRun = useRef(true); const popping = useRef(false);
 
   // ── redirect บทบาทที่ไม่ใช่ TC ออกจากหน้านี้ (กันเข้า URL ตรง) ──
-  useEffect(()=>{ if(!isTC){ toast(t("หน้านี้สำหรับผู้ประสานงานการค้าเท่านั้น", "This page is for Trade Coordinators only"),"bad"); nav && nav("workspace"); } }, [isTC]);
+  useEffect(()=>{ if(!isTC && !teamView){ toast(t("หน้านี้สำหรับผู้ประสานงานการค้าเท่านั้น", "This page is for Trade Coordinators only"),"bad"); nav && nav("workspace"); } }, [isTC, teamView]);
+
+  useEffect(()=>{ if(!teamView) return; let alive=true;
+    teamPlansApi().then(res=>{ if(!alive) return;
+      if(res.local){ setTeam([]); return; }
+      if(res.status===403){ setDenied(true); return; }
+      if(!res.ok){ toast(res.error,"bad"); setTeam([]); return; }
+      const list = res.team||[];
+      setTeam(list);
+      if(list.length && !list.some(m=>String(m.id)===String(tcId))) setTcId(String((list.find(m=>m.plans>0)||list[0]).id));
+    });
+    return ()=>{ alive=false; };
+  }, [teamView]);
 
   // ── บังคับสิทธิ์ที่เซิร์ฟเวอร์จาก token: ขอแผนของตัวเอง = 200 · ของคนอื่น = 403 ──
   const [serverPlans,setServerPlans] = useState(undefined);
-  useEffect(()=>{ if(!isTC) return; let alive=true;
+  useEffect(()=>{ if(!isTC && !tcSel) return; let alive=true;
     setServerPlans(undefined);
-    visitPlansApi("GET").then(res=>{ if(!alive) return;
+    (isTC ? visitPlansApi("GET") : teamPlansApi(tcSel.id)).then(res=>{ if(!alive) return;
       if(res.local){ setServerPlans(null); return; }
       if(res.status===403){ setDenied(true); toast(t("เซิร์ฟเวอร์ปฏิเสธการเข้าถึงแผนนี้ (403)", "The server refused access to this plan (403)"),"bad"); return; }
       if(!res.ok){ toast(res.error,"bad"); setServerPlans([]); return; }
       setServerPlans(res.plans||[]);
     });
     return ()=>{ alive=false; };
-  }, [isTC, province, user && user.email]);
+  }, [isTC, province, user && user.email, tcSel && tcSel.id]);
 
-  const plans = useMemo(()=> !isTC || serverPlans===undefined ? []
-    : serverPlans===null ? genVisitPlans(db.prospects||[], province, user.email, db.customers||[], provKey.split("|"))
+  const plans = useMemo(()=> !owner || serverPlans===undefined ? []
+    : serverPlans===null ? (isTC ? genVisitPlans(db.prospects||[], province, user.email, db.customers||[], provKey.split("|")) : [])
     : plansFromServer(serverPlans, db, province),
-    [isTC, serverPlans, db.prospects, db.customers, province, provKey, user && user.email]);
+    [isTC, owner, serverPlans, db.prospects, db.customers, province, provKey, user && user.email]);
   // อำเภอทั้งหมดที่ปรากฏในแผน (ตัวเลือกตัวกรองอำเภอ) — จากข้อมูลจริง
   const distOpts = useMemo(()=>{ const s=new Set(); plans.forEach(pl=>pl.districts.forEach(d=>s.add(d)));
     return [["all",t("ทุกอำเภอ", "All districts")], ...[...s].sort().map(d=>[d, districtTH(d)])]; }, [plans, getLang()]);
@@ -227,14 +246,14 @@ export function VisitPlanReport(){
   // ── URL sync (pushState เมื่อกรอง เพื่อให้กดย้อนกลับได้ · popstate → คืนสถานะ) ──
   const writeURL = (st, push)=>{ const q=new URLSearchParams(location.search); q.set("go","visit-plans");
     const set=(k,v,def)=>{ if(v&&v!==def) q.set(k,v); else q.delete(k); };
-    set("from",st.from,""); set("to",st.to,""); set("dist",st.dist,"all"); set("status",st.status,"all"); set("plan",st.plan,"");
+    set("from",st.from,""); set("to",st.to,""); set("dist",st.dist,"all"); set("status",st.status,"all"); set("plan",st.plan,""); set("tc",st.tc,"");
     const u=location.pathname+"?"+q.toString()+location.hash; push?history.pushState(null,"",u):history.replaceState(null,"",u); };
-  useEffect(()=>{ const st={from,to,dist,status,plan:selected?selected.id:""};
+  useEffect(()=>{ const st={from,to,dist,status,plan:selected?selected.id:"", tc:tcSel?String(tcSel.id):""};
     if(popping.current){ popping.current=false; return; }
     writeURL(st, !firstRun.current); firstRun.current=false;
-  }, [from,to,dist,status, selected && selected.id]);
+  }, [from,to,dist,status, selected && selected.id, tcSel && tcSel.id]);
   useEffect(()=>{ const onPop=()=>{ const q=readParams(); popping.current=true;
-      setFrom(q.from); setTo(q.to); setDist(q.dist); setStatus(q.status); setPlanId(q.plan||null); };
+      setFrom(q.from); setTo(q.to); setDist(q.dist); setStatus(q.status); setPlanId(q.plan||null); if(q.tc) setTcId(q.tc); };
     window.addEventListener("popstate",onPop); return ()=>window.removeEventListener("popstate",onPop); }, []);
 
   // ── ปุ่มลัดช่วงเวลา ──
@@ -249,7 +268,7 @@ export function VisitPlanReport(){
   const exportScope = { areaName: provText, areaLabel: provText?(t("จังหวัด", "provinces")+provText):"",
     segLabel:t("ทุกหมวดธุรกิจ", "All business categories"), dateLabel: rangeText, counts:{total: fPlans.length} };
   const buildVpRows = ()=>{ const rows=[];
-    rows.push([t("รายงานแผนการเข้าพบ · จังหวัด", "Visit plan report · province")+provText+t(" · ผู้จัดทำ ", " · prepared by ")+((user&&user.name)||"")]);
+    rows.push([t("รายงานแผนการเข้าพบ · จังหวัด", "Visit plan report · province")+provText+(teamView&&tcSel ? t(" · แผนของ ", " · plans by ")+tcSel.name : "")+t(" · ผู้จัดทำ ", " · prepared by ")+((user&&user.name)||"")]);
     rows.push([t("ช่วงเวลา: ", "Period: ")+rangeText]);
     rows.push([t("สรุป: พบ ", "Summary: ")+summary.n+t(" แผน · วางแผนไว้ ", " plans · planned ")+summary.planned+t(" แห่ง · เข้าพบจริง ", " places · actually visited ")+summary.visited+t(" แห่ง · อัตราทำตามแผน ", " places · plan completion ")+summary.rate+"%"]);
     rows.push([]);
@@ -272,20 +291,26 @@ export function VisitPlanReport(){
     runExport({kind:"visit_plans", format, filename:exportName(filename, exportScope), rows, count:fPlans.length, scope:exportScope});
   };
 
-  if(!isTC) return html`<div class="page"><div class="vp-denied"><${Icon} name="lock" size=${18} color="var(--accent)"/> ${t("หน้านี้สำหรับผู้ประสานงานการค้าเท่านั้น กำลังนำคุณออก…", "This page is for Trade Coordinators only — redirecting you…")}</div><style>${VP_CSS}</style></div>`;
+  const pickTc = v=>{ if(String(v)===String(tcId)) return; setTcId(String(v)); setPlanId(null); setDist("all"); };
+  const tcOpts = (team||[]).map(m=>({value:String(m.id), label:m.name+" · "+(m.provinces.length ? m.provinces.map(provinceTH).join(", ") : t("ยังไม่มีพื้นที่", "No territory"))}));
+
+  if(teamView && team && !team.length) return html`<div class="page"><div class="emptybox">${t("ยังไม่มีผู้ประสานงานการค้าในระบบ", "No Trade Coordinators yet")}</div><style>${VP_CSS}</style></div>`;
+  if(!isTC && !teamView) return html`<div class="page"><div class="vp-denied"><${Icon} name="lock" size=${18} color="var(--accent)"/> ${t("หน้านี้สำหรับผู้ประสานงานการค้าเท่านั้น กำลังนำคุณออก…", "This page is for Trade Coordinators only — redirecting you…")}</div><style>${VP_CSS}</style></div>`;
   if(!db.prospects || (serverPlans===undefined && !denied)) return html`<div class="page"><div class="emptybox">${t("กำลังโหลดข้อมูลแผนการเข้าพบ…", "Loading visit plan data…")}</div><style>${VP_CSS}</style></div>`;
+  if(denied && teamView) return html`<div class="page"><div class="vp-denied"><${Icon} name="lock" size=${18} color="var(--accent)"/> ${t("บัญชีนี้ไม่มีสิทธิ์ดูแผนของทีม", "This account may not view the team's plans")}</div><style>${VP_CSS}</style></div>`;
   if(denied) return html`<div class="page"><div class="vp-denied"><${Icon} name="lock" size=${18} color="var(--accent)"/> ${t("เซิร์ฟเวอร์ปฏิเสธการเข้าถึง (403) — คุณเรียกดูได้เฉพาะแผนของตนเองในพื้นที่ที่รับผิดชอบ", "The server refused access (403) — you may only view your own plans within your territory")}</div><style>${VP_CSS}</style></div>`;
 
   const STATUS_OPTS = [["all",t("ทุกสถานะ", "All statuses")],["complete",t("เสร็จสมบูรณ์", "Complete")],["partial",t("ทำได้บางส่วน", "Partly done")],["none",t("ไม่ได้ออกพื้นที่", "Did not go out")]];
 
-  return html`<div class="page fade-in vp-page tcrp-wrap">
-    <${TCReportNav} active="visit-plans" nav=${nav}/>
+  return html`<div class=${"page fade-in vp-page"+(isTC?" tcrp-wrap":"")}>
+    ${isTC ? html`<${TCReportNav} active="visit-plans" nav=${nav}/>` : html`<div style=${{marginBottom:"12px"}}><button class="vp-btn ghost" onClick=${()=>nav&&nav("reports")}><${Icon} name="chevron" size=${14} style=${{transform:"rotate(90deg)"}}/> ${t("กลับไปหน้ารายงาน", "Back to reports")}</button></div>`}
 
     <div class="page-head vp-head">
       <div>
         <div class="eyebrow">${t("รายงาน · แผนการเข้าพบ", "Reports · visit plans")}</div>
         <h1>${t("รายงานแผนการเข้าพบ · จังหวัด", "Visit plan report · province ")}${provText}</h1>
-        <div class="sub">${t("แผนที่คุณสร้างเองในพื้นที่รับผิดชอบ ·", "Plans you created in your own territory ·")} ${(user&&user.name)||""} ${t("· อ่านอย่างเดียว (วางแผนทำที่หน้าแผนที่)", "· read-only (plan on the map page)")}</div>
+        ${isTC ? html`<div class="sub">${t("แผนที่คุณสร้างเองในพื้นที่รับผิดชอบ ·", "Plans you created in your own territory ·")} ${(user&&user.name)||""} ${t("· อ่านอย่างเดียว (วางแผนทำที่หน้าแผนที่)", "· read-only (plan on the map page)")}</div>`
+          : html`<div class="sub">${t("แผนของ", "Plans by")} ${(tcSel&&tcSel.name)||""} ${t("· อ่านอย่างเดียว", "· read-only")}</div>`}
       </div>
       <div class="ph-right">
         <button class="vp-btn primary" onClick=${()=>setExportOpen(true)}><${Icon} name="download" size=${15} color="#fff"/> ${t("ส่งออกรายงาน", "Export report")}</button>
@@ -296,6 +321,7 @@ export function VisitPlanReport(){
     <div class="vp-filters">
       <!-- ตัวกรองทั้งหมดอยู่แถวเดียว · "ช่วงที่เลือก" กับปุ่มล้างถูกดันไปชิดขวาด้วย margin-left:auto -->
       <div class="vp-frow">
+        ${teamView ? html`<div class="vp-f vp-dd vp-tc"><label>${t("ผู้ประสานงานการค้า", "Trade Coordinator")}</label><${Dropdown} value=${tcSel?String(tcSel.id):""} onChange=${pickTc} options=${tcOpts}/></div>` : ""}
         <div class="vp-f vp-date"><label>${t("ช่วงเวลา (ตั้งแต่)", "Period (from)")}</label>
           <${DateField} value=${from} max=${to||undefined} onChange=${setFrom}/></div>
         <div class="vp-f vp-date"><label>${t("ถึง", "to")}</label>
@@ -394,6 +420,7 @@ const VP_CSS = `
 .vp-date > *{width:100%}
 .vp-f input[type=date]{height:38px;border:1px solid var(--stroke2);border-radius:10px;padding:0 11px;font-family:var(--font);font-size:13px;color:var(--txt);background:var(--surface)}
 .vp-dd{width:160px;min-width:0}
+.vp-dd.vp-tc{width:260px;max-width:100%}
 /* ข้อความช่วงเวลา = ตัวยืดหยุ่นของแถว หดได้และตัดด้วย … แทนที่จะดันปุ่มตกบรรทัด */
 .vp-range-txt{font-size:12.5px;color:var(--muted);align-self:flex-end;padding-bottom:10px;
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:0 1 auto;min-width:0}

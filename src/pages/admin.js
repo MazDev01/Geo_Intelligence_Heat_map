@@ -1075,6 +1075,7 @@ export function Monitoring({defaultTab}={}){
     <div class="page-head">
       <div><h1>${t("แดชบอร์ด", "Dashboard")}</h1></div>
       <div class="ph-right" style=${{gap:"10px"}}>
+        ${dtab==="business" && user && effectivePerms(user.role, user.permOverrides||{}).has("visit.view_team") ? html`<${Btn} variant="outline" icon="route" onClick=${()=>nav&&nav("visit-plans")}>${t("แผนการเข้าพบของทีม", "Team visit plans")}</${Btn}>`:""}
         ${dtab==="business" ? html`<${Btn} variant="outline" icon="download" onClick=${()=>setExportOpen(true)}>${t("ส่งออกรายงาน", "Export report")}</${Btn}>`:""}
       </div>
     </div>

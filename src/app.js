@@ -30,6 +30,8 @@ import {loadSettings} from "./settings-api.js";
 import {ConfirmHost} from "./confirm.js";
 import {askLeaveZones} from "./zone-toolbar.js";
 import {effectivePerms} from "./permissions.js";
+const canTeamPlans = u => !!u && u.role!=="Trade Coordinator" && effectivePerms(u.role, u.permOverrides||{}).has("visit.view_team");
+const canVisitReport = u => !!u && ((u.role==="Trade Coordinator" && !!u.province) || canTeamPlans(u));
 import {applyMaster, masterKey} from "./master-api.js";   // กระดิ่ง: กรองตามบทบาท + ขอบเขตพื้นที่ + สวิตช์จริง
 import {deriveVisitStatus, planTodayKey, planResultOf} from "./visit-rounds.js";
 
@@ -467,7 +469,7 @@ function App(){
       }
       // รายงานแผนการเข้าพบเป็นของ TC เท่านั้น — admin/ผู้บริหารเข้า URL ตรง ถูกเปลี่ยนเส้นทางออก (คงอยู่หน้า workspace)
       else if(go==="zones"){ if(admin){ startZoneEdit(); setZoneEditFrom("territory"); } }
-      else if(go==="visit-plans"){ toast(t("หน้านี้สำหรับผู้ประสานงานการค้าเท่านั้น", "This page is for Trade Coordinators only"),"bad"); }
+      else if(go==="visit-plans" && !canTeamPlans({role: admin ? "Administrator" : "Management"})){ toast(t("หน้านี้สำหรับผู้ประสานงานการค้าเท่านั้น", "This page is for Trade Coordinators only"),"bad"); }
       // เปิดหน้าก่อนแล้วค่อยโหลดเบื้องหลัง ถ้ารอโหลดก่อนแล้วคำขอล้มเหลว หน้าจะไม่ถูกเปิดเลย
       // กันบทบาทที่ไม่ใช่ Administrator บังคับเปิดหน้าผู้ดูแลผ่าน ?go= (เช่น master-data) — ไม่ตั้ง overlay เลย (ไม่มีสิทธิ์)
       else if(go && MODALS[go] && (!ADMIN.has(go) || admin)){ setOverlay(go); ensureData("Thailand").catch(()=>{}); }
@@ -777,7 +779,7 @@ function App(){
       setOverlay(id); โหลดเบื้องหลัง(); return; }
     // รายงานแผนการเข้าพบ — เฉพาะ TC ที่มีจังหวัดรับผิดชอบ · บทบาทอื่นถูกเปลี่ยนเส้นทางออก
     if(id==="visit-plans"){
-      if(user && user.role==="Trade Coordinator" && user.province){ setOverlay(id); โหลดเบื้องหลัง(); }
+      if(canVisitReport(user)){ setOverlay(id); โหลดเบื้องหลัง(); }
       else { toast(t("หน้านี้สำหรับผู้ประสานงานการค้าเท่านั้น", "This page is for Trade Coordinators only"),"bad"); return backToGlobe(); }
       return;
     }
@@ -848,7 +850,7 @@ function App(){
     if(!user) return {go:null};
     if(zoneEdit && user.role==="Administrator") return {go:"zones"};
     const tc = user.role==="Trade Coordinator";
-    const modal = overlay && MODALS[overlay] && (!ADMIN.has(overlay) || user.role==="Administrator") && !(overlay==="visit-plans" && !tc) ? overlay : null;
+    const modal = overlay && MODALS[overlay] && (!ADMIN.has(overlay) || user.role==="Administrator") && !(overlay==="visit-plans" && !canVisitReport(user)) ? overlay : null;
     if(modal) return {go:modal};
     if(tc || view!=="workspace" || mode!=="map") return {go:null};
     return {go:"map", province: filters.province && filters.province!=="All" ? filters.province : null};
@@ -879,7 +881,7 @@ function App(){
       return;
     }
     if(go && MODALS[go]){
-      const allowed = go==="visit-plans" ? (tc && !!u.province)
+      const allowed = go==="visit-plans" ? canVisitReport(u)
         : go==="reports" ? effectivePerms(u.role, u.permOverrides||{}).has("report.view")
         : (!ADMIN.has(go) || admin);
       if(allowed && !fromPop && !admin && !tc){
@@ -947,7 +949,7 @@ function App(){
   const crumbProvince = (selectedProvince && selectedProvince!=="All") ? provinceTH(selectedProvince)
     : (filters.province && filters.province!=="All") ? provinceTH(filters.province) : null;
   const modalId = overlay && MODALS[overlay] && (!ADMIN.has(overlay) || user.role==="Administrator")
-    && !(overlay==="visit-plans" && user.role!=="Trade Coordinator") ? overlay : null;
+    && !(overlay==="visit-plans" && !canVisitReport(user)) ? overlay : null;
   const ModalComp = modalId ? MODALS[modalId] : null;
   const results = gsearch.length>1 ? searchAll(db,gsearch) : {areas:[],people:[]};
 
