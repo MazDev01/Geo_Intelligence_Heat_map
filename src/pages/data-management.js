@@ -1537,7 +1537,7 @@ function buildZonePaths(zonesGeo, proj){
 /* แผนที่ขอบเขต — ระบายสีตาม TC ที่ดูแล · จังหวัดไร้ผู้ดูแลใช้ลายทแยงแดง (เห็นชัดแม้พิมพ์ขาวดำ) */
 function TerritoryMap({paths, assign, focus, onFocus, zonePaths, tcById, tcColor}){
   const [hover,setHover]=useState(null);
-  const [zoom,setZoom]=useState(false);   // ซูมไปที่กรุงเทพฯ เพื่อให้คลิกเลือกโซนได้ถนัด
+  const [zoomTo,setZoomTo]=useState("");
   if(!paths) return html`<div class="tr-map-load">${t("กำลังโหลดขอบเขตจังหวัด…", "Loading province boundaries…")}</div>`;
   const shown = hover || focus;
   // กรุงเทพฯ เป็นรูปเดียวบนแมพแต่มี 3 โซน — เจ้าของเดียวกันทั้ง 3 จึงระบายสีนั้นได้
@@ -1550,24 +1550,32 @@ function TerritoryMap({paths, assign, focus, onFocus, zonePaths, tcById, tcColor
   const ownerOf = key => key && key.includes("/") ? (tcById[assign[key]]||null) : tcOf(key);
   // ซูม: กรุงเทพฯ กินพื้นที่แค่ ~2% ของภาพทั้งประเทศ โซนย่อยจึงเล็กจนคลิกยาก
   // กดปุ่มแล้วเปลี่ยน viewBox ไปที่กรอบของกรุงเทพฯ (เผื่อขอบ 25%) — ไม่ต้องแตะรูปหรือสเกลใด ๆ
-  const bb = paths.bboxByProv && paths.bboxByProv[BKK];
-  const zoomBox = bb ? (()=>{ const w=bb.x1-bb.x0, h=bb.y1-bb.y0, pad=Math.max(w,h)*0.25;
-    return `${(bb.x0-pad).toFixed(1)} ${(bb.y0-pad).toFixed(1)} ${(w+pad*2).toFixed(1)} ${(h+pad*2).toFixed(1)}`; })() : null;
+  const zoomProvs = (!zoomTo ? [] : zoomTo.startsWith("region:")
+    ? ((REGIONS.find(r=>"region:"+r[0]===zoomTo)||[])[2]||[]) : [zoomTo]).filter(pv=>paths.byProv[pv] && paths.bboxByProv[pv]);
+  const bbs = zoomProvs.map(pv=>paths.bboxByProv[pv]);
+  const box = bbs.length ? (()=>{ const x0=Math.min(...bbs.map(b=>b.x0)), y0=Math.min(...bbs.map(b=>b.y0)),
+      w=Math.max(...bbs.map(b=>b.x1))-x0, h=Math.max(...bbs.map(b=>b.y1))-y0, pad=Math.max(w,h)*0.25;
+    return {x:x0-pad, y:y0-pad, w:w+pad*2, h:h+pad*2}; })() : null;
+  const sc = box ? 1/Math.max(1, Math.min(paths.W/box.w, paths.H/box.h)) : 1;
+  const zoomOpts = [["",t("ทั้งประเทศ","Whole country")],
+    {value:"-r",label:t("── ภาค ──","── Regions ──"),disabled:true},
+    ...REGIONS.map(([k])=>["region:"+k, REGION_TH_OF(k)]),
+    {value:"-p",label:t("── จังหวัด ──","── Provinces ──"),disabled:true},
+    ...ALL_PROVINCES.filter(pv=>paths.bboxByProv[pv]).map(pv=>[pv, provinceTH(pv)])];
   return html`<div class="tr-map" style=${{position:"relative"}}>
-    ${zoomBox && html`<button type="button" onClick=${()=>setZoom(z=>!z)}
-      style=${{position:"absolute",top:"8px",right:"8px",zIndex:2,padding:"6px 11px",borderRadius:"8px",
-        border:"1px solid var(--stroke2)",background:"var(--panel)",color:"var(--txt)",cursor:"pointer",
-        font:"600 12px var(--font)",boxShadow:"var(--shadow-sm)"}}>
-      ${zoom ? t("ย่อกลับทั้งประเทศ","Back to whole country") : t("ซูมกรุงเทพฯ","Zoom to Bangkok")}</button>`}
-    <svg viewBox=${zoom && zoomBox ? zoomBox : "0 0 "+paths.W+" "+paths.H} class="tr-map-svg" preserveAspectRatio="xMidYMid meet"
+    <div class="tr-zoom">
+      <span>${t("ซูม","Zoom")}</span>
+      <${Dropdown} value=${zoomTo} onChange=${setZoomTo} options=${zoomOpts}/>
+    </div>
+    <svg viewBox=${box ? `${box.x.toFixed(1)} ${box.y.toFixed(1)} ${box.w.toFixed(1)} ${box.h.toFixed(1)}` : "0 0 "+paths.W+" "+paths.H} class="tr-map-svg" preserveAspectRatio="xMidYMid meet"
       role="img" aria-label=${t("แผนที่ขอบเขตพื้นที่การขายรายจังหวัด", "Sales territory map by province")} onMouseLeave=${()=>setHover(null)}>
       <defs>
-        <pattern id="trNoMan" width="7" height="7" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+        <pattern id="trNoMan" width="7" height="7" patternUnits="userSpaceOnUse" patternTransform=${"rotate(45) scale("+sc+")"}>
           <rect width="7" height="7" fill="rgba(220,38,38,.10)"/>
           <line x1="0" y1="0" x2="0" y2="7" stroke="rgba(220,38,38,.55)" stroke-width="2.4"/>
         </pattern>
         <!-- ลายผสม: กรุงเทพฯ ที่ 3 โซนมี TC คนละคน — ไม่เลือกสีใครคนหนึ่งมาแสดงแทนทั้งจังหวัด -->
-        <pattern id="trMixed" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+        <pattern id="trMixed" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform=${"rotate(45) scale("+sc+")"}>
           <rect width="8" height="8" fill="rgba(99,102,241,.14)"/>
           <line x1="0" y1="0" x2="0" y2="8" stroke="rgba(99,102,241,.6)" stroke-width="2.6"/>
         </pattern>
@@ -1582,7 +1590,7 @@ function TerritoryMap({paths, assign, focus, onFocus, zonePaths, tcById, tcColor
           return html`<path key=${pv} d=${d} class=${"tr-path"+(ron?" on":"")}
             fill=${rtc ? tcColor(rtc.id)+"3d" : "url(#trNoMan)"}
             stroke=${ron ? "#161d2b" : rtc ? tcColor(rtc.id) : "#dc2626"}
-            stroke-width=${ron ? 2.2 : 0.7}
+            stroke-width=${(ron ? 2.2 : 0.7)*sc}
             onMouseEnter=${()=>setHover(rk)}
             onClick=${()=>onFocus(focus===rk?null:rk)}>
             <title>${unitLabel(rk)} · ${rtc?rtc.name:t("ยังไม่มีคนดูแล", "No owner yet")}</title></path>`;
@@ -1591,7 +1599,7 @@ function TerritoryMap({paths, assign, focus, onFocus, zonePaths, tcById, tcColor
         return html`<path key=${pv} d=${d} class=${"tr-path"+(on?" on":"")}
           fill=${tc==="mixed" ? "url(#trMixed)" : tc? tcColor(tc.id)+"3d" : "url(#trNoMan)"}
           stroke=${on? "#161d2b" : tc==="mixed" ? "#6366f1" : (tc? tcColor(tc.id) : "#dc2626")}
-          stroke-width=${on? 2.2 : 0.7}
+          stroke-width=${(on? 2.2 : 0.7)*sc}
           onMouseEnter=${()=>setHover(pv)}
           onClick=${()=>onFocus(focus===pv?null:pv)}><title>${provinceTH(pv)} · ${tc==="mixed" ? t("หลายผู้ดูแล (แบ่งตามโซน)","Several owners (split by zone)") : tc?tc.name:t("ยังไม่มีคนดูแล", "No owner yet")}</title></path>`;
       })}
@@ -1601,11 +1609,20 @@ function TerritoryMap({paths, assign, focus, onFocus, zonePaths, tcById, tcColor
         return html`<path key=${key} d=${d} class=${"tr-path"+(on?" on":"")}
           fill=${tc? tcColor(tc.id)+"55" : "url(#trNoMan)"}
           stroke=${on? "#161d2b" : tc? tcColor(tc.id) : "#dc2626"}
-          stroke-width=${on? 2.2 : 1}
+          stroke-width=${(on? 2.2 : 1)*sc}
           onMouseEnter=${()=>setHover(key)}
           onClick=${()=>onFocus(focus===key?null:key)}>
           <title>${unitLabel(key)} · ${tc?tc.name:t("ยังไม่มีคนดูแล", "No owner yet")}</title></path>`;
       })}
+      ${box && zoomProvs.length ? html`<g pointer-events="none">
+        <mask id="trZoomMask" maskUnits="userSpaceOnUse" x=${box.x} y=${box.y} width=${box.w} height=${box.h}>
+          <rect x=${box.x} y=${box.y} width=${box.w} height=${box.h} fill="white"/>
+          ${zoomProvs.map(pv=>html`<path key=${pv} d=${paths.byProv[pv]} fill="black" stroke="black" stroke-width=${1.5*sc} stroke-linejoin="round"/>`)}
+        </mask>
+        <g mask="url(#trZoomMask)">
+          ${zoomProvs.map(pv=>html`<path key=${pv} d=${paths.byProv[pv]} fill="none" stroke="#161d2b" stroke-width=${4.6*sc} stroke-linejoin="round"/>`)}
+        </g>
+      </g>` : null}
     </svg>
     <div class=${"tr-map-cap"+(shown && !ownerOf(shown) ? " none":"")}>
       ${shown ? (()=>{ const o=ownerOf(shown);
@@ -1824,6 +1841,15 @@ const TR_CSS=`
 .tr-as-hint{margin-bottom:11px;padding:11px 13px;border-radius:12px;border:1px dashed var(--stroke2);
   font-size:12.5px;color:var(--muted);text-align:center}
 .tr-map{display:flex;flex-direction:column;gap:9px}
+.tr-zoom{position:relative;z-index:2;align-self:flex-end;display:flex;align-items:center;width:200px;
+  padding-left:10px;border:1px solid var(--stroke2);border-radius:8px;background:var(--panel);box-shadow:var(--shadow-sm);
+  font:500 11.5px var(--font);color:var(--muted);transition:border-color .15s}
+.tr-zoom:hover,.tr-zoom:focus-within{border-color:var(--accent)}
+.tr-zoom>span{flex:none;padding-right:6px;border-right:1px solid var(--stroke)}
+.tr-zoom>div{flex:1;min-width:0}
+.tr-zoom .uidd-btn{border:0;background:transparent;padding:6px 9px 6px 8px;font-size:12px;font-weight:600;border-radius:0 8px 8px 0}
+.tr-zoom .uidd{position:static}
+.tr-zoom .uidd-pop{left:-1px;right:-1px}
 .tr-map-svg{width:100%;height:440px;display:block}
 .tr-map-load{height:440px;display:grid;place-items:center;color:var(--dim);font-size:13px}
 .tr-path{cursor:pointer}
