@@ -1154,7 +1154,7 @@ export function Monitoring({defaultTab, reportNav}={}){
           </${Card}>
         <!-- Lead มาก แต่สัดส่วนต่ำ (โดนัท + legend) — ย้ายขึ้นมาข้างกราฟเส้นแทนการ์ดอัตราการเปลี่ยนเป็นลูกค้าเดิม -->
         <${Card} title=${t("Lead มาก แต่สัดส่วนต่ำ", "Many Leads, low share")} sub=${t("หมวดที่ยังไม่ถูกเจาะ · Lead สูง แต่สัดส่วนลูกค้าต่ำ", "Untapped categories · high Lead demand, low customer share")}>
-          ${unpen.length ? html`<${Donut} key=${"mgdn-"+animSig} data=${unpen} center=${{value:num(unpen.reduce((a,x)=>a+x.value,0)), label:"Lead"}}/>`
+          ${unpen.length ? html`<${Donut} key=${"mgdn-"+animSig} data=${unpen} center=${{value:unpen.reduce((a,x)=>a+x.value,0), label:"Lead", format:num}}/>`
             : html`<div class="emptybox">${t("ยังไม่มีข้อมูลเพียงพอ", "Not enough data yet")}</div>`}
         </${Card}>
       </div>
