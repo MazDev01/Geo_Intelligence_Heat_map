@@ -8,6 +8,7 @@ import {demandGap, gapBySegment, gapLevelOf, GAP_REF} from "../mock/geoData.js";
 import {LeafletMap} from "../lmap.js";   // ใช้แผนที่ Leaflet ตัวเดียวกับหน้าหลักซ้ำ (ไม่สร้าง instance ใหม่)
 import {toast} from "../ui.js";
 import {Dropdown} from "../select.js";   // dropdown กำหนดสไตล์เอง (โชว์ 6 ตัวเลือก+เลื่อน · hover แดงอ่อน · ที่เลือกพื้นขาวตัวอักษรแดงเข้ม)
+import {effectivePerms} from "../permissions.js";
 import {Monitoring} from "./admin.js";   // แดชบอร์ดผู้บริหาร (แดชบอร์ดภาพรวมธุรกิจ) — ใช้เป็นแดชบอร์ดของผู้บริหารในหน้ารายงาน
 import {canExportKind, exportReport} from "../export-api.js";
 import {planTodayKey} from "../visit-rounds.js";
@@ -154,7 +155,7 @@ export function Reports(){
   if(!db.customers) return html`<div class="page"><div class="emptybox">${t("กำลังโหลดข้อมูลธุรกิจ…", "Loading business data…")}</div></div>`;
   // แดชบอร์ดของผู้บริหาร (ไม่ใช่ TC) ในหน้ารายงาน = ใช้ "แดชบอร์ดภาพรวมธุรกิจ" (Monitoring) แทนของเดิม
   // hook ทุกตัวถูกเรียกครบก่อนบรรทัดนี้แล้ว การ return ก่อนจึงไม่ทำให้ลำดับ hook เพี้ยน
-  if(!isTC) return html`<${Monitoring} defaultTab="business"/>`;
+  if(!isTC) return html`<${Monitoring} defaultTab="business" reportNav=${!!user && effectivePerms(user.role, user.permOverrides||{}).has("visit.view_team")}/>`;
   const f = filters;
   const PLAN_TODAY = planTodayKey();
   const today = thDate(PLAN_TODAY);

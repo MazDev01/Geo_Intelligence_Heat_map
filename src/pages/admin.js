@@ -3,7 +3,7 @@ import {SEGMENTS, SEG_COLOR, OTHER_COLOR, DISTRICT_TH, GAP_REF, demandGap, gapBy
 import {pushAudit} from "../audit.js";
 import {emailOk} from "../contact-rules.js";
 import {fetchAudit, AUDIT_GROUPS, eventLabel, eventIcon, eventTone, detailText} from "../audit-api.js";
-import {Card, Kpi, Btn, Badge, Toggle, Field, Table, Tabs, Modal, DateField, toast} from "../ui.js";
+import {Card, Kpi, Btn, Badge, Toggle, Field, Table, Tabs, Modal, DateField, toast, TCReportNav} from "../ui.js";
 import {confirmBox} from "../confirm.js";
 import {Dropdown} from "../select.js";
 import {LineChart, Donut} from "../charts.js";
@@ -782,7 +782,7 @@ export function Audit(){
 
 /* ================= แดชบอร์ด (monitoring) — 2 แท็บ: สภาพระบบ + ภาพรวมธุรกิจ ================= */
 // ผู้ดูแลระบบ: เข้ามาเจอแท็บ "สภาพระบบ" ก่อน (ตรวจสุขภาพข้อมูล) · ผู้บริหาร: เห็นเฉพาะ "ภาพรวมธุรกิจ"
-export function Monitoring({defaultTab}={}){
+export function Monitoring({defaultTab, reportNav}={}){
   const {db, nav, user} = useApp();
   const _isMgmt = (user&&user.role)==="Management";   // ผู้บริหารเห็นเฉพาะภาพรวมธุรกิจ ไม่เห็นแท็บสภาพระบบ
   const [range,setRange] = useState("all");
@@ -1071,11 +1071,11 @@ export function Monitoring({defaultTab}={}){
   const hTotal = hLine.reduce((a,b)=>a+b,0);
   const auditRecent = feed;
 
-  return html`<div class="page fade-in">
+  return html`<div class=${"page fade-in"+(reportNav?" tcrp-wrap":"")}>
+    ${reportNav ? html`<${TCReportNav} active="reports" nav=${nav} team=${true}/>` : ""}
     <div class="page-head">
       <div><h1>${t("แดชบอร์ด", "Dashboard")}</h1></div>
       <div class="ph-right" style=${{gap:"10px"}}>
-        ${dtab==="business" && user && effectivePerms(user.role, user.permOverrides||{}).has("visit.view_team") ? html`<${Btn} variant="outline" icon="route" onClick=${()=>nav&&nav("visit-plans")}>${t("แผนการเข้าพบของทีม", "Team visit plans")}</${Btn}>`:""}
         ${dtab==="business" ? html`<${Btn} variant="outline" icon="download" onClick=${()=>setExportOpen(true)}>${t("ส่งออกรายงาน", "Export report")}</${Btn}>`:""}
       </div>
     </div>

@@ -192,10 +192,14 @@ const TCRP_TABS = [
   { id:"reports",     get label(){ return t("แดชบอร์ด TC","TC Dashboard"); },        icon:"reports" },
   { id:"visit-plans", get label(){ return t("รายงานแผนการเข้าพบ","Visit Plan Report"); }, icon:"route" },
 ];
-export function TCReportNav({active, nav}){
+const TEAMRP_TABS = [
+  { id:"reports",     get label(){ return t("แดชบอร์ด","Dashboard"); },                    icon:"reports" },
+  { id:"visit-plans", get label(){ return t("แผนการเข้าพบของทีม","Team visit plans"); }, icon:"route" },
+];
+export function TCReportNav({active, nav, team}){
   return html`<nav class="tcrp-nav" aria-label=${t("เมนูรายงาน", "Reports menu")}>
     <div class="tcrp-nav-h">${t("รายงาน", "Reports")}</div>
-    ${TCRP_TABS.map(t=>html`<button key=${t.id} class=${cx("tcrp-tab", active===t.id&&"on")}
+    ${(team ? TEAMRP_TABS : TCRP_TABS).map(t=>html`<button key=${t.id} class=${cx("tcrp-tab", active===t.id&&"on")}
       aria-current=${active===t.id?"page":undefined}
       onClick=${()=>{ if(active!==t.id && nav) nav(t.id); }}>
       <${Icon} name=${t.icon} size=${15}/><span>${t.label}</span></button>`)}
@@ -207,7 +211,7 @@ const TCRP_CSS = `
    row-gap 0 เพื่อคงระยะห่างเดิมที่แต่ละบล็อกมี margin ของตัวเองอยู่แล้ว */
 .tcrp-wrap{display:grid;grid-template-columns:196px minmax(0,1fr);gap:0 22px;align-items:start}
 .tcrp-wrap > *{grid-column:2;min-width:0}
-.tcrp-wrap > .tcrp-nav{grid-column:1;grid-row:1}
+.tcrp-wrap > .tcrp-nav{grid-column:1;grid-row:1 / span 60}
 .tcrp-nav{display:flex;flex-direction:column;gap:4px;position:sticky;top:0}
 .tcrp-nav-h{font-size:11px;font-weight:700;color:var(--dim);letter-spacing:.04em;padding:2px 12px 8px}
 .tcrp-tab{display:flex;align-items:center;gap:9px;width:100%;text-align:left;padding:10px 13px;border-radius:10px;
@@ -219,6 +223,7 @@ const TCRP_CSS = `
 @media(max-width:900px){
   .tcrp-wrap{grid-template-columns:1fr;gap:12px 0}
   .tcrp-wrap > *,.tcrp-wrap > .tcrp-nav{grid-column:1}
+  .tcrp-wrap > .tcrp-nav{grid-row:auto}
   .tcrp-nav{flex-direction:row;position:static;flex-wrap:wrap}
   .tcrp-nav-h{display:none}
   .tcrp-tab{width:auto;border-radius:999px;border-color:var(--stroke2);background:var(--panel)}

@@ -302,8 +302,8 @@ export function VisitPlanReport(){
 
   const STATUS_OPTS = [["all",t("ทุกสถานะ", "All statuses")],["complete",t("เสร็จสมบูรณ์", "Complete")],["partial",t("ทำได้บางส่วน", "Partly done")],["none",t("ไม่ได้ออกพื้นที่", "Did not go out")]];
 
-  return html`<div class=${"page fade-in vp-page"+(isTC?" tcrp-wrap":"")}>
-    ${isTC ? html`<${TCReportNav} active="visit-plans" nav=${nav}/>` : html`<div style=${{marginBottom:"12px"}}><button class="vp-btn ghost" onClick=${()=>nav&&nav("reports")}><${Icon} name="chevron" size=${14} style=${{transform:"rotate(90deg)"}}/> ${t("กลับไปหน้ารายงาน", "Back to reports")}</button></div>`}
+  return html`<div class="page fade-in vp-page tcrp-wrap">
+    <${TCReportNav} active="visit-plans" nav=${nav} team=${!isTC}/>
 
     <div class="page-head vp-head">
       <div>
