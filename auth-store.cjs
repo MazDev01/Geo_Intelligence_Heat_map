@@ -40,6 +40,18 @@ function verifyPassword(pw, rec) {
   // ความยาวต่างกัน timingSafeEqual จะโยน — เทียบความยาวก่อน (ความยาวไม่ใช่ความลับ)
   return want.length === h.length && crypto.timingSafeEqual(want, h);
 }
+const pbkdf2 = require('util').promisify(crypto.pbkdf2);
+async function hashPasswordAsync(pw) {
+  const s = crypto.randomBytes(16).toString('hex');
+  const h = await pbkdf2(String(pw), s, ITERATIONS, KEYLEN, 'sha256');
+  return { salt: s, hash: h.toString('hex'), iter: ITERATIONS };
+}
+async function verifyPasswordAsync(pw, rec) {
+  if (!rec || !rec.hash || !rec.salt) return false;
+  const h = await pbkdf2(String(pw), rec.salt, rec.iter || ITERATIONS, KEYLEN, 'sha256');
+  const want = Buffer.from(rec.hash, 'hex');
+  return want.length === h.length && crypto.timingSafeEqual(want, h);
+}
 function checkStrength(pw) {
   const s = String(pw || '');
   if (s.length < MIN_PW) return { ok: false, error: 'รหัสผ่านต้องยาวอย่างน้อย ' + MIN_PW + ' ตัวอักษร' };
@@ -141,6 +153,34 @@ function makeAuthStore(adapter, opts) {
   const readAll = async () => { await db.ensureSeed(makeSeed); return db.list(); };
   const find    = async email => { await db.ensureSeed(makeSeed); return db.findByEmail(email); };
   const save    = async (u, patch) => { await db.update(u.id, patch); return Object.assign(u, patch); };
+  const LOCKED = { ok: false, code: 423, error: 'กรอกผิดหลายครั้ง บัญชีถูกล็อกชั่วคราว ลองใหม่ภายหลัง' };
+  const isLocked = u => !!(u.lockUntil && u.lockUntil > Date.now());
+  const lockNow = u => save(u, { fails: 0, lockUntil: Date.now() + LOCK_MS });
+  const reserve = async u => {
+    if (typeof db.reserveAttempt === 'function') return db.reserveAttempt(u.id);
+    if (isLocked(u)) return 0;
+    const n = (u.fails || 0) + 1;
+    await save(u, { fails: n });
+    return n;
+  };
+  const holdsGuard = x => (x.status || 'Active') !== 'Suspended' && P.effectivePerms(x.role, x.overrides || {}).has(P.GUARD_KEY);
+  const adminGuard = async (actorEmail, role, overrides) => {
+    if (!P || !actorEmail || role !== 'Administrator') return null;
+    const actor = await find(actorEmail);
+    if (!actor) return null;
+    const ap = P.effectivePerms(actor.role, actor.overrides || {});
+    if (!ap.has(P.GUARD_KEY)) return { ok: false, code: 403, error: 'ไม่มีสิทธิ์ทำรายการนี้ (' + P.GUARD_KEY + ')' };
+    const over = [...P.effectivePerms(role, overrides || {})].find(k => !ap.has(k));
+    return over ? { ok: false, code: 400, error: 'ให้สิทธิ์เกินสิทธิ์ของตัวเองไม่ได้: ' + over } : null;
+  };
+  const checkPw = async (u, pw) => {
+    if (isLocked(u)) return 'locked';
+    const n = await reserve(u);
+    if (!n || n > MAX_FAILS) { if (n) await lockNow(u); return 'locked'; }
+    if (await verifyPasswordAsync(pw, u.pw)) return 'ok';
+    if (n >= MAX_FAILS) await lockNow(u);
+    return 'wrong';
+  };
 
   return {
     async list() { return (await readAll()).map(publicUser); },
@@ -162,14 +202,11 @@ function makeAuthStore(adapter, opts) {
       const deny = { ok: false, code: 401, error: 'อีเมลหรือรหัสผ่านไม่ถูกต้อง' };
       if (!u) return deny;
       const suspended = u.status === 'Suspended';
-      if (u.lockUntil && u.lockUntil > Date.now())
-        return suspended ? deny : { ok: false, code: 423, error: 'กรอกผิดหลายครั้ง บัญชีถูกล็อกชั่วคราว ลองใหม่ภายหลัง' };
+      if (isLocked(u)) return suspended ? deny : LOCKED;
       if (!u.pw) return suspended ? deny : { ok: false, code: 403, error: 'บัญชีนี้ยังไม่ได้ตั้งรหัสผ่าน ติดต่อผู้ดูแลระบบ' };
-      if (!verifyPassword(password, u.pw)) {
-        const fails = (u.fails || 0) + 1;
-        await save(u, fails >= MAX_FAILS ? { fails: 0, lockUntil: Date.now() + LOCK_MS } : { fails });
-        return deny;
-      }
+      const got = await checkPw(u, password);
+      if (got === 'locked') return suspended ? deny : LOCKED;
+      if (got !== 'ok') return deny;
       if (suspended) {
         await save(u, { fails: 0, lockUntil: 0 });
         return { ok: false, code: 403, reason: 'suspended', error: 'บัญชีนี้ถูกระงับ กรุณาติดต่อผู้ดูแลระบบ' };
@@ -182,20 +219,27 @@ function makeAuthStore(adapter, opts) {
     async changePassword(email, oldPw, newPw) {
       const u = await find(email);
       if (!u || !u.pw) return { ok: false, code: 404, error: 'ไม่พบบัญชี' };
-      if (!verifyPassword(oldPw, u.pw)) return { ok: false, code: 401, error: 'รหัสผ่านเดิมไม่ถูกต้อง' };
+      const got = await checkPw(u, oldPw);
+      if (got === 'locked') return LOCKED;
+      if (got !== 'ok') return { ok: false, code: 401, error: 'รหัสผ่านเดิมไม่ถูกต้อง' };
+      await save(u, { fails: 0 });
       const st = checkStrength(newPw); if (!st.ok) return { ok: false, code: 400, error: st.error };
-      if (verifyPassword(newPw, u.pw)) return { ok: false, code: 400, error: 'รหัสใหม่ต้องไม่ซ้ำกับรหัสเดิม' };
-      await save(u, { pw: hashPassword(newPw), mustChange: false, fails: 0, lockUntil: 0, tokensValidAfter: Date.now() });
+      if (await verifyPasswordAsync(newPw, u.pw)) return { ok: false, code: 400, error: 'รหัสใหม่ต้องไม่ซ้ำกับรหัสเดิม' };
+      await save(u, { pw: await hashPasswordAsync(newPw), mustChange: false, fails: 0, lockUntil: 0, tokensValidAfter: Date.now() });
       return { ok: true, token: makeToken(u, secret), user: publicUser(u) };
     },
 
     /** แอดมินตั้ง/รีเซ็ตรหัสให้ — ไม่ต้องรู้รหัสเดิม · ผู้ใช้ต้องเปลี่ยนตอนเข้าครั้งถัดไป */
-    async setPassword(email, newPw) {
+    async setPassword(email, newPw, actorEmail) {
       const u = await find(email);
       if (!u) return { ok: false, code: 404, error: 'ไม่พบบัญชี' };
+      if (actorEmail && String(actorEmail).toLowerCase() !== String(u.email).toLowerCase()) {
+        const g = await adminGuard(actorEmail, u.role, u.overrides);
+        if (g) return g;
+      }
       const pw = newPw || tempPassword();
       const st = checkStrength(pw); if (!st.ok) return { ok: false, code: 400, error: st.error };
-      await save(u, { pw: hashPassword(pw), mustChange: true, fails: 0, lockUntil: 0, tokensValidAfter: Date.now() });
+      await save(u, { pw: await hashPasswordAsync(pw), mustChange: true, fails: 0, lockUntil: 0, tokensValidAfter: Date.now() });
       return { ok: true, password: pw, user: publicUser(u) };   // คืนรหัสให้แอดมินส่งต่อ (เห็นครั้งเดียว)
     },
 
@@ -207,20 +251,22 @@ function makeAuthStore(adapter, opts) {
       return { ok: true };
     },
 
-    async create(rec) {
+    async create(rec, actorEmail) {
       const name = rec && rec.name, email = rec && rec.email, role = rec && rec.role;
       const taken = { ok: false, code: 409, error: 'อีเมลนี้มีบัญชีอยู่แล้ว' };
       if (!name || !String(name).trim()) return { ok: false, code: 400, error: 'ต้องใส่ชื่อ' };
       if (!EMAIL_RE.test(String(email || ''))) return { ok: false, code: 400, error: 'อีเมลไม่ถูกต้อง' };
       if (await find(email)) return taken;
       if (ROLES.indexOf(role) < 0) return { ok: false, code: 400, error: 'บทบาทไม่ถูกต้อง' };
+      const g = await adminGuard(actorEmail, role);
+      if (g) return g;
       const pw = (rec && rec.password) || tempPassword();
       const st = checkStrength(pw); if (!st.ok) return { ok: false, code: 400, error: st.error };
       let u;
       try {
         u = await db.insert({ name: String(name).trim(),
                   email: String(email).trim().toLowerCase(), role, province: (rec && rec.province) || null,
-                  status: 'Active', pw: hashPassword(pw), mustChange: true, last: '—' });
+                  status: 'Active', pw: await hashPasswordAsync(pw), mustChange: true, last: '—' });
       } catch (e) {
         if (e && e.duplicate) return taken;
         throw e;
@@ -339,12 +385,14 @@ function makeAuthStore(adapter, opts) {
       const admins = users.filter(x => x.role === 'Administrator' && x.status !== 'Suspended');
       if (u.role === 'Administrator' && admins.length <= 1)
         return { ok: false, code: 400, error: 'ต้องเหลือผู้ดูแลระบบอย่างน้อย 1 คน' };
+      if (P && holdsGuard(u) && !users.some(x => x.id !== u.id && holdsGuard(x)))
+        return { ok: false, code: 400, error: 'ต้องเหลือผู้ให้สิทธิ์อย่างน้อย 1 คน' };
       await db.remove(u.id);
       return { ok: true };
     },
 
     /** ตรวจโทเคนจาก header — ด่านหน้าของทุก endpoint ที่ต้องมีตัวตน */
-    async auth(headers, needRole) {
+    async auth(headers, needRole, opts) {
       const raw = (headers && (headers.authorization || headers.Authorization)) || '';
       const m = /^Bearer\s+(.+)$/.exec(raw);
       const p = m ? readToken(m[1].trim(), secret) : null;
@@ -353,6 +401,8 @@ function makeAuthStore(adapter, opts) {
       if (!u || u.status === 'Suspended') return { ok: false, code: 401, error: 'บัญชีใช้งานไม่ได้แล้ว' };
       if (u.tokensValidAfter && !(p.iat >= u.tokensValidAfter))
         return { ok: false, code: 401, error: 'เซสชันนี้ถูกยกเลิกแล้ว กรุณาเข้าสู่ระบบใหม่' };
+      if (u.mustChange && !(opts && opts.allowMustChange))
+        return { ok: false, code: 403, reason: 'must_change', error: 'กรุณาเปลี่ยนรหัสผ่านก่อนใช้งาน' };
       // บทบาทอ่านจากฐานข้อมูล ไม่ใช่จากโทเคน — แอดมินถอดสิทธิ์แล้วต้องมีผลทันที
       if (needRole && u.role !== needRole) return { ok: false, code: 403, error: 'ไม่มีสิทธิ์ใช้คำสั่งนี้' };
       return { ok: true, user: publicUser(u) };

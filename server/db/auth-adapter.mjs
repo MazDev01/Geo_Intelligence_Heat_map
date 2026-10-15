@@ -103,6 +103,11 @@ export function makeAuthAdapter(pool) {
       await pool.query(`update users set ${sets} where id = $1`, [id, ...pairs.map(p => p[1])]);
     },
 
+    async reserveAttempt(id) {
+      const r = await pool.query('update users set fails = fails + 1 where id = $1 and (lock_until is null or lock_until <= now()) returning fails', [id]);
+      return r.rowCount ? r.rows[0].fails : 0;
+    },
+
     async remove(id) {
       await pool.query('delete from users where id = $1', [id]);
     },

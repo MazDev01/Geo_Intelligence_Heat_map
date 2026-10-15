@@ -108,7 +108,7 @@ export function makeApi({pool, authStore, zoneStore, demoPassword, perms, webBoo
       return reply(r);
     }
     if (action === 'change') {
-      const who = await authStore.auth(req.headers);
+      const who = await authStore.auth(req.headers, null, {allowMustChange: true});
       if (!who.ok) return send(res, who.code, who);
       const r = await authStore.changePassword(who.user.email, body.oldPassword, body.newPassword);
       if (r.ok) await writeAudit(pool, auditCtx(req, who.user), 'password_change', who.user.email, {});
@@ -122,7 +122,7 @@ export function makeApi({pool, authStore, zoneStore, demoPassword, perms, webBoo
       return reply(await authStore.setPassword(body.email, body.password));
     }
     if (action === 'logout') {
-      const who = await authStore.auth(req.headers);
+      const who = await authStore.auth(req.headers, null, {allowMustChange: true});
       if (!who.ok) return send(res, 200, {ok: true});
       const r = await authStore.revokeTokens(who.user.email);
       if (r.ok) await writeAudit(pool, auditCtx(req, who.user), 'logout', who.user.email, {});
@@ -131,7 +131,7 @@ export function makeApi({pool, authStore, zoneStore, demoPassword, perms, webBoo
     if (action === 'info')
       return send(res, 200, {ok: true, demo: authStore.demoMode(), demoPassword: authStore.demoMode() ? demoPassword : ''});
     if (action === 'me') {
-      const who = await authStore.auth(req.headers);
+      const who = await authStore.auth(req.headers, null, {allowMustChange: true});
       return send(res, who.ok ? 200 : who.code, who);
     }
 
@@ -157,13 +157,13 @@ export function makeApi({pool, authStore, zoneStore, demoPassword, perms, webBoo
       return reply(r);
     };
     const target = String(body.email || '').trim().toLowerCase();
-    if (action === 'users.create') return done(await authStore.create(body), 'user_create', target, {role: body.role});
+    if (action === 'users.create') return done(await authStore.create(body, admin.user.email), 'user_create', target, {role: body.role});
     if (action === 'users.update') {
       const patch = body.patch && typeof body.patch === 'object' ? body.patch : {};
       return done(await authStore.update(body.email, body.patch, admin.user.email), 'user_update', target, {fields: Object.keys(patch)});
     }
     if (action === 'users.remove') return done(await authStore.remove(body.email, admin.user.email), 'user_remove', target, {});
-    if (action === 'users.password') return done(await authStore.setPassword(body.email, body.password), 'user_password_reset', target, {});
+    if (action === 'users.password') return done(await authStore.setPassword(body.email, body.password, admin.user.email), 'user_password_reset', target, {});
     return send(res, 400, {error: 'ไม่รู้จักคำสั่ง: ' + action.slice(0, 40)});
   }
 
