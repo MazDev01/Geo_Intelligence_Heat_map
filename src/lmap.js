@@ -490,7 +490,7 @@ export function LeafletMap({db, filters, layers, country="Thailand", onPickArea,
       route.order.forEach((s,i)=>{ const st=(planStatus||{})[s.id];
         L.marker([s.latitude,s.longitude],{interactive:false,zIndexOffset:1000,
         icon:L.divIcon({className:"",iconSize:[30,30],iconAnchor:[15,15],
-          html:`<div class="plan-num${st==="visited"||st==="closed"?" done":st==="cancelled"?" cancel":""}" data-stop="${s.id}">${i+1}${st==="closed"?'<span class="plan-check">✓</span>':""}</div>`})}).addTo(grp); });
+          html:`<div class="plan-num${st==="visited"?" done":st==="cancelled"?" cancel":""}" data-stop="${s.id}">${i+1}${st==="visited"?'<span class="plan-check">✓</span>':""}</div>`})}).addTo(grp); });
       if(!quietRoute) m.map.flyToBounds(L.latLngBounds(pts).pad(0.28),{duration:0.7});
     }
     grp.addTo(m.map); m.planLayer=grp;

@@ -199,10 +199,8 @@ function App(){
     const out = {};
     if(!activePlan || !activePlan.saved) return out;
     const byId = new Map([...(db.customers||[]), ...(db.prospects||[])].map(x=>[x.id, x]));
-    const savedDay = activePlan.savedAt ? new Date(Date.parse(activePlan.savedAt)+7*3600e3).toISOString().slice(0,10) : "";
     for(const c of activePlan.customers||[]){
       const rec = byId.get(c.id); if(!rec) continue;
-      if(rec.status==="Existing" && rec.convertedDate && (!savedDay || rec.convertedDate>=savedDay)){ out[c.id] = "closed"; continue; }
       const until = visitPlans.filter(o=>o!==activePlan && o.saved && String(o.savedAt||"")>String(activePlan.savedAt||"") && (o.customers||[]).some(x=>x.id===c.id))
         .map(o=>o.savedAt).sort()[0] || null;
       const r = planResultOf(rec.visitRounds, {savedAt:activePlan.savedAt, visitDate:activePlan.visitDate, addedAt:(activePlan.addedAt||{})[c.id]}, until);
