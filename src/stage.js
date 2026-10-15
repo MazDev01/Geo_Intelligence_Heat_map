@@ -69,7 +69,7 @@ const CALLOUT_CSS = `
 `;
 
 export function GeoStage({db, mode, activeCountry, flyTarget, globeUnder, onArriveCountry, onSelectCountry, onSelectProvince,
-    filters, setFilters, layers, setLayers, onPickProvince, onPickCustomer, onOpenReports, focusProvince, highlightCustomer, onBackToGlobe, tourPanel, tourFocus, visitPlan, visitRoute, planStatus, quietRoute, office, planRoutes, lockAreas, zoneMode, canEditZones, noMask, zoneEdit, onExitZoneEdit, zoneEdRef,
+    filters, setFilters, layers, setLayers, onPickProvince, onPickCustomer, onOpenReports, focusProvince, highlightCustomer, onBackToGlobe, tourPanel, tourFocus, visitPlan, visitRoute, quietRoute, office, planRoutes, lockAreas, zoneMode, canEditZones, noMask, zoneEdit, onExitZoneEdit, zoneEdRef,
     gsearch, setGsearch, searchResults, onPickProvinceZoom, onPickCustomerNav, lockProvinces}){
   const areaText = lockProvinces ? lockProvinces.map(p=>{ const z = lockAreas && lockAreas[p];
     return provinceTH(p)+(z && z.length ? " · "+z.map(zoneName).join(", ") : ""); }).join(", ") : "";
@@ -183,7 +183,7 @@ export function GeoStage({db, mode, activeCountry, flyTarget, globeUnder, onArri
     ${mode==="map" && html`
       <${LeafletMap} db=${db} filters=${filters} layers=${mapLayers} country=${activeCountry||"Thailand"} dark=${mapDark}
         focusProvince=${focusProvince} highlight=${highlightCustomer} focusPoint=${tourFocus} onPickArea=${onPickProvince} onPickCustomer=${onPickCustomer}
-        onMapMode=${setMapMode} plan=${visitPlan} route=${visitRoute} planStatus=${planStatus} quietRoute=${quietRoute} office=${office} planRoutes=${planRoutes} lockProvinces=${lockProvinces} lockAreas=${lockAreas} zoneMode=${zoneMode} canEditZones=${canEditZones} noMask=${noMask} onZoneEditor=${setZoneEd}/>
+        onMapMode=${setMapMode} plan=${visitPlan} route=${visitRoute} quietRoute=${quietRoute} office=${office} planRoutes=${planRoutes} lockProvinces=${lockProvinces} lockAreas=${lockAreas} zoneMode=${zoneMode} canEditZones=${canEditZones} noMask=${noMask} onZoneEditor=${setZoneEd}/>
 
       <!-- แถบนำทางกระชับแถวเดียว: [ค้นหา] (หมวดหมู่ธุรกิจย้ายไปเป็น dropdown ท้ายแผงเลเยอร์แล้ว)
            หลักการ: ตัวกรอง (หมวดหมู่) อยู่ซ้าย/กลาง · ปุ่ม Action (เพิ่มข้อมูล/รายงาน) แยกไปอยู่ขวาสุด -->

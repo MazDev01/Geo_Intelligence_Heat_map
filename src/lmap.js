@@ -88,7 +88,7 @@ function gapWeigher(cs, ps){
 // แปลงระดับซูมเป็นชื่อโหมด
 function zoomModeOf(z){ return z < ZOOM_HEAT_MAX ? "heat" : z < ZOOM_CLUSTER_MAX ? "cluster" : "marker"; }
 
-export function LeafletMap({db, filters, layers, country="Thailand", onPickArea, onPickCustomer, onMapMode, focusProvince, highlight, focusPoint, plan, route, planStatus, quietRoute, office, planRoutes, clusters, territories, dark, lockProvinces, lockAreas, zoneMode, canEditZones, noMask, onZoneEditor, onPickZone}){
+export function LeafletMap({db, filters, layers, country="Thailand", onPickArea, onPickCustomer, onMapMode, focusProvince, highlight, focusPoint, plan, route, quietRoute, office, planRoutes, clusters, territories, dark, lockProvinces, lockAreas, zoneMode, canEditZones, noMask, onZoneEditor, onPickZone}){
   const lockKey = lockProvinces && lockProvinces.length ? lockProvinces.join("|") : "";
   const lockList = lockKey ? lockKey.split("|") : null;
   const ref = useRef();
@@ -487,14 +487,12 @@ export function LeafletMap({db, filters, layers, country="Thailand", onPickArea,
       L.polyline(pts,{color:"#38bdf8",weight:3,opacity:.92*routeOp}).addTo(grp);
       L.marker(pts[0],{interactive:false,zIndexOffset:1000,
         icon:L.divIcon({className:"",iconSize:[30,30],iconAnchor:[15,15],html:'<div class="plan-office"><span>⌂</span></div>'})}).addTo(grp);
-      route.order.forEach((s,i)=>{ const st=(planStatus||{})[s.id];
-        L.marker([s.latitude,s.longitude],{interactive:false,zIndexOffset:1000,
-        icon:L.divIcon({className:"",iconSize:[30,30],iconAnchor:[15,15],
-          html:`<div class="plan-num${st==="visited"?" done":st==="cancelled"?" cancel":""}" data-stop="${s.id}">${i+1}${st==="visited"?'<span class="plan-check">✓</span>':""}</div>`})}).addTo(grp); });
+      route.order.forEach((s,i)=>L.marker([s.latitude,s.longitude],{interactive:false,zIndexOffset:1000,
+        icon:L.divIcon({className:"",iconSize:[30,30],iconAnchor:[15,15],html:`<div class="plan-num">${i+1}</div>`})}).addTo(grp));
       if(!quietRoute) m.map.flyToBounds(L.latLngBounds(pts).pad(0.28),{duration:0.7});
     }
     grp.addTo(m.map); m.planLayer=grp;
-  },[plan, route, planStatus, office, layers.route, routeOp]);
+  },[plan, route, office, layers.route, routeOp]);
 
   // ── เลเยอร์ "เส้นทางดำเนินการ" — เส้นเชื่อมเส้นทางของแผนอื่นๆ ที่ TC บันทึกไว้ในระบบ (เปิด/ปิดด้วย layers.route) ──
   const ROUTE_COLORS = ["#8a7bff","#33d69f","#ffb02e","#ff7a2e","#f472b6","#ff5a5a"];
