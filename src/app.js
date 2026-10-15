@@ -1144,7 +1144,7 @@ function App(){
               onPickProvinceZoom=${pickProvinceZoom} onPickCustomerNav=${p=>nav("customer",{id:p.id})}/>
 
         ${view==="workspace" && overlay==="area" && selectedProvince && !isTC && !isAdmin && html`<${AreaPanel} key=${selectedProvince} db=${db} filters=${filters}
-          province=${selectedProvince} onClose=${()=>setOverlay(null)}
+          province=${selectedProvince} onClose=${()=>{ setOverlay(null); setSelectedProvince(null); setFilters(f=>({...f, province:"All"})); }}
           onReport=${user.role==="Administrator" && canReport ? (p=>{setSelectedProvince(p);setOverlay("reports");}) : undefined}
           onOpenCustomer=${p=>{setSelectedCustomer(p);setOverlay("customer");}}/>`}
 
