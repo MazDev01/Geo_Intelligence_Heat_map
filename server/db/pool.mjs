@@ -16,6 +16,7 @@ export function connectionConfig(env) {
 export function makePool(env = process.env) {
   const pool = new pg.Pool({
     ...connectionConfig(env),
+    options: '-c jit=off',
     max: Number(env.DB_POOL_MAX || 10),
     idleTimeoutMillis: 30000,
     connectionTimeoutMillis: 30000,
