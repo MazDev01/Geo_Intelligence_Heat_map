@@ -15,6 +15,8 @@ const MAX_ZIP_ENTRIES = 2000;
 const bad = message => Object.assign(new Error(message), {status: 400});
 const tooManyRows = () => bad('ไฟล์มีข้อมูลเกิน ' + MAX_ROWS.toLocaleString('en-US') + ' แถว กรุณาแบ่งไฟล์');
 const tooManyCols = () => bad('ไฟล์มีคอลัมน์เกิน ' + MAX_COLS + ' คอลัมน์');
+const SHEET_ROWS = MAX_ROWS + 2;
+const sheetTooLong = () => bad('ชีตนี้ยาวเกิน ' + MAX_ROWS.toLocaleString('en-US') + ' แถว (นับรวมแถวว่าง) กรุณาแบ่งไฟล์ หรือลบแถวว่างท้ายชีตออก');
 
 const ZIP_MAGIC = Buffer.from([0x50, 0x4b, 0x03, 0x04]);
 const OLE_MAGIC = Buffer.from([0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1]);
@@ -125,7 +127,7 @@ function readWorkbook(buf) {
   let wb;
   try {
     wb = xlsx().read(buf, {type: 'buffer', dense: true, cellFormula: false, cellHTML: false, cellNF: true,
-      cellDates: false, cellStyles: false, bookVBA: false, sheetRows: MAX_ROWS + 2});
+      cellDates: false, cellStyles: false, bookVBA: false, sheetRows: SHEET_ROWS});
   } catch {
     throw bad('อ่านไฟล์ Excel นี้ไม่ได้ ไฟล์อาจเสียหรือตั้งรหัสผ่านไว้');
   }
@@ -147,7 +149,10 @@ function readWorkbook(buf) {
       for (let c = 0, n = Math.min(row.length, MAX_COLS); c < n; c++) cells.push(cellText(row[c], date1904));
       if (cells.some(x => x.trim() !== '')) records.push({no: r + 1, cells});
     }
-    if (records.length) return {records, sheet: name, sheetCount: names.length};
+    if (!records.length) continue;
+    const full = wb.Sheets[name]['!fullref'];
+    if (full && xlsx().utils.decode_range(full).e.r >= SHEET_ROWS) throw sheetTooLong();
+    return {records, sheet: name, sheetCount: names.length};
   }
   throw bad('ไฟล์นี้ไม่มีข้อมูล');
 }
