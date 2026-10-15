@@ -31,6 +31,7 @@ const PROVINCE_ALIASES = {
   'กรุงเทพมหานครฯ': 'Bangkok Metropolis', chonburi: 'Pattaya', 'พัทยา': 'Pattaya',
 };
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[a-z]{2,}$/i;
+const NO_ACCOUNT_RE = /^(?:[-–—.]+|0+|x|n\/?a|null|none|ไม่มี|ไม่ระบุ)$/i;
 const NUMBER_RE = /^[+-]?(\d+\.?\d*|\.\d+)$/;
 export const PROVINCE_SNAP_DEGREES = 0.045;
 const PREVIEW_ROWS = 50;
@@ -138,6 +139,7 @@ export function makeRowChecker({cols, defaults}, provinces, segments) {
       vals[key] = value || null;
       if (value) tooLong(key, value);
     }
+    if (vals.accountNo && NO_ACCOUNT_RE.test(vals.accountNo)) vals.accountNo = null;
     if (vals.type === 'Existing' && !vals.accountNo) error('missing_required', 'accountNo', 'ลูกค้าต้องมีรหัสลูกค้า');
 
     const email = cell(cells, 'email');
