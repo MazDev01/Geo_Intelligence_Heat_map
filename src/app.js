@@ -195,6 +195,19 @@ function App(){
   const activePlan = visitPlans.find(p=>p.id===activePlanId) || visitPlans[0];
   const visitPlan = activePlan ? activePlan.customers : [];
   const visitRoute = activePlan ? activePlan.route : null;
+  const planStatus = useMemo(()=>{
+    const out = {};
+    if(!activePlan || !activePlan.saved) return out;
+    const byId = new Map([...(db.customers||[]), ...(db.prospects||[])].map(x=>[x.id, x]));
+    for(const c of activePlan.customers||[]){
+      const rec = byId.get(c.id); if(!rec) continue;
+      const until = visitPlans.filter(o=>o!==activePlan && o.saved && String(o.savedAt||"")>String(activePlan.savedAt||"") && (o.customers||[]).some(x=>x.id===c.id))
+        .map(o=>o.savedAt).sort()[0] || null;
+      const r = planResultOf(rec.visitRounds, {savedAt:activePlan.savedAt, visitDate:activePlan.visitDate, addedAt:(activePlan.addedAt||{})[c.id]}, until);
+      if(r) out[c.id] = r.status==="เสร็จสิ้น" ? "visited" : "cancelled";
+    }
+    return out;
+  }, [activePlan, visitPlans, db.customers, db.prospects]);
   const planSync = usePlanSync({user, db, visitPlans, setVisitPlans, setActivePlanId});
   const setVisitPlan = updater => { planSync.touch(activePlanId); setVisitPlans(prev => prev.map(p => {
     if(p.id!==activePlanId) return p;
@@ -1139,7 +1152,7 @@ function App(){
               onOpenReports=${isBiz && canReport ? (()=>navItem("reports")) : undefined}
               focusProvince=${overlay==="area" || tcMany ? selectedProvince : null}
               highlightCustomer=${overlay==="customer"?selectedCustomer:null} tourPanel=${tourPanel} tourFocus=${tourFocus}
-              visitPlan=${visitPlan} visitRoute=${visitRoute} quietRoute=${!!(tcMany && activePlan && activePlan.fromServer)} office=${planOffice} planRoutes=${savedPlanRoutes}
+              visitPlan=${visitPlan} visitRoute=${visitRoute} planStatus=${planStatus} quietRoute=${!!(tcMany && activePlan && activePlan.fromServer)} office=${planOffice} planRoutes=${savedPlanRoutes}
               gsearch=${gsearch} setGsearch=${setGsearch} searchResults=${results}
               onPickProvinceZoom=${pickProvinceZoom} onPickCustomerNav=${p=>nav("customer",{id:p.id})}/>
 
