@@ -1,6 +1,7 @@
 import {createServer} from 'node:http';
 import {createRequire} from 'node:module';
 import {randomBytes} from 'node:crypto';
+import {readdirSync} from 'node:fs';
 import {fileURLToPath} from 'node:url';
 import {makePool} from './db/pool.mjs';
 import {makeAuthAdapter} from './db/auth-adapter.mjs';
@@ -38,8 +39,11 @@ let pool;
 try { pool = makePool(env); } catch (e) { fail(e.message); }
 
 try {
-  const r = await pool.query('select count(*)::int as n from schema_migrations');
-  if (!r.rows[0].n) throw new Error('no migration has been applied');
+  const r = await pool.query('select name from schema_migrations');
+  if (!r.rowCount) throw new Error('no migration has been applied');
+  const applied = new Set(r.rows.map(x => x.name));
+  const pending = readdirSync(new URL('./db/migrations/', import.meta.url)).filter(n => /^\d{3}_[a-z0-9_]+\.sql$/.test(n) && !applied.has(n)).sort();
+  if (pending.length) throw new Error(pending.length + ' migration(s) not applied yet, first: ' + pending[0]);
 } catch (e) {
   await pool.end().catch(() => {});
   fail('database is not ready (' + e.message + '). Start the database, then run: node server/db/migrate.mjs');

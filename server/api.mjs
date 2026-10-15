@@ -640,7 +640,15 @@ export function makeApi({pool, authStore, zoneStore, demoPassword, perms, webBoo
     }
   }
 
+  async function health(req, res) {
+    if (req.method !== 'GET') return send(res, 405, {error: 'รองรับเฉพาะ GET'});
+    try { await pool.query('select 1'); }
+    catch { return send(res, 503, {ok: false}); }
+    return send(res, 200, {ok: true});
+  }
+
   const ROUTES = {
+    '/api/health': health,
     '/api/auth': (req, res) => auth(req, res),
     '/api/customers': places('customers'),
     '/api/leads': places('leads'),

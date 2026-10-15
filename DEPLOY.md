@@ -305,6 +305,7 @@ docker compose exec -T db psql -U geointel -d geointel -tAc "select count(*) fro
 |---|---|---|
 | `POSTGRES_PASSWORD is required` | ไม่มี `.env` หรือไม่ได้อยู่ใน `/home/heatmap/app` | `cd /home/heatmap/app` แล้วทำขั้น 3.2 |
 | `[set-password] database is not ready` หรือ `[seed-base] database is not ready` | ยังไม่ได้ migrate | ทำขั้น 3.4 |
+| `geointel-app-1` ขึ้น `Restarting` และ `docker compose logs app` มี `[server] database is not ready (... migration(s) not applied yet ...)` | อัปเดตรุ่นแล้วยังไม่ได้ migrate หรือ migrate ล้ม | `docker compose run --rm app node server/db/migrate.mjs up` แล้ว `docker compose up -d` |
 | เพิ่มร้านหรือนำเข้าไฟล์แล้วระบบไม่รับจังหวัดใดเลย | ยังไม่ได้ใส่ข้อมูลพื้นฐาน | ทำขั้น 3.5 |
 | `[server] AUTH_SECRET must be at least 32 characters` | `AUTH_SECRET` สั้นไป | ทำบรรทัด `AUTH_SECRET` ในขั้น 3.2 ใหม่ แล้ว `docker compose up -d` |
 | `[server] DEMO_PASSWORD must be empty` | ใส่ค่า `DEMO_PASSWORD` | ลบค่าออก แล้ว `docker compose up -d` |
