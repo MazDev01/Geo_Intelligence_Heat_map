@@ -8,8 +8,9 @@ import {t} from "../i18n.js";   // สลับภาษา TH/EN — ดู src
 import * as auth from "../auth.js";
 
 export function Profile(){
-  const {user, logout, profileTab, updateMe} = useApp();
+  const {user, logout, profileTab, profileSeq, updateMe} = useApp();
   const [tab, setTab] = useState(profileTab || "info");
+  useEffect(()=>{ setTab(profileTab || "info"); }, [profileSeq]);
   const [info, setInfo] = useState({name:user.name||"", phone:"", department:"", title:""});
   const [saved, setSaved] = useState(null);
   const [infoBusy, setInfoBusy] = useState(false);

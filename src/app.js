@@ -181,6 +181,7 @@ function App(){
   // (ภาษาปัจจุบันประกาศไว้แล้วที่บรรทัด 61 — merge จาก remote เคยทำให้ซ้ำกันสองที่)
   const [gsearch,setGsearch] = useState("");
   const [loadingData,setLoadingData] = useState(false);
+  const [profileSeq,setProfileSeq] = useState(0);
   const [profileTab,setProfileTab] = useState("info");   // which Profile tab "View Profile / Change Password / Notifications" opens
   const [showWelcome,setShowWelcome] = useState(false);  // first-login onboarding welcome dialog
   const [tourOpen,setTourOpen] = useState(false);        // product tour framework
@@ -483,7 +484,7 @@ function App(){
     document.addEventListener("mousedown",h);
     return ()=>document.removeEventListener("mousedown",h);
   },[menu]);
-  const openProfile=(tab="info")=>{ setProfileTab(tab); setMenu(null); setOverlay("profile"); };
+  const openProfile=(tab="info")=>{ setProfileTab(tab); setProfileSeq(s=>s+1); setMenu(null); setOverlay("profile"); };
 
   // First login only: show the welcome dialog once. Dismissing (either button) marks it seen.
   useEffect(()=>{ if(user && !tourOpen && !isOnboarded(user.email)) setShowWelcome(true); },[user, tourOpen]);
@@ -926,7 +927,7 @@ function App(){
     return ()=>window.removeEventListener("beforeunload", onUnload);
   },[zoneEdit]);
   const updateMe = patch => setUser(u => u ? {...u, ...patch, initials: String(patch.name || u.name || "?").trim().slice(0,2)} : u);
-  const ctx = {db,user,updateMe,logout,nav,settingsVer,scoringChanged,placesChanged,masterVer,masterChanged,filters,setFilters,startZoneEdit,routeParams:{area:selectedProvince},profileTab,visitPlans,office:planOffice,tcProvinces,lang,setLang,
+  const ctx = {db,user,updateMe,logout,nav,settingsVer,scoringChanged,placesChanged,masterVer,masterChanged,filters,setFilters,startZoneEdit,routeParams:{area:selectedProvince},profileTab,profileSeq,visitPlans,office:planOffice,tcProvinces,lang,setLang,
 
     deletePlan,setActivePlanId:pickPlan,applyDealApproved,applyDealRejected,addToPlan,goMap,updateRecord,adminAddRecords,adminDeleteRecord,
     selectedProvince,setSelectedProvince,selectedCustomer,setSelectedCustomer,selectedCountry:activeCountry};
