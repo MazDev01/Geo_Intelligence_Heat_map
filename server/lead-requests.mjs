@@ -231,7 +231,7 @@ export async function approveRequest(pool, user, body, ctx) {
       const o = await tx.query("select 1 from users where id = $1 and role = 'Trade Coordinator' and status <> 'Suspended'", [ownerId]);
       if (!o.rowCount) throw fail(400, 'ไม่พบ TC ที่เลือกเป็นผู้ดูแล');
     }
-    const p = req.place_id ? (await tx.query('select id, type, account_no, segment, date_join, deleted_at from places where id = $1 for update', [req.place_id])).rows[0] : null;
+    const p = req.place_id ? (await tx.query('select id, type, account_no, segment, date_join, tc_owner_id, deleted_at from places where id = $1 for update', [req.place_id])).rows[0] : null;
     if (!p || p.deleted_at) throw fail(409, 'Lead นี้ถูกลบไปแล้ว');
     if (p.type !== 'Prospect') throw fail(409, 'รายการนี้เป็นลูกค้าอยู่แล้ว');
     const newSegment = segment && segment !== p.segment ? segment : null;
@@ -245,7 +245,7 @@ export async function approveRequest(pool, user, body, ctx) {
     await tx.query(
       `update lead_requests set status = 'converted', reviewed_by = $2, reviewed_at = now(), owner_id = $3, cust_type = $4,
          payload = payload || $5::jsonb where id = $1`,
-      [id, user.id, ownerId, custType, JSON.stringify({prevAccountNo: p.account_no, hadDateJoin: !!p.date_join, ...(newSegment ? {segmentFrom: p.segment} : {})})]);
+      [id, user.id, ownerId, custType, JSON.stringify({prevAccountNo: p.account_no, hadDateJoin: !!p.date_join, prevOwnerId: p.tc_owner_id, ...(newSegment ? {segmentFrom: p.segment} : {})})]);
     await writeAudit(tx, ctx, 'lead_request_approve', p.id, {requestId: id, ownerId, custType, ...(newSegment ? {segmentFrom: p.segment, segmentTo: newSegment} : {})});
     const name = await placeName(tx, p.id);
     await notify(tx, req.submitted_by, 'deal_result', 'ดีล ' + name + ' ได้รับอนุมัติ', {requestId: id, placeId: p.id, name, result: 'approved'});
@@ -295,11 +295,13 @@ export async function undoRequest(pool, user, body, ctx) {
     if (p.type !== 'Existing') throw fail(409, 'รายการนี้ไม่ได้เป็นลูกค้าแล้ว');
     const prev = (await tx.query('select payload from lead_requests where id = $1', [id])).rows[0].payload || {};
     await tx.query(`update places set type = 'Prospect', account_no = $2, converted_at = null, segment = coalesce($3, segment),
-         date_join = case when $4::boolean then date_join end where id = $1`,
-      [p.id, prev.prevAccountNo ?? null, prev.segmentFrom ?? null, prev.hadDateJoin === true]);
+         date_join = case when $4::boolean then date_join end,
+         tc_owner_id = case when $5::boolean then (select id from users where id = $6::int) else tc_owner_id end where id = $1`,
+      [p.id, prev.prevAccountNo ?? null, prev.segmentFrom ?? null, prev.hadDateJoin === true,
+        Object.hasOwn(prev, 'prevOwnerId'), prev.prevOwnerId ?? null]);
     await tx.query(
       `update lead_requests set status = 'pending', reviewed_by = null, reviewed_at = null, owner_id = null, cust_type = null,
-         payload = payload - 'prevAccountNo' - 'hadDateJoin' - 'segmentFrom' where id = $1`, [id]);
+         payload = payload - 'prevAccountNo' - 'hadDateJoin' - 'segmentFrom' - 'prevOwnerId' where id = $1`, [id]);
     await writeAudit(tx, ctx, 'lead_request_undo', p.id, {requestId: id, reason});
     const name = await placeName(tx, p.id);
     await notify(tx, req.submitted_by, 'deal_result', 'ดีล ' + name + ' ถูกย้อนกลับไปรออนุมัติ', {requestId: id, placeId: p.id, name, result: 'reopened'});
