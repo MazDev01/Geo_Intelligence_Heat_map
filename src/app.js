@@ -374,7 +374,7 @@ function App(){
   };
   const applyDealApproved = req => {
     const conv = p => ({...p, status:"Existing", segment:req.segment||p.segment, accountNo:p.accountNo||req.accountNo||p.id,
-      dateJoin:p.dateJoin||planTodayKey(), tc_owner:req.ownerName||p.tc_owner, dealStatus:"approved", convertedFrom:"prospect"});
+      dateJoin:p.dateJoin||planTodayKey(), convertedDate:planTodayKey(), tc_owner:req.ownerName||p.tc_owner, dealStatus:"approved", convertedFrom:"prospect"});
     setDb(prev=>{
       const p=(prev.prospects||[]).find(x=>x.id===req.placeId);
       if(!p) return prev;

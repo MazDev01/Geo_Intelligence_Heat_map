@@ -75,6 +75,13 @@ function recommendation(c, segGap){
   const yrs = yearsWith(c.dateJoin);
   if(!c.tc_owner && !c.areaTc) return t(`ยังไม่มี TC ดูแลพื้นที่${provinceTH(c.province)} — ควรมอบหมายผู้รับผิดชอบก่อน`,
     `No TC covers ${provinceTH(c.province)} yet — assign an owner first`);
+  const convDays = c.convertedDate ? (Date.parse(planTodayKey()) - Date.parse(c.convertedDate))/864e5 : NaN;
+  if(convDays>=0 && convDays<=90) return t(`ปิดดีลแล้วเมื่อ ${beDate(c.convertedDate)} — ดูแลช่วงแรกและเสนอบริการเพิ่มเติม`,
+    `Deal closed on ${beDate(c.convertedDate)} — look after them early and offer more services`);
+  const lastRound = [...(c.visitRounds||[])].sort((a,b)=>(a.round||0)-(b.round||0)).pop();
+  if(lastRound && lastRound.status==="เสร็จสิ้น" && lastRound.outcome==="ต้องติดตามต่อ")
+    return t(`เข้าพบล่าสุด ${beDate(lastRound.doneDate)} · ต้องติดตามต่อ — ควรนัดรอบถัดไป`,
+      `Last visited ${beDate(lastRound.doneDate)} · needs follow-up — book the next round`);
   return yrs!=null && yrs>=10 ? t(`ลูกค้าเก่าแก่ ${yrs} ปี — รักษาความสัมพันธ์และเสนอบริการเพิ่มเติม`,
       `A ${yrs}-year customer — maintain the relationship and offer more services`)
     : yrs!=null && yrs>=3 ? t(`เป็นลูกค้ามาแล้ว ${yrs} ปี — ติดตามต่อเนื่องและขยายการใช้บริการ`,

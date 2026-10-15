@@ -10,6 +10,7 @@ const SQL = `
 select p.id, p.type, p.account_no, p.business_name, p.category, p.segment, p.country, p.province, p.district,
   p.address, p.latitude::float8 as latitude, p.longitude::float8 as longitude, p.phone, p.email, p.website,
   p.facebook, to_char(p.date_join, 'YYYY-MM-DD') as date_join,
+  to_char(p.converted_at at time zone 'Asia/Bangkok', 'YYYY-MM-DD') as converted_date,
   to_char(p.created_at at time zone 'Asia/Bangkok', 'YYYY-MM-DD') as created_at,
   to_char(p.created_at at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as created_iso,
   o.name as tc_owner, at.name as area_tc, p.visit_status, v.rounds,
@@ -89,6 +90,7 @@ const toCustomer = r => {
   putIf(out, 'email', r.email);
   putIf(out, 'areaTc', r.area_tc);
   putIf(out, 'visit_status', r.visit_status);
+  putIf(out, 'convertedDate', r.converted_date);
   if (r.rounds) out.visitRounds = r.rounds.map(toRound);
   putDeal(out, r);
   return out;
