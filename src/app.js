@@ -108,7 +108,7 @@ function App(){
   const demoZone = useMemo(()=>{ try{ return new URLSearchParams(location.search).get("zone")||null; }catch(e){ return null; } },[]);
   // ทะเบียนโซน — เมนู "TC รายโซน" และป้ายชื่อเขตอ่านจากตรงนี้ เพิ่มโซนใหม่แล้วโผล่เองไม่ต้องแก้โค้ด
   const [zonesReg,setZonesReg] = useState(()=>zoneRegistry());
-  useEffect(()=>{ let alive=true; loadZoneRegistry().then(g=>{ if(alive) setZonesReg(g); }); return ()=>{ alive=false; }; },[]);
+  useEffect(()=>{ if(!user) return; let alive=true; loadZoneRegistry().then(g=>{ if(alive) setZonesReg(g); }); return ()=>{ alive=false; }; },[user && user.email]);
   // โหลดการมอบหมายหลังล็อกอิน — โหลดไม่ได้/ยังไม่เคยตั้ง = null แล้วแมพทำงานแบบเดิมทุกประการ
   useEffect(()=>{ if(!user){ setTerritory(null); return; }
     let alive=true;
@@ -392,11 +392,7 @@ function App(){
   // STARTUP: progressive streaming. Stage 1 (tiny country aggregates) lets the globe
   // dots draw; stages 2-3 (borders, province aggregates) stream in without blocking.
   useEffect(()=>{ (async()=>{
-    const countries = await loadCountries();                                   // Stage 1 (2.5 KB)
-    setDb(prev=>({...prev, countries}));
     loadWorld().then(world=>setDb(prev=>({...prev, world}))).catch(()=>{});     // Stage 2 (borders)
-    loadAreas().then(a=>setDb(prev=>({...prev, areas:a.areas, areaByProvince:a.areaByProvince, areasReady:true}))).catch(()=>{}); // Stage 3 (aggregates)
-    loadDistricts().then(districts=>setDb(prev=>({...prev, districts}))).catch(()=>{});                          // Stage 3b (district aggregates)
 
     const q=new URLSearchParams(location.search);
     if(!q.get("demo") && auth.token()){
@@ -668,6 +664,14 @@ function App(){
   const [settingsVer,setSettingsVer] = useState(0);
   const [masterVer,setMasterVer] = useState(0);
   const userKey = user ? (user.email||"")+"|"+(user.role||"") : "";
+  useEffect(()=>{
+    let live = true;
+    loadCountries().then(countries=>{ if(live) setDb(prev=>({...prev, countries})); }).catch(()=>{});
+    if(!userKey){ setDb(prev=>({...prev, areas:[], areaByProvince:{}, districts:[], areasReady:false})); return ()=>{ live = false; }; }
+    loadAreas().then(a=>{ if(live) setDb(prev=>({...prev, areas:a.areas, areaByProvince:a.areaByProvince, areasReady:true})); }).catch(()=>{});
+    loadDistricts().then(districts=>{ if(live) setDb(prev=>({...prev, districts})); }).catch(()=>{});
+    return ()=>{ live = false; };
+  }, [userKey]);
   const refreshAggregates = ()=>{
     clearAggregates();
     loadAreas().then(a=>setDb(prev=>({...prev, areas:a.areas, areaByProvince:a.areaByProvince}))).catch(()=>{});
@@ -1014,7 +1018,7 @@ function App(){
       <div class="sb-foot"><div class="row" style=${{gap:"7px"}}>
         <span style=${{width:"7px",height:"7px",borderRadius:"50%",background:"var(--good)",boxShadow:"0 0 7px var(--good)"}}></span>
         ${t("เครื่องมือ: การทำเหมืองเชิงสถิติ", "Engine: statistical mining")}</div>
-        <div style=${{marginTop:"4px"}}>${t("เวอร์ชัน 1.0 ·", "Version 1.0 ·")} ${num(db.countries.reduce((a,c)=>a+c.customerCount+c.prospectCount,0))} ${t("รายการ", "records")}</div></div>
+        <div style=${{marginTop:"4px"}}>${t("เวอร์ชัน 1.0 ·", "Version 1.0 ·")} ${num(db.countries.reduce((a,c)=>a+(c.customerCount||0)+(c.prospectCount||0),0))} ${t("รายการ", "records")}</div></div>
     </aside>`}
 
     <div class="main">

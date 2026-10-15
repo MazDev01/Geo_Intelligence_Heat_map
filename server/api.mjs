@@ -194,6 +194,7 @@ export function makeApi({pool, authStore, zoneStore, demoPassword, perms, webBoo
         const draft = await zoneStore.readDraft();
         return draft ? send(res, 200, draft) : send(res, 204);
       }
+      if (!(await requireUser(req, res))) return;
       const gj = await zoneStore.readPublished();
       return gj ? send(res, 200, gj) : send(res, 204);
     }
@@ -228,6 +229,7 @@ export function makeApi({pool, authStore, zoneStore, demoPassword, perms, webBoo
 
   async function zonesFile(req, res) {
     if (req.method !== 'GET' && req.method !== 'HEAD') return send(res, 405, {error: 'รองรับเฉพาะ GET'});
+    if (!(await requireUser(req, res))) return;
     const gj = await zoneStore.readPublished();
     return gj ? send(res, 200, gj) : send(res, 404, {error: 'ยังไม่มีโซน'});
   }
@@ -240,7 +242,11 @@ export function makeApi({pool, authStore, zoneStore, demoPassword, perms, webBoo
 
   async function statsFile(req, res, name) {
     if (req.method !== 'GET' && req.method !== 'HEAD') return send(res, 405, {error: 'รองรับเฉพาะ GET'});
-    return send(res, 200, await readStats(pool, name));
+    const who = await authStore.auth(req.headers);
+    if (who.ok) return send(res, 200, await readStats(pool, name));
+    if (name !== 'countries') return send(res, who.code, {error: who.error});
+    const list = await readStats(pool, name);
+    return send(res, 200, list.map(c => ({country: c.country, center: c.center, hasProvinces: c.hasProvinces})));
   }
 
   async function territory(req, res) {

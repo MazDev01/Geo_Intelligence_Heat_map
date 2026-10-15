@@ -76,10 +76,10 @@ export function loadZoneRegistry({force=false}={}){
   if(cache && trusted && !force) return Promise.resolve(cache);
   if(pending && !force) return pending;
   let fromServer = true;
-  pending = fetch(API, {cache:"no-store"})
+  pending = fetch(API, {cache:"no-store", headers:authHeaders()})
     .then(r => { if(!r.ok) fromServer = false; return (r.ok && r.status!==204) ? r.json() : null; })
     .catch(()=>{ fromServer = false; return null; })
-    .then(gj => gj || fetch(STATIC, {cache:"no-store"}).then(r=>r.json()))
+    .then(gj => gj || fetch(STATIC, {cache:"no-store", headers:authHeaders()}).then(r=>r.json()))
     .then(gj => { cache = normalize(gj); pending = null; trusted = fromServer; if(!fromServer) tainted = true;
       subs.forEach(fn=>{ try{ fn(cache); }catch(e){ console.warn("[zone-registry] subscriber error", e); } });
       return cache; })

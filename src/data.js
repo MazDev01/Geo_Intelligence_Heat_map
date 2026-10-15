@@ -20,19 +20,24 @@ let _countries=null, _world=null, _areas=null, _provGeo=null, _districts=null;
 const _detailCache = {};
 
 const j = (url)=> fetch(url).then(r=>r.json());
+const authed = (url)=>{ const tk = token();
+  return fetch(url, {headers: tk ? {Authorization:"Bearer "+tk} : {}}).then(r=>{ if(!r.ok) throw new Error("HTTP "+r.status); return r.json(); }); };
+let _aggToken = null;
+const aggFresh = ()=>{ const tk = token(); if(tk !== _aggToken){ clearAggregates(); _aggToken = tk; } };
+const memo = (get, set, load)=>{ const p = load().catch(e=>{ if(get()===p) set(null); throw e; }); set(p); return p; };
 
-export async function loadCountries(){ if(!_countries) _countries = await j("./data/countries.json"); return _countries; }
+export function loadCountries(){ aggFresh();
+  return _countries || memo(()=>_countries, v=>{ _countries=v; }, ()=>authed("./data/countries.json")); }
 export async function loadWorld(){ if(!_world) _world = await j("./data/world.geojson"); return _world; }
 export async function loadProvincesGeo(){ if(!_provGeo) _provGeo = await j("./data/thailand-provinces.geojson"); return _provGeo; }
-export async function loadAreas(){
-  if(_areas) return _areas;
-  const areas = await j("./data/areas.json");
-  _areas = { areas, areaByProvince: Object.fromEntries(areas.map(a=>[a.province, a])) };
-  return _areas;
+export function loadAreas(){ aggFresh();
+  return _areas || memo(()=>_areas, v=>{ _areas=v; }, ()=>authed("./data/areas.json")
+    .then(areas=>({ areas, areaByProvince: Object.fromEntries(areas.map(a=>[a.province, a])) })));
 }
 // District-level (อำเภอ/เขต) aggregates — only populated for the 4 provinces with district data
 // (Bangkok Metropolis, Chiang Mai, Phuket, Pattaya). Small file, loaded alongside areas.json.
-export async function loadDistricts(){ if(!_districts) _districts = await j("./data/districts.json"); return _districts; }
+export function loadDistricts(){ aggFresh();
+  return _districts || memo(()=>_districts, v=>{ _districts=v; }, ()=>authed("./data/districts.json")); }
 // Stage 5 — heavy detail, scoped to one country at the query layer (?country=).
 let _detailToken = "";
 let _noPlacesApi = false;

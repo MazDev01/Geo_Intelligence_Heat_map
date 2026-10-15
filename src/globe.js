@@ -170,8 +170,9 @@ export function Globe({countries=[], world, flyTo, onArrive, small, pins=[], hov
     const pts=[], cols=[]; const cRed=new THREE.Color(0xff4d33), cOrange=new THREE.Color(0xff9a3c), cWarm=new THREE.Color(0xffd24d);
     const rand=rng(12345);
     countries.forEach(c=>{ const lat=c.center[0], lng=c.center[1];
-      const n=Math.min(70, Math.max(6, Math.round((c.customerCount+c.prospectCount)/40)));
-      const spread=Math.min(6, 1.4+Math.sqrt(c.customerCount)/9);
+      const counted=Number.isFinite(c.customerCount) && Number.isFinite(c.prospectCount);
+      const n=counted ? Math.min(70, Math.max(6, Math.round((c.customerCount+c.prospectCount)/40))) : 70;
+      const spread=counted ? Math.min(6, 1.4+Math.sqrt(c.customerCount)/9) : 6;
       for(let i=0;i<n;i++){ const v=latLngVec(lat+(rand()-.5)*spread*2, lng+(rand()-.5)*spread*2, 1.012);
         pts.push(v.x,v.y,v.z); const t=rand(); const col=t<.6?cRed:(t<.85?cOrange:cWarm); cols.push(col.r,col.g,col.b); } });
     const pg=new THREE.BufferGeometry();
