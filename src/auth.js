@@ -29,6 +29,14 @@ export function saveAuth(data, remember) {
   try { store(remember).setItem(KEY, JSON.stringify(data)); } catch (e) {}
 }
 
+const EMAIL_KEY = "geointel.lastEmail";
+export function rememberEmail(email, on) {
+  try { if (on && email) localStorage.setItem(EMAIL_KEY, email); else localStorage.removeItem(EMAIL_KEY); } catch (e) {}
+}
+export function lastEmail() {
+  try { return localStorage.getItem(EMAIL_KEY) || ""; } catch (e) { return ""; }
+}
+
 export function clearAuth() {
   for (const s of [sessionStorage, localStorage]) { try { s.removeItem(KEY); } catch (e) {} }
 }

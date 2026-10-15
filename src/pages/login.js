@@ -9,7 +9,8 @@ import {t} from "../i18n.js";   // สลับภาษา TH/EN — ดู src
 import * as auth from "../auth.js";
 
 export function Login({db, onLogin}){
-  const [email, setEmail]   = useState("");
+  const [email, setEmail]   = useState(()=>auth.lastEmail());
+  const [prefilled]         = useState(()=>!!auth.lastEmail());
   const [pass, setPass]     = useState("");
   const [showPass, setShowPass] = useState(false);
   const [remember, setRemember] = useState(true);
@@ -36,6 +37,7 @@ export function Login({db, onLogin}){
     setBusy(false);
     if(!r.ok){ setErr(r.error || t("เข้าสู่ระบบไม่สำเร็จ","Could not sign in")); return; }
     auth.saveAuth({token:r.token, user:r.user}, remember);
+    auth.rememberEmail((r.user && r.user.email) || email.trim(), remember);
     if(r.mustChange){ setPending(r.user); setStage("change"); return; }   // รหัสที่แอดมินตั้งให้ ใช้ได้ครั้งเดียว
     onLogin(r.user);
   };
@@ -64,6 +66,7 @@ export function Login({db, onLogin}){
     setBusy(false);
     if(!res.ok){ setErr(res.error || t("เข้าสู่ระบบไม่สำเร็จ","Could not sign in")); return; }
     auth.saveAuth({token:res.token, user:res.user}, remember);
+    auth.rememberEmail((res.user && res.user.email) || DEMO_EMAIL[r], remember);
     if(res.mustChange){ setPending(res.user); setStage("change"); return; }
     onLogin(res.user);
   };
@@ -99,7 +102,7 @@ export function Login({db, onLogin}){
             onInput=${e=>{setEmail(e.target.value); setErr("");}}/></div>
         <div class="field"><label>${t("รหัสผ่าน", "Password")}</label>
           <div class="pw-wrap">
-            <input class="input" type=${showPass?"text":"password"} autocomplete="current-password" placeholder="••••••••••" value=${pass}
+            <input class="input" type=${showPass?"text":"password"} autocomplete="current-password" placeholder="••••••••••" value=${pass} autoFocus=${prefilled}
               onInput=${e=>{setPass(e.target.value); setErr("");}}/>
             <button type="button" class="pw-eye" aria-pressed=${showPass}
               aria-label=${showPass?t("ซ่อนรหัสผ่าน","Hide password"):t("แสดงรหัสผ่าน","Show password")}
