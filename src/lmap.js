@@ -20,24 +20,6 @@ const TH_BOUNDS = [[5.6,97.3],[20.7,105.7]];   // whole-Thailand framing bounds 
 // นอกกรอบนั้นไม่มี tile เลย จอกว้างจึงเห็นเป็นพื้นสีน้ำล้วนรอบประเทศ
 // แก้โดยวาดรูปแผ่นดินของทุกประเทศจาก world.geojson (180 ประเทศ) ไว้ "ใต้" tile
 // ในกรอบที่มี tile → tile ทับหมด เห็นรายละเอียดเหมือนเดิม · นอกกรอบ → เห็นแผ่นดินเพื่อนบ้านเป็นแผนที่ปกติ
-const NameLabel = L && L.Layer.extend({
-  initialize(latlng, html){ this._ll = latlng; this._html = html; },
-  onAdd(map){
-    this._el = L.DomUtil.create("div", map.options.zoomAnimation ? "leaflet-zoom-animated" : "leaflet-zoom-hide", map.getPane("provNamePane"));
-    this._el.style.position = "absolute";
-    this._el.innerHTML = this._html;
-    map.on("viewreset zoomend", this._place, this);
-    if(map.options.zoomAnimation) map.on("zoomanim", this._anim, this);
-    this._place();
-  },
-  onRemove(map){
-    map.off("viewreset zoomend", this._place, this);
-    map.off("zoomanim", this._anim, this);
-    L.DomUtil.remove(this._el);
-  },
-  _place(){ L.DomUtil.setPosition(this._el, this._map.latLngToLayerPoint(this._ll).round()); },
-  _anim(e){ L.DomUtil.setPosition(this._el, this._map._latLngToNewLayerPoint(this._ll, e.zoom, e.center).round()); },
-});
 
 const LAND_FILL = EARTH;      // สีพื้นดินจาก Protomaps style — ต่อเนื่องกับพื้นดินของ tile
 const LAND_EDGE = "#c3bdb4";   // เส้นเขตแดนประเทศ อ่อนกว่าพื้นเล็กน้อย
@@ -138,7 +120,6 @@ export function LeafletMap({db, filters, layers, country="Thailand", onPickArea,
     map.createPane("landPane");    map.getPane("landPane").style.zIndex="150";    map.getPane("landPane").style.pointerEvents="none";
     map.createPane("maskPane");    map.getPane("maskPane").style.zIndex="250";    map.getPane("maskPane").style.pointerEvents="none";
     map.createPane("outlinePane"); map.getPane("outlinePane").style.zIndex="350"; map.getPane("outlinePane").style.pointerEvents="none";
-    map.createPane("provNamePane"); map.getPane("provNamePane").style.zIndex="470"; map.getPane("provNamePane").style.pointerEvents="none";
     // Canvas renderer ต่อ pane — ผูกกับ container โดยตรง เลื่อนพร้อม tile (CSS transform) จึง "ไม่กระพริบ" ตอน drag
     // (ถ้าใช้ SVG renderer ดีฟอลต์ SVG overlay จะ repaint ช้ากว่า tile layer ทำให้เห็น tile ใต้ mask แว่บนึง)
     // padding กว้าง (mask 1.5) กัน "แถบไม่ถูก mask" โผล่ที่ขอบตอนลากไกล
@@ -409,7 +390,6 @@ export function LeafletMap({db, filters, layers, country="Thailand", onPickArea,
     if(m.zoneCover){ map.removeLayer(m.zoneCover); m.zoneCover=null; }
     if(m.outlineLayer){ map.removeLayer(m.outlineLayer); m.outlineLayer=null; }
     if(m.provEdge){ map.removeLayer(m.provEdge); m.provEdge=null; }
-    if(m.nameLayer){ map.removeLayer(m.nameLayer); m.nameLayer=null; }
     // ── TC ที่ถูกมอบหมายเป็น "รายโซน" → เจาะรูตามรูปโซน ไม่ใช่รูปจังหวัด ──────────
     // รูปโซนมาจาก data/zones.geojson (ไฟล์เดียวกับที่แอดมินลากขอบ) โหลดแบบ async
     // ถ้ายังมาไม่ถึง ให้ตกกลับไปใช้รูปจังหวัดตามเดิมก่อน — ไม่งั้นจะไม่มีรูให้เจาะ แล้วแผ่นทึบบังทั้งจอ
@@ -434,13 +414,6 @@ export function LeafletMap({db, filters, layers, country="Thailand", onPickArea,
     const MASK = dark ? "#0e1626" : "#e9ecf1";                    // สีนอกพื้นที่ (สลับตาม dark mode ของแผนที่)
     if(!wholeCountry)   // มุมมองทั้งประเทศไม่ต้องมีแผ่นทึบ — เห็นแผนที่ไทยเต็มตัว
       m.maskLayer = L.polygon([world, ...holes], {pane:"maskPane", renderer:m.maskRenderer, stroke:false, fillColor:MASK, fillOpacity:1, interactive:false}).addTo(map);
-    if(!wholeCountry){
-      const ink = dark ? "#f1f5f9" : "#1e293b", halo = dark ? "#0e1626" : "#ffffff";
-      const shadow = `0 0 2px ${halo},0 0 4px ${halo},0 0 8px ${halo},0 0 12px ${halo}`;
-      m.nameLayer = L.layerGroup(db.provincesGeo.features.filter(f=>reveal.has(f.properties.name)).map(f=>
-        new NameLabel(L.geoJSON(f).getBounds().getCenter(),
-          `<div style="transform:translate(-50%,-50%);white-space:nowrap;font:800 24px/1.2 'Noto Sans Thai',sans-serif;color:${ink};text-shadow:${shadow}">${provinceTH(f.properties.name)}</div>`))).addTo(map);
-    }
 
     // TC ที่ถือ "พื้นที่นอกโซน": เจาะรูเป็นรูปจังหวัด แล้วปิดทับเฉพาะโซนอื่นด้วยสีเดียวกับแผ่นทึบ
     // (เขียนเป็นรู "จังหวัดลบโซน" ในโพลิกอนเดียวไม่ได้ — Leaflet ไม่มี "บวกกลับ" จึงวาดแผ่นปิดทับแทน)
