@@ -12,6 +12,9 @@ geo-intel
 data/auth
 data/history
 data/zones.draft.geojson
+data/customers.json
+data/prospects.json
+data/source-customers.json
 *.pmtiles
 *.log
 tmp
