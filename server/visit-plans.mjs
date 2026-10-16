@@ -53,6 +53,7 @@ function readPlan(body) {
   }
 
   if (body.saved !== undefined && typeof body.saved !== 'boolean') throw fail(400, 'สถานะยืนยันแผนต้องเป็นจริงหรือเท็จ');
+  if (body.saved === true && !placeIds.length) throw fail(400, 'แผนที่ยืนยันแล้วต้องมีร้านอย่างน้อย 1 ร้าน');
   return {name, visitDate, placeIds, fresh, route, saved: body.saved === true};
 }
 
