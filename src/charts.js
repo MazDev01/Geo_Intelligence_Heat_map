@@ -103,7 +103,7 @@ export function Donut({data, size=150, thickness=14, center, animate=true}){
     let raf; const t0=performance.now(); const dur=DONUT.duration; const ease=t=>1-Math.pow(1-t,3);
     const step=now=>{ const p=Math.min(1,(now-t0)/dur); setCv(cval*ease(p)); if(p<1) raf=requestAnimationFrame(step); else setCv(cval); };
     raf=requestAnimationFrame(step); return ()=>cancelAnimationFrame(raf);
-  },[]);   // eslint-disable-line — จงใจ mount-only
+  },[cval]);   // eslint-disable-line — จงใจ mount-only
   const cfmt = (center&&center.format)||(v=>Math.round(v));
   let off=0;
   const arcs=segs.map((d,i)=>{ const frac=d.value/total, dash=frac*c, startOff=off, startAngle=(startOff/c)*360; off+=dash;
