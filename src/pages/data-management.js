@@ -1719,7 +1719,7 @@ export function TerritoryManager(){
       <${Kpi} label=${t("พื้นที่ทั้งหมด", "All territories")} value=${num(rows.length)} icon="map"/>
       <${Kpi} label=${t("มีคนดูแล", "With an owner")} value=${num(coveredN)} icon="check"/>
       <${Kpi} label=${t("ยังไม่มีคนดูแล", "No owner yet")} value=${num(noManN)} icon="gap"/>
-      <${Kpi} label=${t("TC ที่ยังไม่มีพื้นที่", "TCs without a territory")} value=${num(idleTC.length)} icon="user"/>
+      <${Kpi} label=${t("TC ที่ยังไม่มีพื้นที่", "No territory (TC)")} value=${num(idleTC.length)} icon="user"/>
     </div>
 
     <div class="tr-grid">
