@@ -11,7 +11,6 @@ import {Card, Kpi, Btn, Badge, Table, Modal, Meter, toast} from "../ui.js";
 import {SEGMENTS, PROVINCE_KEYS, BKK, BKK_ZONES} from "../mock/geoData.js";
 import {loadZoneRegistry, zoneRegistry, zonesOf, zoneLabel, zoneColor, saveZoneRegistry, nextColor, ZONE_REST, subscribeZones}
   from "../zone-registry.js";   // ทะเบียนโซน — แหล่งความจริงเดียวของ id/ชื่อ/สี/จังหวัด
-import {pushAudit} from "../audit.js";
 import {ExportDialog, runExport, exportName} from "./reports.js";   // ป็อปอัพส่งออกตัวเดียวกับหน้ารายงาน
 import {downloadCSV, importsApi} from "../data.js";
 import {loadTerritory, saveTerritory} from "../territory-store.js";
@@ -401,12 +400,11 @@ function ImportWizard({resumeFile, staging, setStaging, onExitResume, onImported
     if(!res.ok){ toast(res.error,"bad"); return; }
     setResult(res); setDone(true); onImported&&onImported(); placesChanged&&placesChanged();
     const okN=(res.counts&&res.counts.ok)||0;
-    pushAudit({action:t("นำเข้าไฟล์ Excel", "Import an Excel file"), category:"นำเข้า", detail:`${file.name} ${t("· สำเร็จ", "· succeeded")} ${okN} ${t("รายการ", "records")}`});
     toast(`${t("นำเข้าข้อมูลสำเร็จ", "Import finished")} ${okN} ${t("รายการ", "records")}`,"good");
   };
   const runImport=()=>{ if(isLive) return runConfirm(); setImporting(true); setPct(0);
     const timer=setInterval(()=>{ setPct(p=>{ if(p>=100){ clearInterval(timer); setImporting(false); setDone(true);
-      const okN=counts.ok||0; pushAudit({action:t("นำเข้าไฟล์ Excel", "Import an Excel file"), category:"นำเข้า", detail:`${file?file.name:t("ไฟล์", "File")} ${t("· สำเร็จ", "· succeeded")} ${okN} ${t("รายการ", "records")}`});
+      const okN=counts.ok||0; 
       toast(`${t("นำเข้าข้อมูลสำเร็จ", "Import finished")} ${okN} ${t("รายการ", "records")}`,"good"); return 100; } return p+8; }); },90); };
 
   const STEPS=[[1,t("เลือกไฟล์", "Choose a file")],[2,t("จับคู่คอลัมน์", "Map the columns")],[3,t("ตรวจสอบข้อมูล", "Review the data")],[4,t("ยืนยันและนำเข้า", "Confirm and import")]];
@@ -528,11 +526,9 @@ function ImportWizard({resumeFile, staging, setStaging, onExitResume, onImported
 
       ${editRow&&!isLive?html`<${EditRowDrawer} row=${editRow} onClose=${()=>setEditRow(null)}
         onSave=${vals=>{ patchVal(editRow.row,{...vals,issue:"ok",edited:true}); setEditRow(null);
-          pushAudit({action:t("แก้ไขและนำเข้าแถว (ตรวจสอบข้อมูล)", "Edited and imported a row (data review)"), category:"แก้ไข", detail:`${vals.name||editRow.name} ${t("(แถว", "(row")} ${editRow.row})`});
           toast(t("บันทึกและนำเข้าแถวนี้แล้ว", "Row saved and imported"),"good"); }}
         onSkip=${()=>{ patchVal(editRow.row,{issue:"skipped",edited:false}); setEditRow(null); toast(t("ข้ามแถวนี้แล้ว", "Row skipped"),"warn"); }}
         onMerge=${()=>{ patchVal(editRow.row,{issue:"ok",edited:true}); setEditRow(null);
-          pushAudit({action:t("รวมกับข้อมูลเดิม (ตรวจสอบข้อมูล)", "Merged with an existing record (data review)"), category:"แก้ไข", detail:`${editRow.name} ${t("→ คงรหัส", "→ keeping ID")} ${editRow.match?editRow.match.id:"-"}`});
           toast(t("รวมกับข้อมูลเดิมแล้ว — คงรหัสเดิม", "Merged with the existing record — the original ID is kept"),"good"); }}
         onNew=${()=>{ patchVal(editRow.row,{issue:"ok",edited:true}); setEditRow(null); toast(t("ถือเป็นรายการใหม่แล้ว", "Treated as a new record"),"good"); }}/>`:""}
     </div>` : ""}
@@ -619,14 +615,10 @@ function ImportFiles({staging, onManagePending, onSummary}){
     setBusy(false);
     if(!res.ok){ toast(res.error,"bad"); return; }
     setRollback(null); setDrawer(null); setTick(n=>n+1); placesChanged&&placesChanged();
-    pushAudit({action:t("ยกเลิกการนำเข้าทั้งชุด (Rollback)", "Rolled back a whole import batch"), category:"ลบ",
-      detail:`${b.file} ${t("· ถอน", "· withdrew")} ${res.withdrawn} ${t("รายการ · คงไว้", "records · kept")} ${res.kept} ${t("รายการ", "records")}`});
     toast(`${t("ถอนการนำเข้า", "Withdrew the import")} ${b.file} ${t("แล้ว — คงไว้", "— kept")} ${res.kept} ${t("รายการ", "records")}`,"warn");
   };
   const doRollback=b=>{ if(liveRows) return liveRollback(b); const withdrawn=Math.max(0,b.done-b.visited);   // รายการที่เข้าพบแล้วไม่ถูกถอน
     setRows(rs=>rs.map(x=>x.id===b.id?{...x,withdrawn:true,status:"ถอนออกแล้ว"}:x)); setRollback(null); setDrawer(null);
-    pushAudit({action:t("ยกเลิกการนำเข้าทั้งชุด (Rollback)", "Rolled back a whole import batch"), category:"ลบ",
-      detail:`${b.file} ${t("· ถอน", "· withdrew")} ${withdrawn} ${t("รายการ · คงไว้", "records · kept")} ${b.visited} ${t("รายการที่เข้าพบแล้ว (ทำเครื่องหมายให้ตรวจสอบ)", "records already visited (flagged for review)")}`});
     toast(`${t("ถอนการนำเข้า", "Withdrew the import")} ${b.file} ${t("แล้ว — คงรายการที่เข้าพบแล้วไว้", "— records already visited were kept")} ${b.visited} ${t("รายการ", "records")}`,"warn"); };
   const impCell=s=>html`<span class="dm-imp"><span class="dm-imp-ok">${t("เข้าระบบ", "imported")} ${num(s.imported)}</span> · <span class=${"dm-imp-pend"+(s.pending?"":" zero")}>${t("ค้าง", "pending")} ${num(s.pending)}</span> · <span class="dm-imp-skip">${t("ข้าม", "Skip")} ${num(s.skipped)}</span></span>`;
   const statCell=s=> s.hasPending
@@ -897,7 +889,6 @@ function TriageReview({staging, setStaging, fileId, liveFile, onLeft}){
       t("นำเข้ารายการเข้าสู่ระบบแล้ว", "Record imported into the system"));
     if(!res) return;
     if(!res.ok){ setDupAsk({r, corrected, duplicate:res.duplicate}); return; }
-    pushAudit({action:t("นำเข้ารายการจากคิวรอแก้ไข", "Imported a record from the pending queue"), category:"นำเข้า", detail:`${(corrected&&corrected.name)||r.raw.name||r.id} ${t("(แถว", "(row")} ${r.row})`});
     setReview(null); setDupAsk(null);
   };
   const liveMerge=async(r,pick)=>{
@@ -905,41 +896,31 @@ function TriageReview({staging, setStaging, fileId, liveFile, onLeft}){
     const values=queueValues(chosen, r.match, Object.keys(chosen));
     const res=await act({action:"merge", id:r.id, values}, t("รวมกับรายการเดิมแล้ว", "Merged with the existing record"));
     if(!res||!res.ok) return;
-    pushAudit({action:t("รวมกับรายการเดิม", "Merged with an existing record"), category:"แก้ไข", detail:`${r.raw.name} → ${r.match.id}`});
     setReview(null);
   };
   const liveSkip=async(r,back)=>{
     const res=await act({action:back?"unskip":"skip", id:r.id}, back?t("นำกลับเข้าคิวรอแก้ไขแล้ว", "Returned to the pending queue"):t("ทำเครื่องหมายข้ามแล้ว — ข้อมูลดิบยังถูกเก็บไว้", "Marked as skipped — the raw data is still kept"), back?"info":"warn");
     if(!res||!res.ok) return;
-    pushAudit({action:back?t("นำรายการกลับเข้าคิวรอแก้ไข", "Returned a record to the pending queue"):t("ข้ามรายการ (ไม่นำเข้า)", "Skipped a record (not imported)"), category:"แก้ไข", detail:`${r.raw.name||r.id} ${t("(แถว", "(row")} ${r.row})`});
     setReview(null);
   };
   const liveBulk=async(ids,how)=>{
     const res=await act(how==="import" ? {action:"import", ids, keepBoth:true} : {action:"skip", ids});
     if(!res||!res.ok) return;
     const done=(res.imported||res.skipped||[]).length, bad=(res.failed||[]).length;
-    pushAudit({action: how==="import"?t("นำเข้าหลายรายการจากคิวรอแก้ไข", "Imported several records from the pending queue"):t("ข้ามหลายรายการ", "Skipped several records"),
-      category: how==="import"?t("นำเข้า", "Imported"):t("แก้ไข", "Edit"), detail:`${done} ${t("รายการ", "records")}`});
     toast((how==="import"?t("นำเข้า", "Imported"):t("ข้าม", "Skip"))+` ${done} ${t("รายการแล้ว", "records")}`+(bad?` · ${t("ไม่สำเร็จ", "failed")} ${bad}`:""), bad||how!=="import"?"warn":"good");
     setConfirm(null);
   };
 
   const patch=(id,p)=>setStaging(list=>list.map(x=>x.id===id?{...x,...p}:x));
   const importRow=(r,corrected)=>{ if(isLive) return liveImport(r,corrected); patch(r.id,{status:"imported",corrected:corrected||null});
-    pushAudit({action:t("นำเข้ารายการจากคิวรอแก้ไข", "Imported a record from the pending queue"), category:"นำเข้า", detail:`${(corrected&&corrected.name)||r.raw.name||r.id} ${t("(แถว", "(row")} ${r.row})`});
     toast(t("นำเข้ารายการเข้าสู่ระบบแล้ว", "Record imported into the system"),"good"); setReview(null); };
   const mergeRow=(r,merged,pick)=>{ if(isLive) return liveMerge(r,pick); patch(r.id,{status:"merged",corrected:merged});
-    pushAudit({action:t("รวมกับรายการเดิม", "Merged with an existing record"), category:"แก้ไข", detail:`${r.raw.name} → ${r.match?r.match.id:"-"}`});
     toast(t("รวมกับรายการเดิมแล้ว", "Merged with the existing record"),"good"); setReview(null); };
   const skipRow=r=>{ if(isLive) return liveSkip(r,false); patch(r.id,{status:"skipped"});
-    pushAudit({action:t("ข้ามรายการ (ไม่นำเข้า)", "Skipped a record (not imported)"), category:"แก้ไข", detail:`${r.raw.name||r.id} ${t("(แถว", "(row")} ${r.row}${t(") · เก็บข้อมูลดิบไว้อ้างอิง", ") · the raw data is kept for reference")}`});
     toast(t("ทำเครื่องหมายข้ามแล้ว — ข้อมูลดิบยังถูกเก็บไว้", "Marked as skipped — the raw data is still kept"),"warn"); setReview(null); };
   const unskip=r=>{ if(isLive) return liveSkip(r,true); patch(r.id,{status:"pending"});
-    pushAudit({action:t("นำรายการกลับเข้าคิวรอแก้ไข", "Returned a record to the pending queue"), category:"แก้ไข", detail:`${r.raw.name||r.id}`});
     toast(t("นำกลับเข้าคิวรอแก้ไขแล้ว", "Returned to the pending queue"),"info"); };
   const doBulk=(ids,how)=>{ if(isLive) return liveBulk(ids,how); ids.forEach(id=>patch(id,{status: how==="import"?"imported":"skipped"}));
-    pushAudit({action: how==="import"?t("นำเข้าหลายรายการจากคิวรอแก้ไข", "Imported several records from the pending queue"):t("ข้ามหลายรายการ", "Skipped several records"),
-      category: how==="import"?t("นำเข้า", "Imported"):t("แก้ไข", "Edit"), detail:`${ids.length} ${t("รายการ", "records")}`});
     toast((how==="import"?t("นำเข้า", "Imported"):t("ข้าม", "Skip"))+` ${ids.length} ${t("รายการแล้ว", "records")}`, how==="import"?"good":"warn");
     setSel({}); setConfirm(null); };
   // จัดการทั้งกลุ่ม — เขียน audit log แยกเป็น "รายแถว" เพื่อให้ตรวจย้อนหลังได้ว่าแถวไหนถูกจัดการอย่างไร
@@ -1715,8 +1696,6 @@ export function TerritoryManager(){
     if(!loadedRef.current){ revert(); toast(t("ยังโหลดข้อมูลไม่เสร็จ ลองใหม่อีกครั้ง", "Still loading — please try again"), "bad"); return; }
     saveTerritory(next).then(r=>{
       if(!r.ok){ revert(); toast(t("บันทึกไม่สำเร็จ: ", "Save failed: ")+r.error, "bad"); return; }
-      pushAudit({ action: tc? t("มอบหมายขอบเขตพื้นที่การขาย", "Assigned a sales territory") : t("ยกเลิกมอบหมายขอบเขตพื้นที่การขาย", "Unassigned a sales territory"), category:"แก้ไข",
-        detail: `${provs.length>1?`${provs.length} ${t("จังหวัด ·", "Province ·")} `:""}${names} → ${tc? `${tc.name} (${tc.email})` : t("ไม่มีผู้ดูแล (no man’s land)", "No owner (no man's land)")}` });
       if(r.local) toast(t("บันทึกในเครื่องนี้เท่านั้น — TC ที่เปิดจากเครื่องอื่นจะยังไม่เห็น",
         "Saved on this device only — a TC on another device will not see it yet"), "warn");
       else toast(tc ? `${t("บันทึกแล้ว", "Saved")} · ${names} → ${tc.name}` : `${t("บันทึกแล้ว", "Saved")} · ${names} → ${t("ไม่มีผู้ดูแล", "No owner")}`, tc?"good":"warn");

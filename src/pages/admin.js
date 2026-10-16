@@ -1,6 +1,5 @@
 import {html, useState, useEffect, useMemo, useRef, useApp, Icon, num, pct, roleTH, provinceTH, PROVINCE_TH, segTH, thDate, thDateTime, thMonth, gapTH} from "../lib.js";
 import {SEGMENTS, SEG_COLOR, OTHER_COLOR, DISTRICT_TH, GAP_REF, demandGap, gapBySegment, SCORING_DEFAULT, getScoring, setScoring} from "../mock/geoData.js";
-import {pushAudit} from "../audit.js";
 import {emailOk} from "../contact-rules.js";
 import {fetchAudit, AUDIT_GROUPS, eventLabel, eventIcon, eventTone, detailText} from "../audit-api.js";
 import {Card, Kpi, Btn, Badge, Toggle, Field, Table, Tabs, Modal, DateField, toast, TCReportNav} from "../ui.js";
@@ -64,7 +63,6 @@ export function Users(){
         "The old password stops working immediately and they must choose a new one at next sign-in")}))) return;
     const r = await auth.resetPassword(u.email);
     if(!r.ok) return toast(r.error||t("รีเซ็ตรหัสไม่สำเร็จ","Could not reset the password"),"bad");
-    pushAudit({action:t("รีเซ็ตรหัสผ่าน","Reset password"), category:"แก้ไข", detail:u.name+" · "+u.email});
     setPwShow({email:u.email, name:u.name, password:r.password});
     refresh();
   };
@@ -107,8 +105,6 @@ export function Users(){
     const r = await auth.updateUser(target.email, {role:next.role, scope:next.scope, overrides:next.overrides});
     if(!r.ok) return toast(r.error||t("บันทึกสิทธิ์ไม่สำเร็จ","Could not save the permissions"),"bad");
     await refresh();
-    for(const c of changes) pushAudit({action:t("แก้ไขสิทธิ์ผู้ใช้", "Edited user permissions"), category:"แก้ไข",
-      detail:`${target.name} · ${c.key} : ${c.from} → ${c.to}`});
     setPerm(null);
     toast(changes.length? `${t("บันทึกสิทธิ์แล้ว", "Permissions saved")} ${changes.length} ${t("รายการ", "records")}` : t("ไม่มีการเปลี่ยนแปลง", "Nothing changed"), changes.length?"good":"info");
   };

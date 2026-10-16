@@ -23,7 +23,6 @@ import {VisitPlanner} from "./visit-planner.js";
 import {usePlanSync} from "./plan-sync.js";
 import {AddRecordsForm, USER_SOURCE} from "./add-records.js";
 import {officeFor, clusterCustomers, optimizeOrder} from "./visit.js";
-import {pushAudit} from "./audit.js";
 import {buildNotifs, applyServerNotif, inboxView, agoText, byPriority, priorityOf, PRIORITY_COLOR, PRIORITY_TH} from "./notifications.js";
 import {loadInbox, markInboxRead} from "./notif-api.js";
 import {loadSettings} from "./settings-api.js";
@@ -282,8 +281,6 @@ function App(){
       customers:(prev.customers||[]).filter(x=>x.id!==rec.id),
       prospects:(prev.prospects||[]).filter(x=>x.id!==rec.id) }));
     refreshAggregates();
-    pushAudit({ user:(user&&user.email)||"system", action:t("ลบระเบียน", "Delete record"), category:"ลบ",
-      detail:`${rec.businessName} (${rec.accountNo||rec.id})` });
     toast(t("ลบรายการแล้ว", "Record deleted"),"good");
   };
   const deleteRecord = rec => {
@@ -308,8 +305,6 @@ function App(){
       const rs=[...(x.visitRounds||[]), round]; return {...x, visitRounds:rs, visit_status:deriveVisitStatus(rs)}; };
     setDb(prev=>({...prev, prospects:(prev.prospects||[]).map(x=> x.id===rec.id ? merge(x) : x) }));
     setSelectedCustomer(x=> x && x.id===rec.id ? merge(x) : x);
-    pushAudit({ user:(user&&user.email)||"system", action:t("บันทึกรอบการเข้าพบ", "Visit round saved"), category:"แก้ไข",
-      detail:`${rec.businessName} ${t("· รอบที่", "· round")} ${round.round} · ${round.status}${round.outcome?" · "+round.outcome:""}` });
     toast(t("บันทึกการติดตามการเข้าพบแล้ว", "Visit follow-up saved"),"good");
   };
 
@@ -426,7 +421,6 @@ function App(){
         setUser(seedTC
           ? {role:"Trade Coordinator", name:seedTC.name, email:seedTC.email, initials:initialsOf(seedTC.name), province:prov}
           : {role:"Trade Coordinator", name:"ธนพล ศรีวัฒน์", email:"tc@geointel.io", initials:"TC", province:prov});
-        pushAudit({user:(seedTC&&seedTC.email)||"tc@geointel.io", action:t("เข้าสู่ระบบ", "Sign in"), category:"เข้าสู่ระบบ", detail: prov?(t("พื้นที่รับผิดชอบ: ", "Territory: ")+provinceTH(prov)):t("ยังไม่กำหนดพื้นที่รับผิดชอบ", "No territory assigned yet")});
         if(prov){
           // เข้าหน้าจังหวัดทันที (ตั้ง view/map ก่อน) แล้วค่อยโหลดข้อมูลเบื้องหลัง —
           // กันอาการค้างที่ลูกโลกถ้า loadCountry ช้า/ล้มเหลว (TC ต้องอยู่หน้าจังหวัดที่รับผิดชอบเสมอ)
@@ -753,8 +747,6 @@ function App(){
   const tcGuard = (prov, name)=>{
     if(user && user.role==="Trade Coordinator" && user.province && prov && !(tcProvinces||[user.province]).includes(prov)){
       setTcDenied({name: name||t("ข้อมูลนี้","this record")});
-      pushAudit({user:user.email||"tc@geointel.io", action:t("พยายามเข้าถึงข้อมูลนอกพื้นที่", "Attempted to access data outside their territory"), category:"ปฏิเสธการเข้าถึง",
-        detail:(name?name+" · ":"")+t("อยู่ในพื้นที่ ", "is in ")+provinceTH(prov)+t(" (นอกเขตรับผิดชอบ)", " (outside their territory)")});
       return true; }
     return false; };
   // enter the map workspace focused on an area / customer (from dashboard tables, search, etc.)
