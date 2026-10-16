@@ -1,14 +1,13 @@
-import {html, useState, useEffect, useRef, Icon, SegmentIcon, num, pct, SEG_COLOR, SEGMENTS,
-  segTH, gapTH, provinceTH, districtTH, fetchDrivingRoute, useLang} from "./lib.js";
-import {basemap} from "./basemap.js";
-import {Btn, Badge, Meter, DateField, toast} from "./ui.js";
+import {html, useState, Icon, SegmentIcon, num, pct, SEG_COLOR,
+  segTH, gapTH, provinceTH, districtTH} from "./lib.js";
+import {Btn, Badge, DateField, toast} from "./ui.js";
 import {confirmBox} from "./confirm.js";
-import {Donut, BarChart, Gauge, rampRed} from "./charts.js";
-import {analyzeArea, downloadCSV, dealFileError} from "./data.js";
+import {Donut, BarChart, rampRed} from "./charts.js";
+import {analyzeArea, dealFileError} from "./data.js";
 import {demandGap, gapBySegment, GAP_REF} from "./mock/geoData.js";
 import {Dropdown} from "./select.js";
 import {REJ_TH_OF} from "./pages/lead-management.js";
-import {statusMeta, responsibleOf, nextAppointment, urgencyOf, beDate, INTEREST, OUTCOME, CANCEL_REASONS, roundLabel, planTodayKey}from "./visit-rounds.js";
+import {beDate, INTEREST, OUTCOME, CANCEL_REASONS, roundLabel, planTodayKey}from "./visit-rounds.js";
 import {t} from "./i18n.js";   // สลับภาษา TH/EN — ดู src/i18n.js
 
 // คำอธิบายแบบภาษาชาวบ้านว่า "ตัวเลขนี้มาจากไหน" (ไม่โชว์น้ำหนักสูตร — เก็บไว้ในหน้าผู้ดูแล)
@@ -29,7 +28,6 @@ function segGapOf(db, rec){
 
 const L = window.L;
 // derive Sales Owner + Sales History deterministically from the record (no extra API needed)
-const areaOwner=c=>c.areaTc?c.areaTc+t(" (TC พื้นที่)", " (area TC)"):"";
 const salesOwner=c=>c.tc_owner&&c.tc_owner!=="ยังไม่มอบหมาย"?c.tc_owner:t("ยังไม่มอบหมาย", "Unassigned");
 // (เดิมมี salesHistory() สร้างประวัติการซื้อขายจำลอง — ถอดออกแล้ว
 //  ข้อมูลลูกค้าจริงจาก Barter ไม่มียอดขาย/ประวัติการซื้อ จึงไม่แต่งตัวเลขขึ้นมาแสดง)
@@ -217,43 +215,6 @@ export function AreaPanel({db, filters, province, onClose, onReport, onOpenCusto
 }
 
 /* ============ CUSTOMER DRAWER ============ */
-const hav=(a,b)=>{const R=6371,dLat=(b.latitude-a.latitude)*Math.PI/180,dLng=(b.longitude-a.longitude)*Math.PI/180;
-  const s=Math.sin(dLat/2)**2+Math.cos(a.latitude*Math.PI/180)*Math.cos(b.latitude*Math.PI/180)*Math.sin(dLng/2)**2;
-  return 2*R*Math.asin(Math.sqrt(s));};
-function buildRoute(origin,pool){ const near=pool.map(p=>({...p,d:hav(origin,p)})).sort((a,b)=>a.d-b.d).slice(0,6);
-  const stops=[];let cur=origin,total=0;const rem=[...near];
-  while(rem.length){rem.sort((a,b)=>hav(cur,a)-hav(cur,b));const n=rem.shift();const leg=hav(cur,n);total+=leg;stops.push({...n,leg});cur=n;}
-  return {stops,total}; }
-
-// Individual customer report rows (used by the PDF/Excel/CSV exports in the detail panel).
-function custReportRows(c, segGap){
-  const isCust = c.status==="Existing";
-  const rows = [[t("รายงานลูกค้า GeoIntel", "GeoIntel customer report"), c.businessName], [t("รหัสลูกค้า", "Customer ID"), c.accountNo||c.id],
-    [t("สถานะ", "Status"), isCust?t("ลูกค้าปัจจุบัน", "Existing customer"):"Lead"],
-    [t("หมวดธุรกิจ", "Business category"), segTH(c.segment)], [t("จังหวัด", "Province"), provinceTH(c.province)],
-    [t("อำเภอ / เขต", "District"), c.district?districtTH(c.district):"-"], [t("ที่อยู่", "Address"), c.address||"-"],
-    [t("ละติจูด", "Latitude"), c.latitude.toFixed(6)], [t("ลองจิจูด", "Longitude"), c.longitude.toFixed(6)],
-    [t("คำแนะนำ", "Recommendation"), recommendation(c, segGap)]];
-  if(isCust){
-    // ฟิลด์ตามไฟล์ข้อมูลลูกค้าจริง (ไม่รวมคอลัมน์ "สถานะ" ท้ายไฟล์)
-    rows.push([t("เบอร์โทรศัพท์", "Phone"), c.phone||"-"], [t("เว็บไซต์", "Website"), c.website||"-"], [t("เฟซบุ๊ก", "Facebook"), c.facebook||"-"],
-      [t("วันที่เริ่มเป็นลูกค้า", "Customer since"), c.dateJoin||"-"], [t("ผู้ประสานงานการค้า (TC)", "Trade Coordinator (TC)"), c.tc_owner||areaOwner(c)||t("ยังไม่มีผู้ดูแล","No owner yet")]);
-  } else if(segGap){
-    rows.push([t("เบอร์โทร", "Phone"), c.phone||"-"], [t("อีเมล", "Email"), c.email||"-"]);
-    rows.push([t("หมวดที่ยังขาดในย่านนี้", "Category short in this neighbourhood"), segTH(c.segment)+t(" — ขาด ", " — short by ")+segGap.gap+t(" ราย", " businesses")],
-      [t("อุปสงค์ในหมวดนี้ (ราย)", "Demand in this category"), segGap.demand], [t("สมาชิกเครือข่ายในหมวดนี้ (ราย)", "Network members in this category"), segGap.supply],
-      [t("ดัชนี Lead ของย่าน", "Neighbourhood Lead index"), segGap.areaScore+" ("+gapTH(segGap.areaLevel)+")"]);
-  }
-  return rows;
-}
-function downloadXLS(filename, rows){   // Excel-openable spreadsheet (ms-excel HTML table)
-  const esc = s => String(s??"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
-  const body = rows.map(r=>"<tr>"+(r.length?r.map(c=>`<td>${esc(c)}</td>`).join(""):"<td></td>")+"</tr>").join("");
-  const doc = `<html xmlns:x="urn:schemas-microsoft-com:office:excel"><head><meta charset="utf-8"></head><body><table border="1">${body}</table></body></html>`;
-  const url = URL.createObjectURL(new Blob(["﻿"+doc], {type:"application/vnd.ms-excel"}));
-  const a = document.createElement("a"); a.href=url; a.download=filename; a.click(); URL.revokeObjectURL(url);
-}
-
 export function CustomerPanel({db, customer, onClose, onOpenArea, setCustomer, onAddToPlan, inPlan, topOffset, canEditOwn, onSetVisit, onEditRecord, onDeleteRecord, onAddRound, user, onSubmitDeal, dealPlan, onCancelVisit, onRecordVisit}){
   const [added,setAdded]=useState(false);
   const [busy,setBusy]=useState(false);
@@ -511,26 +472,3 @@ const VR_CSS = `
 .vr-f select{color-scheme:light}
 .vr-hint{font-size:10.5px;font-weight:500;color:var(--muted)}
 `;
-
-function RouteMap({origin, route}){
-  const ref=useRef();
-  const lang=useLang();   // สลับภาษา → สร้างแผนที่ย่อใหม่ (ป้ายชื่อสถานที่เปลี่ยนตาม)
-  useEffect(()=>{
-    const map=L.map(ref.current,{zoomControl:false,attributionControl:true}).setView([origin.latitude,origin.longitude],12);
-    basemap(map);
-    const pts=[[origin.latitude,origin.longitude],...route.stops.map(s=>[s.latitude,s.longitude])];
-    L.circleMarker(pts[0],{radius:8,color:"#34e0d0",fillColor:"#34e0d0",fillOpacity:.9,weight:2}).addTo(map).bindTooltip(t("จุดเริ่ม: ", "Start: ")+origin.businessName);
-    route.stops.forEach((s,i)=>L.marker([s.latitude,s.longitude]).addTo(map).bindTooltip(`${i+1}. ${s.businessName}`));
-    let line = L.polyline(pts,{color:"#38bdf8",weight:2.5,dashArray:"6 6"}).addTo(map);
-    map.fitBounds(L.latLngBounds(pts).pad(0.25));
-    setTimeout(()=>map.invalidateSize(),60);
-    let alive=true;
-    fetchDrivingRoute(pts).then(realPts=>{
-      if(!alive || !realPts) return;
-      map.removeLayer(line);
-      line = L.polyline(realPts,{color:"#38bdf8",weight:2.5,opacity:.9}).addTo(map);
-    });
-    return ()=>{ alive=false; map.remove(); };
-  },[origin.id,lang]);
-  return html`<div ref=${ref} style=${{height:"210px",borderRadius:"12px",overflow:"hidden",border:"1px solid var(--stroke)"}}></div>`;
-}

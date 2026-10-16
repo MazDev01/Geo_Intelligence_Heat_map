@@ -6,23 +6,8 @@ import {demandGap, GAP_REF} from "./mock/geoData.js";
 import {html, useState, useEffect, useRef, Icon, segTH, provinceTH, districtTH, useLang} from "./lib.js";
 import {basemap} from "./basemap.js";
 import {clusterCustomers, clusterRoute, computeRoute, optimizeOrder, haversine} from "./visit.js";
-import {planTodayKey, deriveStatus, overdueAppt, beDate} from "./visit-rounds.js";
 import {confirmBox} from "./confirm.js";
 import {DateField} from "./ui.js";   // ช่องเลือกวันที่แบบไทย
-
-// สรุป "งานเข้าพบวันนี้" ของ TC — derive สดจากรอบการเข้าพบของLeadในจังหวัดที่รับผิดชอบ (ไม่มี cron)
-function daySummary(db, office){
-  const ps = ((db&&db.prospects)||[]).filter(p=>p.province===office.province);
-  let visited=0, appt=0, overdue=0, lastAppt=null;
-  const today=planTodayKey();
-  ps.forEach(p=>{ const r=p.visitRounds||[];
-    if(r.some(x=>x.status==="เสร็จสิ้น" && String(x.doneDate||"").slice(0,10)===today)) visited++;
-    if(deriveStatus(r)==="appointment") appt++;
-    if(overdueAppt(r)) overdue++;
-    r.forEach(x=>{ if(x.status==="นัดแล้ว" && x.apptDate && (!lastAppt||x.apptDate>lastAppt)) lastAppt=x.apptDate; });
-  });
-  return { visited, appt, overdue, lastAppt };
-}
 
 // สรุปพื้นที่ของแผนจากจุดที่เลือกไว้จริง — หาจังหวัดที่มีจุดมากที่สุด แล้วรวบอำเภอที่ไม่ซ้ำในจังหวัดนั้น
 function planArea(plan){

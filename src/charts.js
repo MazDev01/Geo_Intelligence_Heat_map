@@ -139,18 +139,6 @@ export function Donut({data, size=150, thickness=14, center, animate=true}){
     </div></div>`;
 }
 
-export function Gauge({value, size=120, label}){
-  const r=52, c=Math.PI*r, v=Math.max(0,Math.min(100,value));
-  const col = v>=85?"#33d69f":v>=70?"#ffb02e":"#ff5a5a";
-  return html`<svg width=${size} height=${size*0.62} viewBox="0 0 120 74">
-    <path d="M8 66 A52 52 0 0 1 112 66" fill="none" stroke="rgba(30,45,80,.10)" stroke-width="11" stroke-linecap="round"/>
-    <path d="M8 66 A52 52 0 0 1 112 66" fill="none" stroke=${col} stroke-width="11" stroke-linecap="round"
-      stroke-dasharray=${c} stroke-dashoffset=${c-(v/100)*c} style=${{transition:"stroke-dashoffset .6s"}}/>
-    <text x="60" y="54" text-anchor="middle" fill="var(--txt)" font-size="26" font-weight="700">${Math.round(v)}</text>
-    <text x="60" y="70" text-anchor="middle" fill="var(--dim)" font-size="9">${label||"/100"}</text>
-  </svg>`;
-}
-
 // ── กราฟเส้น (§2): มีแกน X (ป้ายเดือน) · แกน Y (สเกลตัวเลข + เส้น grid) · legend (ผู้เรียกวางเอง) · crosshair tooltip ──
 let lineSeq=0;
 // ปัดเพดานแกน Y ให้เป็นเลขกลม เพื่อให้ป้ายสเกลอ่านง่าย (1/2/2.5/5/10 × 10^k)

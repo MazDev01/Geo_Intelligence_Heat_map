@@ -212,25 +212,6 @@ export const brandMark = (s=19)=>html`<svg width=${s} height=${s} viewBox="0 0 2
   <path d="M12 2C7 8 7 14 12 22 17 14 17 8 12 2Z" fill="#04121a"/>
   <circle cx="12" cy="9" r="2.6" fill="#eafff9"/></svg>`;
 
-// เรียก OSRM public demo server เพื่อวาดเส้นทางตามถนนจริง (ไม่ต้องสมัคร API key) — ใช้เฉพาะสำหรับเดโม
-// เพราะเซิร์ฟเวอร์นี้ไม่รับประกัน uptime/latency ตามนโยบายการใช้งานของโปรเจกต์ OSRM เอง
-// คืน null เมื่อเรียกไม่สำเร็จ ให้ผู้เรียกใช้ fallback เป็นเส้นตรงเดิมเอง
-export async function fetchDrivingRoute(points){
-  if(!points || points.length<2) return null;
-  try{
-    const coords = points.map(([lat,lng])=>`${lng},${lat}`).join(";");
-    const url = `https://router.project-osrm.org/route/v1/driving/${coords}?overview=full&geometries=geojson`;
-    const ctrl = new AbortController();
-    const timeout = setTimeout(()=>ctrl.abort(), 5000);
-    const res = await fetch(url, {signal:ctrl.signal});
-    clearTimeout(timeout);
-    if(!res.ok) return null;
-    const data = await res.json();
-    if(data.code!=="Ok" || !data.routes || !data.routes[0]) return null;
-    return data.routes[0].geometry.coordinates.map(([lng,lat])=>[lat,lng]);
-  }catch(e){ return null; }
-}
-
 /* ---------------- app context ---------------- */
 export const AppCtx = createContext(null);
 export const useApp = ()=>useContext(AppCtx);

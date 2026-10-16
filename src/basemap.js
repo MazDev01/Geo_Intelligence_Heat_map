@@ -21,7 +21,6 @@ const ATTR = () => t("แผนที่ฐาน","Basemap") + ' &copy; <a href
 // ── สีจาก Protomaps style ตัวจริง (อ่านจาก object ตอนโหลดโมดูล ไม่ใช่ literal) ──
 // ใช้ instance แยกจาก tunedRules เพราะตัวนั้นถูก mutate ต่อการเรียก (label rules)
 const FLAVOR = namedFlavor("light");
-export const WATER = FLAVOR.water;   // สีน้ำ — พื้นหลัง map สำหรับบทบาทที่เข้าเงื่อนไข
 export const EARTH = FLAVOR.earth;   // สีพื้นดิน — ใช้เติมแผ่นดินโลกที่ landPane
 
 // สร้างชุด paint/label rules ที่ปรับแล้ว (สร้างใหม่ทุกครั้งเพราะ label rules ถูก mutate ต่อ instance)

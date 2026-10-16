@@ -244,11 +244,3 @@ const CSS = `
 @media (max-width:480px){.tour-card{width:calc(100vw - 32px)}}
 `;
 
-// Placeholder step so the framework is testable before the real content is authored.
-// The actual multi-screen tour steps are added in a later task.
-export const PLACEHOLDER_STEPS = [
-  { placement:"center",
-    get title(){ return t("ระบบแนะนำการใช้งานพร้อมทำงาน","Product tour is ready"); },
-    get body(){ return t("นี่คือโครงของทัวร์แนะนำการใช้งาน เนื้อหาของแต่ละขั้นตอนจะถูกเพิ่มในลำดับถัดไป",
-      "This is the tour framework — the content for each step will be added later."); } }
-];

@@ -14,16 +14,6 @@ export const OUTCOME  = ["ต้องติดตามต่อ","พร้อ
 export const ROUND_STATUS = ["นัดแล้ว","เสร็จสิ้น","ยกเลิก"];             // สถานะของรอบ
 export const CANCEL_REASONS = ["ไม่สะดวกช่วงนี้","ราคาไม่ตรง","ติดคู่แข่ง","ปิดกิจการ","ติดต่อไม่ได้","อื่น ๆ"];
 
-// ── สถานะLeadที่ derive ได้จากรอบการเข้าพบ ──
-export const VSTATUS = {
-  waiting:     { key:"waiting",     get label(){ return t("รอเข้าพบ","Awaiting visit"); },          color:"#64748b", tone:"neutral", icon:"target" },
-  appointment: { key:"appointment", get label(){ return t("นัดหมายแล้ว","Appointment set"); },       color:"#2563eb", tone:"info",    icon:"calendar" },
-  followup:    { key:"followup",    get label(){ return t("รอเข้าพบรอบถัดไป","Awaiting next visit"); }, color:"#7c3aed", tone:"info",  icon:"refresh" },
-  hot:         { key:"hot",         get label(){ return t("ใกล้ปิดการขาย","Close to closing"); },     color:"#e60023", tone:"bad",     icon:"target" },
-  closed:      { key:"closed",      get label(){ return t("ปิดการขายแล้ว","Deal closed"); },          color:"#0d9488", tone:"good",    icon:"check" },
-  lost:        { key:"lost",        get label(){ return t("ปิดโอกาส (ไม่สนใจ)","Lost (not interested)"); }, color:"#78716c", tone:"neutral", icon:"close" },
-};
-
 // ── ค่าดิบ (INTEREST/OUTCOME/ROUND_STATUS/CANCEL_REASONS) เป็น "ข้อมูล" ไม่ใช่ข้อความบนหน้าจอ ──
 // ค่าพวกนี้ถูกเก็บลงเรกคอร์ดและถูกเทียบตรง ๆ ทั้งด้วย === และ regex (เช่น /ปิดการขาย|พร้อมปิดดีล/)
 // จึงต้องคงเป็นไทยเสมอ · โหมด EN แปลเฉพาะ "ตอนแสดงผล" ผ่านตารางด้านล่าง
@@ -36,31 +26,6 @@ const ROUND_EN = {
 };
 /* ป้ายที่แสดงผลของค่าดิบข้างต้น — ใช้ทุกที่ที่เอาค่าไปโชว์ (ตัวค่าที่บันทึกยังเป็นไทย) */
 export const roundLabel = v => isEN() ? (ROUND_EN[v] || v) : v;
-
-// ── derive สถานะจากรอบล่าสุด ──
-export function deriveStatus(rounds){
-  if(!rounds || !rounds.length) return "waiting";
-  const last = rounds[rounds.length-1];
-  if(last.status==="ยกเลิก" || last.interest==="ไม่สนใจ") return "lost";
-  if(last.outcome==="ปิดการขาย") return "closed";
-  if(last.outcome==="พร้อมปิดดีล") return "hot";
-  if(last.status==="นัดแล้ว") return "appointment";
-  if(last.status==="เสร็จสิ้น" && last.outcome==="ต้องติดตามต่อ") return "followup";
-  return "waiting";
-}
-export const statusMeta = rounds => VSTATUS[deriveStatus(rounds)];
-
-// ผู้รับผิดชอบล่าสุด (รอบล่าสุดที่มี tc) · fallback = tc_owner ของ record
-export function responsibleOf(prospect, rounds){
-  for(let i=(rounds||[]).length-1;i>=0;i--){ if(rounds[i].tc) return rounds[i].tc; }
-  return prospect && prospect.tc_owner && prospect.tc_owner!=="ยังไม่มอบหมาย" ? prospect.tc_owner : null;
-}
-
-// วันนัดครั้งถัดไป (จากรอบที่สถานะ 'นัดแล้ว')
-export function nextAppointment(rounds){
-  const a=(rounds||[]).filter(r=>r.status==="นัดแล้ว" && r.apptDate).map(r=>r.apptDate).sort();
-  return a.length ? a[a.length-1] : null;
-}
 
 // ── ความเร่งด่วนของวันนัด (เทียบวันอ้างอิงของระบบ) ──
 export function urgencyOf(dateStr, now=Date.parse(planTodayKey())){
@@ -79,9 +44,6 @@ export function urgencyOf(dateStr, now=Date.parse(planTodayKey())){
 //          จะหลุดจากแผน (ไม่มีสถานะ) แต่ "นัดแล้ว" ไม่หลุด — ถ้าเลยวันนัดจะขึ้นป้าย "เลยกำหนดนัด"
 // ใช้วันที่ตามโซนไทย (UTC+7) ตัดสินว่า "วันนั้นจบแล้ว"
 // ═══════════════════════════════════════════════════════════════════════════
-export const REPLAN_WARN_THRESHOLD = 3;   // เตือนเมื่อวางแผนซ้ำแล้วพลาด ≥ 3 ครั้ง
-export const replanWarnMsg = () => t("วางแผนมาแล้ว 3 ครั้ง → พิจารณานัดหมายล่วงหน้าหรือติดต่อยืนยันก่อนเข้าพบ",
-  "Planned 3 times already → consider booking an appointment or confirming before the visit.");
 
 // วันที่ "วันนี้" ตามโซนไทย UTC+7 (ระบบจริง) — เดโมส่ง PLAN_TODAY เข้ามาแทนเพื่อให้ตรงกับ mock ที่ผูกวันไว้
 export function planTodayKey(){ const d=new Date(Date.now()+7*3600e3); return d.toISOString().slice(0,10); }
@@ -111,7 +73,6 @@ export function plannedMissed(planHistory, today=planTodayKey()){
   return { count:m.length, lastDate:m.length?m[m.length-1]:null };
 }
 export const inTodayPlan  = (planHistory, today=planTodayKey())=> (planHistory||[]).some(e=>e.date===today && !e.visited);
-export const visitedToday = (planHistory, today=planTodayKey())=> (planHistory||[]).filter(e=>e.date===today && e.visited).length;
 
 // ── วันที่ พ.ศ. ──
 export const beDate = (iso, withTime) => withTime ? thDateTime(iso) : thDate(iso);   // ใช้ตัวแปลงกลาง

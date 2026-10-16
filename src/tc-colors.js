@@ -15,20 +15,8 @@
 /** จานสีตั้งต้น — วนตามลำดับบัญชี TC เพื่อให้ไม่ซ้ำกันเองตั้งแต่เริ่ม */
 export const TC_PALETTE = ["#38bdf8","#16a34a","#a855f7","#f97316","#06b6d4","#ec4899","#eab308","#64748b"];
 
-const override = new Map();     // id ของบัญชี -> สีที่แอดมินตั้งเอง
-const subs = new Set();
-
 /** สีของ TC คนนั้น — ที่แอดมินตั้งไว้ก่อน ไม่มีก็ใช้จานสีตามลำดับ */
 export function tcColorOf(id, order = 0, color){
   if(/^#[0-9a-fA-F]{6}$/.test(color || "")) return color;
-  if(override.has(id)) return override.get(id);
   return TC_PALETTE[Math.max(0, order) % TC_PALETTE.length];
 }
-export function setTcColor(id, hex){
-  if(!/^#[0-9a-fA-F]{6}$/.test(hex || "")) return false;
-  override.set(id, hex);
-  subs.forEach(fn=>{ try{ fn(id, hex); }catch(e){} });
-  return true;
-}
-export const hasTcColor = id => override.has(id);
-export function subscribeTcColors(fn){ subs.add(fn); return ()=>subs.delete(fn); }

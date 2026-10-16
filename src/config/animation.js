@@ -16,9 +16,6 @@ export const LINE = {
   markerStagger: 60,    // จุด marker โผล่ไล่ตามเส้น
 };
 
-// count-up ตัวเลข (KPI / กลางโดนัท)
-export const COUNT_UP = { duration: 900, kpiDuration: 500, ease: t=>1-Math.pow(1-t,3) };
-
 // ผู้ใช้ที่ตั้ง prefers-reduced-motion: reduce → ข้ามอนิเมชัน แสดงผลลัพธ์สุดท้ายทันที
 export const prefersReducedMotion = () =>
   typeof window!=="undefined" && window.matchMedia

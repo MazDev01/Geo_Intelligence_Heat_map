@@ -169,7 +169,6 @@ export async function restoreZoneVersion(version){
 /* ── ตัวช่วยอ่านทะเบียน ─────────────────────────────────────────────────── */
 
 const feats = () => (cache && cache.features) || [];
-export const zoneList     = () => feats().map(f=>f.properties);
 export const zonesOf      = province => feats().filter(f=>f.properties.province===province).map(f=>f.properties);
 export const zoneProps    = id => (feats().find(f=>f.properties.zone_id===id)||{}).properties || null;
 export const zoneColor    = id => { const p=zoneProps(id); return p ? p.color : "#64748b"; };
@@ -177,10 +176,3 @@ export const zoneColor    = id => { const p=zoneProps(id); return p ? p.color : 
 export const zoneLabel    = id => { if(id===ZONE_REST) return restLabel();
   const p=zoneProps(id); if(!p) return id;
   return getLang()==="en" ? (p.zone_name_en || p.zone_name) : p.zone_name; };
-/** จังหวัดที่มีการแบ่งโซน — ใช้ตัดสินว่าจังหวัดนั้นเป็น "หลายหน่วย" หรือหน่วยเดียว */
-export const zonedProvinces = () => [...new Set(feats().map(f=>f.properties.province))];
-/** meta สำหรับส่งเข้า createZoneLayer (รูปแบบเดียวกับ ZONE_META เดิม) */
-export const zoneMetaMap = () => Object.fromEntries(feats().map(f=>{
-  const p=f.properties; return [p.zone_id, {label: zoneLabel(p.zone_id), color: p.color}]; }));
-/** ป้ายกำกับไว้ใช้ตอนยังโหลดทะเบียนไม่เสร็จ */
-export const loadingLabel = () => t("กำลังโหลดโซน…","Loading zones…");

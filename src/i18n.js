@@ -54,8 +54,6 @@ export function setLang(lang){
   subs.forEach(fn => fn(lang));
 }
 
-export const toggleLang = () => setLang(cur === "th" ? "en" : "th");
-
 /* subscribe แบบดิบ — สำหรับโค้ดนอก React (แผนที่ Leaflet ที่ต้อง rebuild label layer) */
 export function subscribeLang(fn){
   subs.add(fn);
