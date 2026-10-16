@@ -6,7 +6,7 @@ import {auditCtx, clientIp, writeAudit, listAudit} from './audit.mjs';
 import {listPlaces, placesScope, createPlaces, updatePlace, deletePlace} from './places.mjs';
 import {importUpload, mapUpload, confirmUpload, listFiles, withdrawFile} from './imports.mjs';
 import {listQueue, actOnQueue} from './import-queue.mjs';
-import {listPlans, listTeam, listTeamPlans, createPlan, updatePlan, deletePlan} from './visit-plans.mjs';
+import {listPlans, listTeam, listTeamPlans, createPlan, updatePlan, deletePlan, SCOPE_SQL} from './visit-plans.mjs';
 import {addPlaceVisit} from './place-visits.mjs';
 import {listRequests, submitRequest, approveRequest, rejectRequests, undoRequest, readRequestFile, MAX_DEAL_FILE_BYTES} from './lead-requests.mjs';
 import {cleanFilename, fileKind, MAX_FILE_BYTES} from './import-parse.mjs';
@@ -243,7 +243,15 @@ export function makeApi({pool, authStore, zoneStore, demoPassword, perms, webBoo
   async function statsFile(req, res, name) {
     if (req.method !== 'GET' && req.method !== 'HEAD') return send(res, 405, {error: 'รองรับเฉพาะ GET'});
     const who = await authStore.auth(req.headers);
-    if (who.ok) return send(res, 200, await readStats(pool, name));
+    if (who.ok) {
+      const rows = await readStats(pool, name);
+      if (name === 'countries') return send(res, 200, rows);
+      const scopeUserId = placesScope(who.user);
+      if (scopeUserId === null) return send(res, 200, rows);
+      if (scopeUserId === undefined) return send(res, 200, []);
+      const own = new Set((await pool.query(SCOPE_SQL, [scopeUserId])).rows.map(r => r.province));
+      return send(res, 200, rows.filter(r => own.has(r.province)));
+    }
     if (name !== 'countries') return send(res, who.code, {error: who.error});
     const list = await readStats(pool, name);
     return send(res, 200, list.map(c => ({country: c.country, center: c.center, hasProvinces: c.hasProvinces})));
