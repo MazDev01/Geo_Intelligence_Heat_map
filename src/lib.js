@@ -120,6 +120,10 @@ export const provinceTH = p => isEN() ? (p||"") : (PROVINCE_TH[p]||p);
 // ชื่ออำเภอ/เขต ภาษาไทย — ใช้จากแหล่งข้อมูลเดียว (src/mock/geoData.js) ครอบคลุม 4 จังหวัด
 export const DISTRICT_TH = GEO_DISTRICT_TH;
 export const districtTH = d => isEN() ? (d||"") : (DISTRICT_TH[d]||d);
+const firstChars = w => [...w.replace(/^[เ-ไ]/, "") || w];
+export const initialsOf = name => { const ws = String(name||"").trim().split(/\s+/).filter(Boolean);
+  if(!ws.length) return "?";
+  return (ws.length>1 ? firstChars(ws[0])[0]+firstChars(ws[1])[0] : firstChars(ws[0]).slice(0,2).join("")).toUpperCase(); };
 export const segTH = s => isEN() ? (SEG_EN[s]||s) : (SEG_TH[s]||s);
 export const gapTH = g => isEN() ? (g||"") : (GAP_TH[g]||g);
 export const roleTH = r => isEN() ? (r||"") : (ROLE_TH[r]||r);

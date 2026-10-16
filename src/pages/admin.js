@@ -1,4 +1,4 @@
-import {html, useState, useEffect, useMemo, useRef, useApp, Icon, num, pct, roleTH, provinceTH, PROVINCE_TH, segTH, thDate, thDateTime, thMonth, gapTH} from "../lib.js";
+import {html, useState, useEffect, useMemo, useRef, useApp, Icon, num, pct, roleTH, provinceTH, PROVINCE_TH, segTH, thDate, thDateTime, thMonth, gapTH, initialsOf, districtTH} from "../lib.js";
 import {SEGMENTS, SEG_COLOR, OTHER_COLOR, DISTRICT_TH, GAP_REF, demandGap, gapBySegment, SCORING_DEFAULT, getScoring, setScoring} from "../mock/geoData.js";
 import {emailOk} from "../contact-rules.js";
 import {fetchAudit, AUDIT_GROUPS, eventLabel, eventIcon, eventTone, detailText} from "../audit-api.js";
@@ -111,7 +111,6 @@ export function Users(){
   const q = search.trim().toLowerCase();
   const shown = list.filter(u=> (roleF==="All" || u.role===roleF)
     && (!q || u.name.toLowerCase().includes(q) || u.email.toLowerCase().includes(q)));
-  const initials = s => (s||"").trim().split(/\s+/).map(w=>w[0]||"").slice(0,2).join("");
   const roleCls = r => r==="Administrator" ? "adm" : r==="Management" ? "mgr" : "tc";
 
   return html`<div class="page fade-in um-page">
@@ -149,7 +148,7 @@ export function Users(){
       <${Table} empty=${!users ? (loadErr ? t("ยังไม่มีรายชื่อ — กดลองใหม่ด้านบน","No list yet — press Try again above") : t("กำลังโหลด…","Loading…"))
         : t("ไม่พบบัญชีตามเงื่อนไขนี้", "No accounts match these filters")} cols=${[
         {h:t("ผู้ใช้", "User"), render:u=>html`<div class="um-user">
-          <span class=${"um-av "+roleCls(u.role)}>${initials(u.name)}</span>
+          <span class=${"um-av "+roleCls(u.role)}>${initialsOf(u.name)}</span>
           <div style=${{minWidth:0}}>
             <div class="um-nm">${u.name}${u.status==="Suspended" ? html`<span class="um-nopw">${t("ถูกระงับ","Suspended")}</span>`
               : u.hasPassword===false ? html`<span class="um-nopw">${t("ยังไม่ได้ตั้งรหัส","No password yet")}</span>`
@@ -162,7 +161,8 @@ export function Users(){
           <button class="um-btn" onClick=${()=>setPerm(u)}><${Icon} name="key" size=${14}/>${t("สิทธิ์", "Permissions")}</button>
           <button class="um-btn" onClick=${()=>resetPw(u)} title=${t("ตั้งรหัสผ่านใหม่ให้ผู้ใช้คนนี้ (ใช้ตอนลืมรหัส)","Set a new password for this user (use when they forget it)")}>
             <${Icon} name="refresh" size=${14}/>${t("รีเซ็ตรหัส", "Reset password")}</button>
-          <button class="um-del" onClick=${()=>del(u)} title=${t("ลบบัญชี", "Delete account")}
+          <button class="um-del" onClick=${()=>del(u)} disabled=${!!me && u.email===me.email}
+            title=${me && u.email===me.email ? t("ลบบัญชีตัวเองไม่ได้", "You cannot delete your own account") : t("ลบบัญชี", "Delete account")}
             aria-label=${t("ลบบัญชี ", "Delete account ")+u.name}><${Icon} name="trash" size=${15}/></button>
         </div>`},
       ]} rows=${shown}/>
@@ -320,7 +320,7 @@ function PermissionDialog({target, users, me, onClose, onSave}){
 
   const eff = effectivePerms(role, ov);
 
-  return html`<${Modal} title=${t("สิทธิ์ · ", "permissions · ")+target.name} onClose=${onClose}
+  return html`<${Modal} title=${t("สิทธิ์ · ", "Permissions · ")+target.name} onClose=${onClose}
     footer=${html`<span class="pm-diff">${changes.length
         ? html`${t("ต่างจากเดิม", "changed")} <b>${changes.length} ${t("รายการ", "records")}</b>`
         : html`<span class="dim">${t("ยังไม่มีการเปลี่ยนแปลง", "No changes yet")}</span>`}</span>
@@ -477,7 +477,8 @@ const UM_CSS = `
 .um-btn:hover{color:var(--txt);border-color:var(--accent);background:var(--surface2)}
 .um-del{width:30px;height:30px;display:grid;place-items:center;cursor:pointer;padding:0;
   border:1px solid transparent;border-radius:8px;background:none;color:#c2410c}
-.um-del:hover{background:rgba(220,38,38,.08);border-color:rgba(220,38,38,.28);color:#b30019}
+.um-del:hover:not(:disabled){background:rgba(220,38,38,.08);border-color:rgba(220,38,38,.28);color:#b30019}
+.um-del:disabled{opacity:.3;cursor:not-allowed}
 
 @media(max-width:900px){
   .um-dd{width:100%}
@@ -817,7 +818,7 @@ export function Monitoring({defaultTab, reportNav}={}){
   const _role = (user&&user.role)||"Administrator";
 
   // ═══════════ แดชบอร์ดผู้บริหาร (ออกแบบใหม่) — เน้นเปรียบเทียบระหว่างจังหวัด + สิ่งที่พบจากข้อมูล ═══════════
-  const REF = v.ref, DAY=864e5;
+  const REF = v.ref, NOW = Date.now(), DAY=864e5;
   const beD = thDate, monLabel = thMonth;   // ใช้ตัวแปลงกลาง
 
   // ── ตัวเลือก + ชุดข้อมูลที่ผ่านตัวกรอง (จังหวัด · อำเภอจริงของจังหวัดนั้น · หมวดธุรกิจ · ช่วงวันที่) ──
@@ -825,10 +826,10 @@ export function Monitoring({defaultTab, reportNav}={}){
   // อำเภอในดรอปดาวน์ = อำเภอที่ "มีข้อมูลจริง" ในชุดเดียวกับที่ตัวกรองใช้ (custs/pros) — เลือกแล้วต้องเห็นข้อมูลเสมอ ไม่มีอำเภอว่าง
   const distOpts = fProv==="all" ? [] :
     [...new Set(custs.concat(pros).filter(r=>r.province===fProv && (fSeg==="all"||r.segment===fSeg) && r.district).map(r=>r.district))]
-      .sort((a,b)=>String(DISTRICT_TH[a]||a).localeCompare(String(DISTRICT_TH[b]||b),"th"));
+      .sort((a,b)=>String(districtTH(a)).localeCompare(String(districtTH(b)),"th"));
   // ช่วงวันที่: เลือกปฏิทินเอง (fFrom/fTo) มาก่อน · ไม่งั้นใช้ชิปช่วงเวลา (7/30/ไตรมาส/ทั้งหมด)
-  const _winOf = id => { if(id==="7d"||id==="30d"){const days=id==="7d"?7:30; return {from:REF-(days-1)*DAY,to:REF};}
-    if(id==="q"){const d=new Date(REF); return {from:Date.UTC(d.getUTCFullYear(),Math.floor(d.getUTCMonth()/3)*3,1),to:REF};} return null; };
+  const _winOf = id => { if(id==="7d"||id==="30d"){const days=id==="7d"?7:30; return {from:NOW-(days-1)*DAY,to:NOW};}
+    if(id==="q"){const d=new Date(NOW); return {from:Date.UTC(d.getUTCFullYear(),Math.floor(d.getUTCMonth()/3)*3,1),to:NOW};} return null; };
   const customDate = !!(fFrom||fTo);
   const win = customDate
     ? {from: fFrom?Date.parse(fFrom+"T00:00:00Z"):-Infinity, to: fTo?Date.parse(fTo+"T00:00:00Z")+DAY-1:Infinity}
@@ -844,8 +845,9 @@ export function Monitoring({defaultTab, reportNav}={}){
   const level = fDist!=="all" ? "district" : fProv!=="all" ? "province" : "country";
   const unitKey  = level==="country" ? "province" : level==="province" ? "district" : "segment";
   const unitNoun = level==="country" ? t("จังหวัด", "Province")   : level==="province" ? t("อำเภอ", "District")     : t("หมวดธุรกิจ", "Business category");
-  const unitLabelOf = u => unitKey==="province" ? provinceTH(u) : unitKey==="district" ? (DISTRICT_TH[u]||u) : segTH(u);
-  const scopeTH = level==="country" ? "" : level==="district" ? (DISTRICT_TH[fDist]||fDist) : provinceTH(fProv);   // ชื่อขอบเขตที่เจาะอยู่
+  const unitPlural = level==="country" ? "provinces" : level==="province" ? "districts" : "business categories";
+  const unitLabelOf = u => unitKey==="province" ? provinceTH(u) : unitKey==="district" ? districtTH(u) : segTH(u);
+  const scopeTH = level==="country" ? "" : level==="district" ? districtTH(fDist) : provinceTH(fProv);   // ชื่อขอบเขตที่เจาะอยู่
   // จัดกลุ่มตาม "หน่วยเปรียบเทียบ" ของระดับปัจจุบัน (แทน ranked เดิมที่เป็นรายจังหวัดเสมอ)
   const _byKey = arr => { const m={}; arr.forEach(o=>{ const val=o[unitKey]; if(val==null||val==="") return; m[val]=(m[val]||0)+1; }); return m; };
   const _cCnt=_byKey(fCusts), _pCnt=_byKey(fPros);
@@ -858,7 +860,7 @@ export function Monitoring({defaultTab, reportNav}={}){
 
   // ── ส่งออกรายงาน: ยึดตามตัวกรองบนหน้าจอ (จังหวัด · อำเภอ · หมวดธุรกิจ · ช่วงเวลา) ──
   //    ⚠ ต้องประกาศ "หลัง" fCusts/fPros/rangeText เพราะอ้างถึงค่าพวกนั้นตอนเรนเดอร์
-  const _areaLabel = fDist!=="all" ? provinceTH(fProv)+" · "+(DISTRICT_TH[fDist]||fDist)
+  const _areaLabel = fDist!=="all" ? provinceTH(fProv)+" · "+districtTH(fDist)
                    : fProv!=="all" ? provinceTH(fProv) : t("ทั้งประเทศ", "Nationwide");
   const _segLabel  = fSeg==="all" ? t("ทั้งหมด", "All") : segTH(fSeg);
   const exportScope = { areaName:_areaLabel, areaLabel:_areaLabel, segLabel:_segLabel,
@@ -887,7 +889,7 @@ export function Monitoring({defaultTab, reportNav}={}){
                    t("จังหวัด", "Province"), t("อำเภอ/เขต", "District"), t("ที่อยู่", "Address"),
                    t("เบอร์โทร", "Phone"), t("อีเมล", "Email")];
     const _line = o => [o.businessName||"", segTH(o.segment)||"", provinceTH(o.province)||"",
-                        DISTRICT_TH[o.district]||o.district||"", o.address||"",
+                        districtTH(o.district)||"", o.address||"",
                         o.phone||"", o.email||""];
     if(ds!=="prospect"){
       rows.push([], [t("ตารางลูกค้า", "Customers")+" ("+fCusts.length+")"], _head);
@@ -912,7 +914,7 @@ export function Monitoring({defaultTab, reportNav}={}){
   const lowProv = provShare.length?provShare[provShare.length-1]:null;
   const shareTakeaway = lowProv && lowProv.share<avgShare
     ? `${lowProv.label} ${t("สัดส่วนลูกค้า", "customer share")} ${lowProv.share}${t("% ต่ำกว่าค่าเฉลี่ย", "% is below the average")} ${avgShare}${t("% — เร่งเปลี่ยน Lead เป็นลูกค้าในพื้นที่นี้", "% — push to convert Leads into customers here")}`
-    : `${t("ทุก", "All ")}${unitNoun}${t("มีสัดส่วนลูกค้าใกล้เคียงค่าเฉลี่ย", " have a customer share close to the average")}`;
+    : t(`ทุก${unitNoun}มีสัดส่วนลูกค้าใกล้เคียงค่าเฉลี่ย`, `All ${unitPlural} have a customer share close to the average`);
   const avgCustPerUnit = ranked.length ? Math.round(ranked.reduce((s,a)=>s+a.customerCount,0)/ranked.length) : 0;
 
   // ── breadcrumb (drill-down) · อันดับหน่วยปัจจุบันเทียบพี่น้องในขอบเขตแม่ + ค่าเฉลี่ยแม่ ──
@@ -933,7 +935,7 @@ export function Monitoring({defaultTab, reportNav}={}){
     bc={ unitTH:provinceTH(fProv), parentTH:t("ทั้งประเทศ", "Nationwide"), ...r, diff:r.share-r.avg };
   } else if(level==="district"){
     const r=_rankAmong(o=>o.district, fDist, o=>o.province===fProv&&(fSeg==="all"||o.segment===fSeg)&&_inWin(o));
-    bc={ unitTH:DISTRICT_TH[fDist]||fDist, parentTH:t("จังหวัด", "Province")+provinceTH(fProv), ...r, diff:r.share-r.avg };
+    bc={ unitTH:districtTH(fDist), parentTH:t("จังหวัด", "Province")+provinceTH(fProv), ...r, diff:r.share-r.avg };
   }
 
   // แถว 2 ซ้าย · แนวโน้มการเพิ่มลูกค้า/Lead 6 เดือน (จากวันที่ในระเบียนจริง)
@@ -946,7 +948,7 @@ export function Monitoring({defaultTab, reportNav}={}){
   const lineTot=lineCust.reduce((a,b)=>a+b,0)+linePros.reduce((a,b)=>a+b,0);
 
   // แนวโน้มการเติบโตของ KPI — เทียบช่วงที่เลือกกับช่วงก่อนหน้าที่ยาวเท่ากัน (ตามหมวด/พื้นที่ที่กรอง จาก created_at จริง)
-  const _kwin = win || {from: REF-29*DAY, to: REF};
+  const _kwin = win || {from: NOW-29*DAY, to: NOW};
   const _kprev = {from: _kwin.from-(_kwin.to-_kwin.from+DAY), to: _kwin.from-DAY};
   const _cnt=(arr,w)=>arr.filter(o=>{const t=Date.parse(o.created_at); return t>=w.from&&t<=w.to;}).length;
   const _grow=arr=>{ const cur=_cnt(arr,_kwin), prv=_cnt(arr,_kprev);
@@ -962,13 +964,14 @@ export function Monitoring({defaultTab, reportNav}={}){
     ? html`<div class="mg-kpi-d flat">— ${d.txt}</div>`
     : html`<div class=${"mg-kpi-d "+(d.up?"up":"down")}>${trendIco(d.up)} ${d.txt}<span>${t("จากช่วงก่อน", "vs. the previous period")}</span></div>`;
   // ── การ์ด KPI (อ่านจบใน 3 วิ): ตัวเลขหลัก + การเปลี่ยนแปลง(ลูกศร) + สี ──
-  const _delta = arr => { const cur=_cnt(arr,_kwin), prv=_cnt(arr,_kprev); return (cur||prv) ? cur-prv : null; };  // การเปลี่ยนแปลงจำนวน · null=ไม่มีข้อมูลเทียบ
+  const _delta = arr => { const cur=_cnt(arr,_kwin), prv=_cnt(arr,_kprev); return prv ? cur-prv : null; };  // การเปลี่ยนแปลงจำนวน · null=ไม่มีข้อมูลเทียบ
   const custDelta=_delta(catCusts), leadDelta=_delta(catPros);
   const _cAll=(db.customers||[]).length, _pAll=(db.prospects||[]).length;
   const natShare=(_cAll+_pAll)? Math.round(_cAll/(_cAll+_pAll)*100):0;      // อัตราเปลี่ยนเป็นลูกค้าเฉลี่ยทั้งประเทศ
   const curShare=(fCusts.length+fPros.length)? Math.round(fCusts.length/(fCusts.length+fPros.length)*100):0;   // ของขอบเขตปัจจุบัน
   const shareDiff=curShare-natShare;   // + สูงกว่า / − ต่ำกว่า ค่าเฉลี่ยประเทศ
-  const heroTone = shareDiff<0 ? "bad" : shareDiff>0 ? "good" : "flat";
+  const noData = fCusts.length+fPros.length===0;
+  const heroTone = noData ? "flat" : shareDiff<0 ? "bad" : shareDiff>0 ? "good" : "flat";
   const deltaLine=(d,suf)=> d==null
     ? html`<div class="mg-kpi-d flat">— ${suf}</div>`
     : html`<div class=${"mg-kpi-d "+(d>=0?"up":"down")}>${trendIco(d>=0)} ${d>=0?"+":""}${num(d)} <span>${suf}</span></div>`;
@@ -983,7 +986,7 @@ export function Monitoring({defaultTab, reportNav}={}){
   const unpen = segStats.slice().sort((a,b)=>a.share-b.share).slice(0,5).map(x=>({label:segTH(x.s), value:x.l, color:SEG_COLOR[x.s]||OTHER_COLOR}));
 
   // แถว 4 ขวา · หมวดธุรกิจที่เติบโต/ลดลง (ลูกค้าใหม่ 90 วันล่าสุด vs 90 วันก่อนหน้า)
-  const inRange=(t,a,b)=>{ const x=Date.parse(t); return x>REF-a*DAY && x<=REF-b*DAY; };
+  const inRange=(t,a,b)=>{ const x=Date.parse(t); return x>NOW-a*DAY && x<=NOW-b*DAY; };
   const segDelta = SEGMENTS.map(s=>{ const cs=catCusts.filter(c=>c.segment===s && c.created_at);
       const cur=cs.filter(c=>inRange(c.created_at,90,0)).length, prev=cs.filter(c=>inRange(c.created_at,180,90)).length;
       return {s, label:segTH(s), cur, prev, delta:cur-prev}; }).filter(x=>x.cur||x.prev);
@@ -992,7 +995,7 @@ export function Monitoring({defaultTab, reportNav}={}){
 
   // แถว 4 ซ้าย · ตารางสรุปรายจังหวัด (ลูกค้าใหม่ 90 วัน)
   const provRows = ranked.map(a=>{ const tot=a.customerCount+a.prospectCount;
-    const new90=catCusts.filter(c=>c[unitKey]===a.unit && c.created_at && Date.parse(c.created_at)>REF-90*DAY).length;
+    const new90=catCusts.filter(c=>c[unitKey]===a.unit && c.created_at && Date.parse(c.created_at)>NOW-90*DAY).length;
     return {province:a.province, unit:a.unit, label:a.label, cust:a.customerCount, lead:a.prospectCount, share: tot?Math.round(a.customerCount/tot*100):0, new90}; })
     // เจาะลึกแล้วเรียงสัดส่วนจากน้อย→มาก (หน่วยที่ตามหลังอยู่บน) · ระดับประเทศเรียงตามจำนวนลูกค้า
     .sort((a,b)=> level==="country" ? b.cust-a.cust : a.share-b.share);
@@ -1013,15 +1016,16 @@ export function Monitoring({defaultTab, reportNav}={}){
   const actions = [];
   if(lowProv && lowProv.share<avgShare) actions.push({icon:"gap",tone:"bad",color:"#e60023",
     title:`${lowProv.label} ${t("· สัดส่วนลูกค้าต่ำกว่าค่าเฉลี่ย", "· customer share below average")}`,
-    body:`Lead ${num(lowProv.lead)} ${t("ราย เป็นลูกค้าแล้ว", "businesses, of which")} ${num(lowProv.cust)} ${t("ราย (", "are customers (")}${lowProv.share}${t("%) — ต่ำกว่าค่าเฉลี่ย", "%) — below the average")} ${avgShare}%`});
+    body:t(`ธุรกิจ ${num(lowProv.tot)} ราย เป็นลูกค้าแล้ว ${num(lowProv.cust)} ราย (${lowProv.share}%) ยังเป็น Lead ${num(lowProv.lead)} ราย — ต่ำกว่าค่าเฉลี่ย ${avgShare}%`,
+      `${num(lowProv.tot)} businesses: ${num(lowProv.cust)} customers (${lowProv.share}%), ${num(lowProv.lead)} still Leads — below the average ${avgShare}%`)});
   if(scopeGap.gapCount) actions.push({icon:"target",tone:"warn",color:"#f59e0b",
-    title:`Lead${gapTH(scopeGap.gapLevel)} ${t("· ดัชนี", "· index")} ${scopeGap.gapScore}`,
+    title:t(`Lead${gapTH(scopeGap.gapLevel)} · ดัชนี ${scopeGap.gapScore}`, `Lead gap: ${gapTH(scopeGap.gapLevel)} · index ${scopeGap.gapScore}`),
     body:`${t("ยังขาดสมาชิกเครือข่าย", "Network still short by")} ${num(scopeGap.gapCount)} ${t("ราย ใน", "businesses across")} ${scopeGap.gapBreadth} ${t("หมวด — หมวดที่ขาดมากสุดคือ", "categories — the biggest gap is ")}${scopeGap.topGapSegment?segTH(scopeGap.topGapSegment):"—"}`});
-  if(topGain) actions.push({icon:"trend",tone:"good",color:"#16a34a", title:`${t("หมวด", "categories ")}${topGain.label} ${t("กำลังเติบโต", "is growing")}`,
+  if(topGain) actions.push({icon:"trend",tone:"good",color:"#16a34a", title:`${t("หมวด", "Category ")}${topGain.label} ${t("กำลังเติบโต", "is growing")}`,
     body:`${t("ลูกค้าใหม่", "New customers")} ${num(topGain.cur)} ${t("ราย ใน 90 วันล่าสุด (+", "in the last 90 days (+")}${num(topGain.delta)} ${t("จากช่วงก่อน)", "vs. the previous period)")}`});
-  if(topLose) actions.push({icon:"trend",tone:"bad",color:"#7c3aed", title:`${t("หมวด", "categories ")}${topLose.label} ${t("ชะลอตัว", "is slowing")}`,
+  if(topLose) actions.push({icon:"trend",tone:"bad",color:"#7c3aed", title:`${t("หมวด", "Category ")}${topLose.label} ${t("ชะลอตัว", "is slowing")}`,
     body:`${t("ลูกค้าใหม่ลดลง", "New customers down by")} ${num(Math.abs(topLose.delta))} ${t("ราย เทียบช่วง 90 วันก่อนหน้า — ตรวจสอบสาเหตุ", "vs. the previous 90 days — worth investigating")}`});
-  if(unpen.length) actions.push({icon:"bolt",tone:"info",color:"#3b82f6", title:`${t("หมวด", "categories ")}${unpen[0].label} ${t("ยังไม่ถูกเจาะ", "is untapped")}`,
+  if(unpen.length) actions.push({icon:"bolt",tone:"info",color:"#3b82f6", title:`${t("หมวด", "Category ")}${unpen[0].label} ${t("ยังไม่ถูกเจาะ", "is untapped")}`,
     body:`${t("มี Lead", "has")} ${num(unpen[0].value)} ${t("ราย แต่สัดส่วนที่เป็นลูกค้ายังต่ำ — โอกาสขยายฐาน", "Leads but a low customer share — room to grow")}`});
   const actionTone = t => t==="bad"?"var(--accent)":t==="warn"?"#f0a022":t==="good"?"#33d69f":"#2f7fe0";
 
@@ -1044,7 +1048,8 @@ export function Monitoring({defaultTab, reportNav}={}){
   const cIncomp   = totRec - cComplete - cReview;
   const qualityDonut = [
     {label:t("ครบถ้วน", "Complete"), value:cComplete, color:"#33d69f"},
-    {label:t("ควรตรวจสอบ", "Needs review"), value:cReview+cIncomp, color:"#ffb02e"},
+    {label:t("ไม่มีอีเมล", "No email"), value:cReview, color:"#ffb02e"},
+    {label:t("ไม่สมบูรณ์", "Incomplete"), value:cIncomp, color:"#ff5a3c"},
   ].filter(x=>x.value>0);
   const qualityPct = totRec? Math.round(cComplete/totRec*100):0;
   // สัดส่วนหมวดธุรกิจของทั้งชุดข้อมูล — โชว์ 5 หมวดใหญ่ ที่เหลือยุบเป็น "อื่น ๆ" ไม่ให้ legend ยาวเกิน
@@ -1092,7 +1097,7 @@ export function Monitoring({defaultTab, reportNav}={}){
         <div class="mgf-f mgf-dd"><span>${t("อำเภอ", "District")}</span>
           <${Dropdown} value=${fDist} disabled=${fProv==="all"}
             placeholder=${fProv==="all"?t("เลือกจังหวัดก่อน", "Pick a province first"):t("ทุกอำเภอ", "All districts")} onChange=${v=>setFDist(v)}
-            options=${[["all", fProv==="all"?t("เลือกจังหวัดก่อน", "Pick a province first"):t("ทุกอำเภอ", "All districts")], ...distOpts.map(d=>[d, DISTRICT_TH[d]||d]),
+            options=${[["all", fProv==="all"?t("เลือกจังหวัดก่อน", "Pick a province first"):t("ทุกอำเภอ", "All districts")], ...distOpts.map(d=>[d, districtTH(d)]),
               ...(fProv!=="all" && !distOpts.length ? [{value:"-none", disabled:true,
                 label: fSeg==="all" ? t("ยังไม่มีร้านในจังหวัดนี้", "No places in this province yet") : t("ยังไม่มีร้านหมวดนี้ในจังหวัดนี้", "No places of this category in this province yet")}] : [])]}/></div>
         <div class="mgf-f mgf-dd"><span>${t("หมวดธุรกิจ", "Business category")}</span>
@@ -1116,23 +1121,23 @@ export function Monitoring({defaultTab, reportNav}={}){
     <!-- KPI 4 ใบ · ตัวเลขหลัก + การเปลี่ยนแปลง(ลูกศร) + สี · การ์ดอัตราเปลี่ยนเป็นลูกค้าเด่นที่สุด -->
     <div class="mg-kpis">
       <div class="mg-kpi">
-        <div class="mg-kpi-hd"><div class="mg-kpi-l">${level==="country"?t("ลูกค้าทั้งหมด", "All customers"):t("ลูกค้าใน", "Customers in")+scopeTH}</div><span class="mg-kpi-ic"><${Icon} name="users" size=${18}/></span></div>
+        <div class="mg-kpi-hd"><div class="mg-kpi-l">${level==="country"?t("ลูกค้าทั้งหมด", "All customers"):t("ลูกค้าใน"+scopeTH, "Customers in "+scopeTH)}</div><span class="mg-kpi-ic"><${Icon} name="users" size=${18}/></span></div>
         <div class="mg-kpi-v">${num(fCusts.length)}</div>
         ${deltaLine(custDelta,t("จากเดือนก่อน", "vs. last month"))}</div>
       <div class="mg-kpi">
-        <div class="mg-kpi-hd"><div class="mg-kpi-l">${level==="country"?t("Lead ทั้งหมด", "All Leads"):t("Lead ใน", "Leads in")+scopeTH}</div><span class="mg-kpi-ic"><${Icon} name="target" size=${18}/></span></div>
+        <div class="mg-kpi-hd"><div class="mg-kpi-l">${level==="country"?t("Lead ทั้งหมด", "All Leads"):t("Lead ใน"+scopeTH, "Leads in "+scopeTH)}</div><span class="mg-kpi-ic"><${Icon} name="target" size=${18}/></span></div>
         <div class="mg-kpi-v">${num(fPros.length)}</div>
         ${deltaLine(leadDelta,t("จากเดือนก่อน", "vs. last month"))}</div>
       <div class=${"mg-kpi mg-kpi-hero "+heroTone}>
         <div class="mg-kpi-hd"><div class="mg-kpi-l">${t("อัตราการเปลี่ยนเป็นลูกค้า", "Conversion rate")}</div><span class="mg-kpi-ic"><${Icon} name="percent" size=${18}/></span></div>
-        <div class="mg-kpi-v">${curShare}%</div>
-        ${shareDiff===0
+        <div class="mg-kpi-v">${noData ? "—" : curShare+"%"}</div>
+        ${noData ? html`<div class="mg-kpi-d flat">${t("ไม่มีข้อมูลในช่วงนี้", "No data in this period")}</div>` : shareDiff===0
           ? html`<div class="mg-kpi-d flat">${t("— เทียบค่าเฉลี่ยประเทศ", "— vs. the national average")} ${natShare}%</div>`
-          : html`<div class=${"mg-kpi-d "+(shareDiff>0?"up":"down")}>${trendIco(shareDiff>0)} ${shareDiff>0?t("สูงกว่า", "above"):t("ต่ำกว่า", "below ")}${t("ค่าเฉลี่ยประเทศ", "the national average")} ${natShare}%</div>`}</div>
+          : html`<div class=${"mg-kpi-d "+(shareDiff>0?"up":"down")}>${trendIco(shareDiff>0)} ${shareDiff>0?t("สูงกว่า", "above "):t("ต่ำกว่า", "below ")}${t("ค่าเฉลี่ยประเทศ", "the national average")} ${natShare}%</div>`}</div>
       <div class="mg-kpi">
         <div class="mg-kpi-hd"><div class="mg-kpi-l">${t("ความครอบคลุมพื้นที่", "Area coverage")}</div><span class="mg-kpi-ic"><${Icon} name="map" size=${18}/></span></div>
-        <div class="mg-kpi-v">${cov ? cov.pct+"%" : "—"}</div>
-        <div class="mg-kpi-d flat">${cov
+        <div class="mg-kpi-v">${cov && !noData ? cov.pct+"%" : "—"}</div>
+        <div class="mg-kpi-d flat">${noData ? t("ไม่มีข้อมูลในช่วงนี้", "No data in this period") : cov
           ? `${t("ครอบคลุม", "covered")} ${num(cov.covered)} ${t("จาก", "of")} ${num(cov.total)} ${cov.unitTH}`
           : t("ไม่มีข้อมูลพื้นที่", "No area data")}</div></div>
     </div>
@@ -1158,7 +1163,7 @@ export function Monitoring({defaultTab, reportNav}={}){
 
       <!-- ═══ แถวกลาง · สัดส่วน (แคบลง 15%) | สิ่งที่พบจากข้อมูล (กว้างขึ้น 15%) ═══ -->
       <div class="mg-row r-mid">
-          <${Card} title=${t("อัตราการเปลี่ยนเป็นลูกค้าราย", "Conversion rate by")+unitNoun} sub=${t("สัดส่วนลูกค้าต่อธุรกิจที่รู้จักในพื้นที่ ณ ปัจจุบัน · ", "Customers as a share of known businesses in the area right now · ")+(convFull.length>5?unitNoun+t("ที่สัดส่วนต่ำสุด (ต้องให้ความสนใจ)", "with the lowest share (needs attention)"):t("เทียบระหว่าง", "comparing")+unitNoun)+t(" · แถบเทา = ต่ำกว่าค่าเฉลี่ย", " · grey bars are below average")}>
+          <${Card} title=${t("อัตราการเปลี่ยนเป็นลูกค้าราย"+unitNoun, "Conversion rate by "+unitNoun.toLowerCase())} sub=${t("สัดส่วนลูกค้าต่อธุรกิจที่รู้จักในพื้นที่ ณ ปัจจุบัน · ", "Customers as a share of known businesses in the area right now · ")+(convFull.length>5?unitNoun+t("ที่สัดส่วนต่ำสุด (ต้องให้ความสนใจ)", "with the lowest share (needs attention)"):t("เทียบระหว่าง", "comparing")+unitNoun)+t(" · แถบเทา = ต่ำกว่าค่าเฉลี่ย", " · grey bars are below average")}>
             ${convFull.length ? html`<div>
               <div class=${"mg-hbars"+(expConv?" mg-scroll":"")}>
               ${(expConv?convFull:convFull.slice(0,5)).map(d=>html`<div key=${d.label} class="mg-hbar">
@@ -1167,7 +1172,7 @@ export function Monitoring({defaultTab, reportNav}={}){
                 <div class="mg-hbar-v">${d.value}%</div>
               </div>`)}
               </div>
-              ${convFull.length>5?html`<div class="mg-more"><button class="mg-more-btn" onClick=${()=>setExpConv(e=>!e)}>${expConv?t("ย่อกลับ (5 อันดับ)", "Show fewer (top 5)"):`${t("ดูทั้งหมด (", "Show all (")}${convFull.length} ${unitNoun})`}</button></div>`:""}
+              ${convFull.length>5?html`<div class="mg-more"><button class="mg-more-btn" onClick=${()=>setExpConv(e=>!e)}>${expConv?t("ย่อกลับ (5 อันดับ)", "Show fewer (top 5)"):t(`ดูทั้งหมด (${convFull.length} ${unitNoun})`, `Show all (${convFull.length} ${unitPlural})`)}</button></div>`:""}
             </div>` : html`<div class="emptybox">${t("ยังไม่มีข้อมูลเพียงพอ", "Not enough data yet")}</div>`}
           </${Card}>
         <!-- สิ่งที่พบจากข้อมูล · การ์ด 5 ใบ -->
@@ -1187,7 +1192,7 @@ export function Monitoring({defaultTab, reportNav}={}){
         <!-- 2 คอลัมน์ · สรุปรายจังหวัด (กินพื้นที่ที่โดนัทเคยอยู่) | หมวดธุรกิจที่เติบโตและลดลง -->
         <div class="mg-2col mg-bot2">
         <!-- สรุปรายหน่วยของระดับที่เจาะ -->
-        <${Card} title=${t("สรุปราย", "Summary by")+unitNoun} sub=${(level==="country"?t("เรียงตามจำนวนลูกค้า", "sorted by customer count"):t("เรียงสัดส่วนจากน้อย→มาก (ที่ตามหลังอยู่บน)", "sorted by share, lowest first (laggards on top)"))+t(" · คลิกแถวเพื่อเจาะลึก", " · click a row to drill in")} pad0=${true}>
+        <${Card} title=${t("สรุปราย"+unitNoun, "Summary by "+unitNoun.toLowerCase())} sub=${(level==="country"?t("เรียงตามจำนวนลูกค้า", "sorted by customer count"):t("เรียงสัดส่วนจากน้อย→มาก (ที่ตามหลังอยู่บน)", "sorted by share, lowest first (laggards on top)"))+t(" · คลิกแถวเพื่อเจาะลึก", " · click a row to drill in")} pad0=${true}>
           ${provRows.length ? html`<div class=${"mg-tblwrap"+(expTbl?" mg-scroll":"")}><table class="tc-table mg-tbl">
             <thead><tr><th>${unitNoun}</th><th class="rt">${t("ลูกค้า", "Customers")}</th><th class="rt">Lead</th><th class="rt">${t("สัดส่วน", "Share")}</th><th class="rt">${t("ลูกค้าใหม่", "New customers")}</th></tr></thead>
             <tbody>${(expTbl?provRows:provRows.slice(0,5)).map(r=>{
@@ -1197,7 +1202,7 @@ export function Monitoring({defaultTab, reportNav}={}){
               <td class="rt">${r.new90>0?html`<span style=${{color:"#0f7a3d"}}>▲ +${num(r.new90)}</span>`:html`<span style=${{color:"var(--dim)"}}>0</span>`}</td>
             </tr>`;})}</tbody>
           </table>
-          ${provRows.length>5?html`<div class="mg-more" style=${{padding:"0 14px 12px"}}><button class="mg-more-btn" onClick=${()=>setExpTbl(e=>!e)}>${expTbl?t("ย่อกลับ (5 อันดับ)", "Show fewer (top 5)"):`${t("ดูทั้งหมด (", "Show all (")}${provRows.length} ${unitNoun})`}</button></div>`:""}</div>` : html`<div class="emptybox" style=${{margin:"18px"}}>${t("ยังไม่มีข้อมูลรายจังหวัด", "No per-province data yet")}</div>`}
+          ${provRows.length>5?html`<div class="mg-more" style=${{padding:"0 14px 12px"}}><button class="mg-more-btn" onClick=${()=>setExpTbl(e=>!e)}>${expTbl?t("ย่อกลับ (5 อันดับ)", "Show fewer (top 5)"):t(`ดูทั้งหมด (${provRows.length} ${unitNoun})`, `Show all (${provRows.length} ${unitPlural})`)}</button></div>`:""}</div>` : html`<div class="emptybox" style=${{margin:"18px"}}>${t("ยังไม่มีข้อมูลรายจังหวัด", "No per-province data yet")}</div>`}
         </${Card}>
         <!-- หมวดธุรกิจที่เติบโตและลดลง -->
         <${Card} title=${t("หมวดธุรกิจที่เติบโตและลดลง", "Growing and declining categories")} sub=${t("ลูกค้าใหม่ 90 วันล่าสุด เทียบ 90 วันก่อนหน้า", "New customers in the last 90 days vs. the 90 before")}>

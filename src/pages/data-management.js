@@ -638,7 +638,7 @@ function ImportFiles({staging, onManagePending, onSummary}){
       {h:t("ผู้อัปโหลด", "Uploaded by"), render:r=>r.by},
       {h:t("ผลการนำเข้า", "Import result"), render:r=>impCell(r.s)},
       {h:t("สถานะ", "Status"), render:r=>statCell(r.s)},
-      {h:t("การจัดการ", "Actions"), render:r=>html`<div class="row" style=${{gap:"6px"}}>
+      {h:t("การจัดการ", "Actions"), render:r=>html`<div class="row" style=${{gap:"6px",flexWrap:"wrap"}}>
         <${Btn} size="sm" variant="ghost" onClick=${()=>setDrawer(r)}>${t("รายละเอียด", "Details")}</${Btn}>
         ${r.s.hasPending?html`<${Btn} size="sm" variant="outline" onClick=${()=>onManagePending&&onManagePending(r.id, liveRows?r:null)}>${t("จัดการรายการค้าง", "Handle pending rows")}</${Btn}>`:""}
         ${r.done>0?html`<${Btn} size="sm" variant="ghost" disabled=${!canRollback(r)}
@@ -1307,7 +1307,8 @@ const DM_CSS=`
 .dm-chip{padding:6px 13px;border-radius:999px;border:1px solid var(--stroke2);background:var(--surface);color:var(--muted);font-family:var(--font);font-size:12.5px;font-weight:600;cursor:pointer}
 .dm-chip.on{background:var(--accent);border-color:var(--accent);color:#fff}
 /* ── จัดการไฟล์นำเข้า: สรุปค้าง · ผลการนำเข้า · สถานะ · แถบโหมดจัดการรายการค้าง ── */
-.dm-imp{font-size:12.5px;color:var(--txt);white-space:nowrap}
+.dm-imp{font-size:12.5px;color:var(--txt)}
+.dm-imp>span{white-space:nowrap}
 .dm-imp-ok{color:#0f7a3d;font-weight:700}
 .dm-imp-pend{color:#b45309;font-weight:700}
 .dm-imp-pend.zero{color:var(--muted);font-weight:500}
@@ -1778,7 +1779,7 @@ export function TerritoryManager(){
                 <div class="tr-tc-nm">${u.name}
                   </div>
                 <div class="tr-tc-sub">${list.length
-                  ? list.length+t(" พื้นที่ · ", " territories · ")+list.slice(0,4).join(", ")+(list.length>4?" +"+(list.length-4):"")
+                  ? list.length+t(" พื้นที่ · ", list.length===1 ? " territory · " : " territories · ")+list.slice(0,4).join(", ")+(list.length>4?" +"+(list.length-4):"")
                   : t("ยังไม่มีพื้นที่ในความดูแล", "No territory assigned yet")}</div>
               </div>
               ${list.length ? html`<button class="tr-tc-btn" onClick=${()=>focusFromMap(provKeysOf(u.id)[0])}>${t("ดูพื้นที่", "View the area")}</button>` : ""}
@@ -1805,7 +1806,7 @@ const TR_CSS=`
 .tr-as-zone + .tr-as-zone{margin-top:7px}
 .tr-as-zk{flex:none;min-width:74px;font-size:12px;font-weight:700;color:var(--accent-deep);
   background:var(--accent-soft);border:1px solid rgba(230,0,35,.22);border-radius:999px;padding:4px 10px;text-align:center}
-.tr-grid{display:grid;grid-template-columns:minmax(280px,380px) 1fr;gap:14px;align-items:start}
+.tr-grid{display:grid;grid-template-columns:minmax(280px,380px) minmax(0,1fr);gap:14px;align-items:start}
 .tr-leadn{font-size:13.5px;font-weight:700;color:var(--txt);font-variant-numeric:tabular-nums}
 /* กล่องมอบหมาย TC ใต้แผนที่ (แทนตารางเดิม) */
 .tr-assign{margin-bottom:11px;padding:12px 13px;border-radius:12px;border:1px solid var(--stroke2);background:var(--surface)}
@@ -1868,5 +1869,5 @@ const TR_CSS=`
 /* เน้นแถวจังหวัดที่ยังไม่มีคนดูแล — พื้นแดงจาง + ขีดซ้าย */
 .table tr.tr-row-none>td{background:rgba(220,38,38,.055)}
 .table tr.tr-row-none>td:first-child{box-shadow:inset 3px 0 0 #dc2626}
-@media(max-width:980px){.tr-grid{grid-template-columns:1fr}.tr-map-svg{height:380px}}
+@media(max-width:1279px){.tr-grid{grid-template-columns:minmax(0,1fr)}.tr-map-svg{height:380px}}
 `;

@@ -103,7 +103,7 @@ export function Profile(){
               <div class="dim" style=${{fontSize:"11.5px",marginTop:"5px"}}>${t("เปลี่ยนได้โดยผู้ดูแลระบบ", "Only an administrator can change this")}</div></${Field}>
             <${Field} label=${t("แผนก", "Department")}><input class="input" name="department" maxlength="80" value=${info.department} disabled=${!saved} onInput=${setF("department")}/></${Field}>
             <${Field} label=${t("ตำแหน่ง", "Job title")}><input class="input" name="title" maxlength="80" value=${info.title} disabled=${!saved} onInput=${setF("title")}/></${Field}>
-            <${Field} label=${t("เบอร์โทรศัพท์", "Phone")}><input class="input" name="phone" type="tel" maxlength="30" placeholder="081 234 5678" value=${info.phone} disabled=${!saved} onInput=${setF("phone")}/></${Field}>
+            <${Field} label=${t("เบอร์โทรศัพท์", "Phone")}><input class="input" name="phone" type="tel" maxlength="30" placeholder=${t("เช่น 081 234 5678", "e.g. 081 234 5678")} value=${info.phone} disabled=${!saved} onInput=${setF("phone")}/></${Field}>
           </div>
           ${infoErr && html`<div role="alert" style=${{color:"#c81e1e",fontSize:"12.5px",margin:"4px 0 10px"}}>${infoErr}</div>`}
           <div class="row" style=${{gap:"10px",marginTop:"8px"}}>
@@ -114,9 +114,9 @@ export function Profile(){
 
         ${tab==="password" && html`<${Card} title=${t("เปลี่ยนรหัสผ่าน", "Change password")}>
           <form style=${{maxWidth:"420px"}} onSubmit=${e=>{ e.preventDefault(); submitPw(); }}>
-            <${Field} label=${t("รหัสผ่านปัจจุบัน", "Current password")}><${PwInput} autocomplete="current-password" placeholder="••••••••" value=${pw0} onInput=${e=>{ setPw0(e.target.value); setPwErr(""); }}/></${Field}>
-            <${Field} label=${t("รหัสผ่านใหม่", "New password")}><${PwInput} autocomplete="new-password" placeholder="••••••••" value=${pw1} onInput=${e=>{ setPw1(e.target.value); setPwErr(""); }}/></${Field}>
-            <${Field} label=${t("ยืนยันรหัสผ่านใหม่", "Confirm new password")}><${PwInput} autocomplete="new-password" placeholder="••••••••" value=${pw2} onInput=${e=>{ setPw2(e.target.value); setPwErr(""); }}/></${Field}>
+            <${Field} label=${t("รหัสผ่านปัจจุบัน", "Current password")}><${PwInput} autocomplete="current-password" placeholder=${t("กรอกรหัสผ่านปัจจุบัน", "Enter your current password")} value=${pw0} onInput=${e=>{ setPw0(e.target.value); setPwErr(""); }}/></${Field}>
+            <${Field} label=${t("รหัสผ่านใหม่", "New password")}><${PwInput} autocomplete="new-password" placeholder=${t("ตั้งรหัสผ่านใหม่", "Choose a new password")} value=${pw1} onInput=${e=>{ setPw1(e.target.value); setPwErr(""); }}/></${Field}>
+            <${Field} label=${t("ยืนยันรหัสผ่านใหม่", "Confirm new password")}><${PwInput} autocomplete="new-password" placeholder=${t("พิมพ์รหัสผ่านใหม่อีกครั้ง", "Type the new password again")} value=${pw2} onInput=${e=>{ setPw2(e.target.value); setPwErr(""); }}/></${Field}>
             <div class="muted" style=${{fontSize:"12px",lineHeight:1.7,marginBottom:"14px"}}>
               ${t("อย่างน้อย 8 ตัวอักษร และต้องมีทั้งตัวอักษรและตัวเลข", "At least 8 characters, with both letters and digits")}</div>
             ${pwErr && html`<div role="alert" style=${{color:"#c81e1e",fontSize:"12.5px",marginBottom:"12px"}}>${pwErr}</div>`}

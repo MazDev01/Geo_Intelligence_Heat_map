@@ -100,12 +100,6 @@ function CountUp({value, fmt=num, dur=750}){
    ตั้งค่า from/to (created_at) ให้อัตโนมัติ โดยยึด "วันที่ข้อมูลใหม่สุดในระบบ" เป็นจุดอ้างอิง
    ไม่อิงนาฬิกาของเครื่อง เพื่อให้ช่วงที่เลือกมีข้อมูลจริงเสมอ · "กำหนดเอง" = ใช้ปฏิทินเลือกวันเอง */
 const _QR_DAY = 864e5;
-// วันที่ข้อมูลใหม่สุด (created_at) ในระบบ — รูปแบบ YYYY-MM-DD เทียบเป็นสตริงได้ตรง
-function dataAnchor(db){
-  let mx=""; const scan=arr=>{ for(const o of (arr||[])){ if(o.created_at && o.created_at>mx) mx=o.created_at; } };
-  scan(db&&db.customers); scan(db&&db.prospects);
-  return mx;   // "" ถ้ายังไม่มีข้อมูล
-}
 // ถอยหลังจากวันอ้างอิง n วัน คืนค่าเป็น YYYY-MM-DD (คิดแบบ UTC ให้ผลคงที่ทุกเขตเวลา)
 function daysBack(anchor, n){
   const t = Date.parse(anchor+"T00:00:00Z") - n*_QR_DAY;
@@ -117,7 +111,7 @@ const QR_PRESETS = [
   {id:"1y",  get label(){ return t("1 ปีล่าสุด","Last year"); },      days:364}];
 // ตัวควบคุมช่วงเวลาด่วน — ค่าปัจจุบันสืบจาก from/to (ถ้าตรงพรีเซ็ตไหนก็โชว์อันนั้น ไม่งั้น "กำหนดเอง")
 function QuickRange({db, from, to, setFrom, setTo}){
-  const anchor = dataAnchor(db);
+  const anchor = planTodayKey();
   const cur = anchor ? QR_PRESETS.find(p=> from===daysBack(anchor,p.days) && to===anchor) : null;
   const val = cur ? cur.id : "custom";
   const onPick = id=>{
@@ -400,7 +394,7 @@ export function Reports(){
 
   // ── เทียบลูกค้า/Lead รายหมวด ครบทั้ง 12 หมวด (แดชบอร์ด TC) ──
   // แสดงทุกหมวดแม้ค่าเป็น 0 เพราะ "หมวดที่ยังไม่มีใครเลย" คือข้อมูลที่ TC ต้องเห็น
-  const segCompare = SEGMENTS.map(sg=>({ sg, label:segTH(sg), color:SEG_COLOR[sg],
+  const segCompare = SEGMENTS.filter(sg=>segSel==="All"||sg===segSel).map(sg=>({ sg, label:segTH(sg), color:SEG_COLOR[sg],
     cust: vdb.customers.filter(c=>c.segment===sg).length,
     lead: vdb.prospects.filter(x=>x.segment===sg).length }))
     .sort((a,b)=> (b.cust+b.lead)-(a.cust+a.lead));
@@ -419,18 +413,19 @@ export function Reports(){
 
   // ── Lead แยกตามอำเภอ (แท่งความคืบหน้า) · หมวดที่เติบโต/ชะลอตัวในเขต (90 วัน) · สิ่งที่พบจากข้อมูล (เฉพาะพื้นที่รับผิดชอบ) ──
   const distLeadMax = Math.max(1, ...distAll.map(d=>d.ps));
+  const distLeadTop = [...distAll].sort((a,b)=>b.ps-a.ps).slice(0,4);
   const _inR = (t,a,b)=>{ const x=Date.parse(t); return x>T0-a*DAY && x<=T0-b*DAY; };
-  const tcSegDelta = SEGMENTS.map(s=>{ const cs=vdb.customers.filter(c=>c.segment===s&&c.created_at);
+  const tcSegDelta = SEGMENTS.filter(s=>segSel==="All"||s===segSel).map(s=>{ const cs=vdb.customers.filter(c=>c.segment===s&&c.created_at);
       const cur=cs.filter(c=>_inR(c.created_at,90,0)).length, prev=cs.filter(c=>_inR(c.created_at,180,90)).length;
       return {s, label:segTH(s), cur, prev, delta:cur-prev}; }).filter(x=>x.cur||x.prev);
   const tcGainers = tcSegDelta.slice().sort((a,b)=>b.delta-a.delta).slice(0,3).filter(x=>x.delta>0);
   const tcLosers  = tcSegDelta.slice().sort((a,b)=>a.delta-b.delta).slice(0,3).filter(x=>x.delta<0);
   const _tcGain0 = tcGainers[0];
   const tcInsights = [
-    {icon:"gap",    tone:"bad",  title:`${t("อัตราการเปลี่ยนเป็นลูกค้า", "Conversion rate")} ${custShare}%`, body:`${t("เป็นลูกค้าแล้ว", "Now customers")} ${num(totExisting)} ${t("ราย · ยังเป็น Lead", "customers · still Leads")} ${num(totProspect)} ${t("ราย ในเขต", "in the territory of ")}${tcProvText}`},
+    {icon:"gap",    tone:"bad",  title:`${t("อัตราการเปลี่ยนเป็นลูกค้า", "Conversion rate")} ${custShare}%`, body:t(`เป็นลูกค้าแล้ว ${num(totExisting)} ราย · ยังเป็น Lead ${num(totProspect)} ราย ใน${distSel!=="All" ? "อำเภอ"+districtTH(distSel) : "เขต"+tcProvText}`, `${num(totExisting)} customers · ${num(totProspect)} still Leads in ${distSel!=="All" ? districtTH(distSel) : tcProvText}`)},
     {icon:"target", tone:"warn", title:`${t("หมวดธุรกิจที่เขตนี้ยังขาด", "Categories this territory is short of")}`, body:`${num(gapNotVisit)} ${t("ราย ที่ยังไม่ได้เข้าพบ — อยู่ในหมวดที่เครือข่ายยังขาด ควรเข้าดูแลก่อน", "not yet visited — they sit in categories the network is short of, so handle these first")}`},
   ];
-  if(_tcGain0) tcInsights.push({icon:"trend", tone:"good", title:`${t("หมวด", "categories ")}${_tcGain0.label} ${t("กำลังเติบโต", "is growing")}`, body:`${t("ลูกค้าใหม่", "New customers")} ${num(_tcGain0.cur)} ${t("ราย ใน 90 วันล่าสุด (+", "in the last 90 days (+")}${num(_tcGain0.delta)} ${t("จากช่วงก่อน)", "vs. the previous period)")}`});
+  if(_tcGain0) tcInsights.push({icon:"trend", tone:"good", title:`${t("หมวด", "Category ")}${_tcGain0.label} ${t("กำลังเติบโต", "is growing")}`, body:`${t("ลูกค้าใหม่", "New customers")} ${num(_tcGain0.cur)} ${t("ราย ใน 90 วันล่าสุด (+", "in the last 90 days (+")}${num(_tcGain0.delta)} ${t("จากช่วงก่อน)", "vs. the previous period)")}`});
   const tcInsTone = t => t==="bad"?"var(--accent)":t==="warn"?"#f0a022":t==="good"?"#33d69f":"#2f7fe0";
   // แท่งซ้อนแนวนอน (ลูกค้าเข้ม + Lead จาง) สำหรับกราฟรายอำเภอ
   const stackBar = (label,cs,ps,max,onClick,sub)=>{ const tot=cs+ps;
@@ -479,9 +474,9 @@ export function Reports(){
           options=${[["All",t("ทุกกลุ่ม", "All segments")], ...SEGMENTS.map(s=>[s,segTH(s)])]}/></label>
       <${QuickRange} db=${db} from=${from} to=${to} setFrom=${setFrom} setTo=${setTo}/>
       <label class="op-lab">${t("ช่วงเวลา (ตั้งแต่)", "Period (from)")}
-        <${DateField} className="op-sel" value=${from} onChange=${setFrom}/></label>
+        <${DateField} className="op-sel" value=${from} max=${to||undefined} onChange=${setFrom}/></label>
       <label class="op-lab">${t("ถึง", "to")}
-        <${DateField} className="op-sel" value=${to} onChange=${setTo}/></label>
+        <${DateField} className="op-sel" value=${to} min=${from||undefined} onChange=${setTo}/></label>
       ${!isTC && html`<label class="op-lab">TC
         <${Dropdown} value=${tcSel} onChange=${setTcSel}
           options=${[["All",t("ทุกคน", "Everyone")], ...tcList.map(t=>[t,t])]}/></label>`}
@@ -517,10 +512,10 @@ export function Reports(){
                 <div class="tcd8-ringfoot"><span>${t("เป็นลูกค้าแล้ว", "Now customers")} <b>${num(totExisting)}</b></span><span>${t("ยังเป็น Lead", "Still Leads")} <b>${num(totProspect)}</b></span></div>
               </div>` : html`<div class="emptybox">${t("ยังไม่มีข้อมูลเพียงพอสำหรับแสดงกราฟนี้", "Not enough data to draw this chart yet")}</div>`}
             </${Card}>
-            <${Card} title=${t("Lead แยกตามอำเภอ", "Leads by district")} sub=${t("เฉพาะอำเภอในจังหวัดของคุณ · เรียงจากมากไปน้อย", "Only districts in your province · highest first")}>
+            <${Card} title=${t("Lead แยกตามอำเภอ", "Leads by district")} sub=${t("เฉพาะอำเภอในจังหวัดของคุณ · เรียงจากมากไปน้อย", "Only districts in your province · highest first")+(distLeadTop.length<distAll.length ? t(` · ${distLeadTop.length} อันดับแรกจาก ${distAll.length} อำเภอ`, ` · top ${distLeadTop.length} of ${distAll.length} districts`) : "")}>
               ${distAll.length ? html`<div class="tcd8-dbars">
-                ${distAll.slice(0,4).map(d=>html`<div key=${d.d} class="tcd8-dbar">
-                  <div class="tcd8-dbar-h"><span class="tcd8-dbar-l">${districtTH(d.d)}</span><span class="tcd8-dbar-v">${num(d.ps)} ${t("ราย", "businesses")}</span></div>
+                ${distLeadTop.map(d=>html`<div key=${d.d} class="tcd8-dbar">
+                  <div class="tcd8-dbar-h"><span class="tcd8-dbar-l">${districtTH(d.d)}</span><span class="tcd8-dbar-v">${num(d.ps)} ${t("ราย", d.ps===1 ? "Lead" : "Leads")}</span></div>
                   <div class="tcd8-dbar-track"><div class="tcd8-dbar-fill" style=${{width:(d.ps/distLeadMax*100)+"%"}}></div></div>
                 </div>`)}
               </div>` : html`<div class="emptybox">${t("ยังไม่มีข้อมูลเพียงพอสำหรับแสดงกราฟนี้", "Not enough data to draw this chart yet")}</div>`}
@@ -529,11 +524,11 @@ export function Reports(){
 
           <!-- เทียบลูกค้า vs Lead รายหมวด ครบ 12 หมวด — แท่งคู่ต่อหนึ่งหมวด -->
           <${Card} title=${t("ลูกค้า เทียบ Lead รายหมวดธุรกิจ", "Customers vs. Leads by business category")}
-            sub=${`${t("ทั้ง", "All")} ${SEGMENTS.length} ${t("หมวดในพื้นที่รับผิดชอบ · เรียงจากจำนวนรวมมากไปน้อย", "categories in your territory · sorted by total, highest first")}`}
+            sub=${segSel!=="All" ? t(`เฉพาะหมวด ${segTH(segSel)}`, `Only ${segTH(segSel)}`) : `${t("ทั้ง", "All")} ${segCompare.length} ${t("หมวดในพื้นที่รับผิดชอบ · เรียงจากจำนวนรวมมากไปน้อย", "categories in your territory · sorted by total, highest first")}`}
             right=${html`<div class="sc-legend">
               <span class="sc-lg"><i class="sc-sw cust"></i>${t("ลูกค้า", "Customers")}</span>
               <span class="sc-lg"><i class="sc-sw lead"></i>Lead</span></div>`}>
-            <div class="sc-scroll">
+            ${segCompare.some(x=>x.cust||x.lead) ? html`<div class="sc-scroll">
               <svg class="sc-svg" width=${SC_W} height=${SC_H} viewBox=${"0 0 "+SC_W+" "+SC_H}
                 role="img" aria-label=${t("กราฟแท่งเทียบจำนวนลูกค้ากับ Lead รายหมวดธุรกิจ", "Bar chart comparing customers with Leads by business category")}>
                 <!-- เส้นกริดแนวนอน + ตัวเลขแกน Y -->
@@ -559,7 +554,7 @@ export function Reports(){
                   </g>`;
                 })}
               </svg>
-            </div>
+            </div>` : html`<div class="emptybox">${t("ยังไม่มีข้อมูลเพียงพอสำหรับแสดงกราฟนี้", "Not enough data to draw this chart yet")}</div>`}
           </${Card}>
 
           <!-- ตาราง "รายชื่อที่ควรไปต่อ" ถูกถอดออกจากแดชบอร์ด TC ตามที่ผู้ใช้กำหนด -->
@@ -778,7 +773,7 @@ const TC_CSS = `
 .tcd8{display:grid;grid-template-columns:repeat(12,1fr);gap:24px;align-items:start}
 .tcd8-left{grid-column:span 8}.tcd8-right{grid-column:span 4}
 .tcd8-left,.tcd8-right{display:flex;flex-direction:column;gap:24px}
-@media(max-width:1023px){.tcd8-left,.tcd8-right{grid-column:1/-1}}
+@media(max-width:1279px){.tcd8-left,.tcd8-right{grid-column:1/-1}}
 /* การ์ดงานเร่งด่วน */
 .tcd8-urgent{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:18px 20px;border-radius:18px;
   background:linear-gradient(90deg,var(--accent-soft),var(--surface));border:1px solid var(--accent-soft)}
@@ -833,8 +828,8 @@ const TC_CSS = `
 .tcd8-ins-h{display:flex;align-items:center;gap:7px;font-size:12.5px;font-weight:800;color:var(--txt)}
 .tcd8-ins-b{font-size:11.5px;color:var(--muted);line-height:1.5;margin-top:5px}
 /* เติบโต/ชะลอตัว */
-.tcd8-grow{display:grid;grid-template-columns:1fr 1fr;gap:12px}
-.tcd8-grow-box{border-radius:12px;padding:11px 12px;border:1px solid var(--stroke2)}
+.tcd8-grow{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px}
+.tcd8-grow-box{min-width:0;border-radius:12px;padding:11px 12px;border:1px solid var(--stroke2)}
 .tcd8-grow-box.up{background:rgba(51,214,159,.06)}.tcd8-grow-box.down{background:rgba(230, 0, 35,.05)}
 .tcd8-grow-h{font-size:12px;font-weight:800;margin-bottom:7px}
 .tcd8-grow-h.up{color:#0f7a3d}.tcd8-grow-h.down{color:#b30019}

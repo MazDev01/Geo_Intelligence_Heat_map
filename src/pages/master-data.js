@@ -105,7 +105,7 @@ export function MasterData(){
   const toggleActive = it=>{
     if(it.is_system){ toast(t("รายการระบบ ปิดใช้งานไม่ได้", "System entry — cannot be disabled"),"warn"); return; }
     const use = useOf(it);
-    if(it.is_active && use>0){ toast(`${t("ยังมีข้อมูล", "There are still")} ${num(use)} ${t("รายการใช้ค่านี้อยู่ จึงปิดใช้งานไม่ได้", "records using this value, so it cannot be disabled")}`,"warn"); return; }
+    if(it.is_active && use>0){ toast(`${t("ยังมีข้อมูล", use===1 ? "There is still" : "There are still")} ${num(use)} ${t("รายการใช้ค่านี้อยู่ จึงปิดใช้งานไม่ได้", use===1 ? "record using this value, so it cannot be disabled" : "records using this value, so it cannot be disabled")}`,"warn"); return; }
     send({action:"update", code:it.code, is_active:!it.is_active},
       it.is_active?`${t("ปิดใช้งาน \"", "Disabled \"")}${it.label_th}${t("\" แล้ว", "\"")}`:`${t("เปิดใช้งาน \"", "Enabled \"")}${it.label_th}${t("\" แล้ว", "\"")}`);
   };
@@ -146,7 +146,7 @@ export function MasterData(){
               <b>${t(it.label_th, it.label_en||it.label_th)}</b>
               ${it.unlisted && html`<${Badge} tone="warn">${t("ยังไม่ได้ตั้งค่า", "Not set up")}</${Badge}>`}</div></td>
             <td data-label=${t("รหัสอ้างอิง", "Reference code")}><span class="mono dim" style=${{fontSize:"12px"}}>${it.code}</span></td>
-            <td data-label=${t("จำนวนที่ใช้อยู่", "In use")}>${use>0? html`<span>${num(use)} ${t("รายการ", "records")}</span>` : html`<span class="dim">—</span>`}</td>
+            <td data-label=${t("จำนวนที่ใช้อยู่", "In use")}>${use>0? html`<span>${num(use)} ${t("รายการ", use===1 ? "record" : "records")}</span>` : html`<span class="dim">—</span>`}</td>
             <td data-label=${t("สถานะ", "Status")}>${it.is_system
                 ? html`<${Badge} tone="neutral" icon="shield">${t("ระบบ", "System")}</${Badge}>`
                 : it.is_active ? html`<${Badge} tone="good">${t("ใช้งาน", "Active")}</${Badge}>` : html`<${Badge} tone="neutral">${t("เลิกใช้แล้ว", "Retired")}</${Badge}>`}</td>

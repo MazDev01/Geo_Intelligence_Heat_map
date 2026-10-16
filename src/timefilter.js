@@ -59,7 +59,7 @@ export function calcView(custs, pros, areas, rangeId){
   for(const o of custs){ const t=Date.parse(o.created_at); if(t>ref) ref=t; }
   for(const o of pros ){ const t=Date.parse(o.created_at); if(t>ref) ref=t; }
 
-  const win = windowOf(rangeId, ref);
+  const win = windowOf(rangeId, Date.now());
   const inWin = o => { const t=Date.parse(o.created_at); return t>=win.from && t<=win.to; };
   const fCusts = win ? custs.filter(inWin) : custs;
   const fPros  = win ? pros .filter(inWin) : pros;
@@ -84,7 +84,7 @@ export function calcView(custs, pros, areas, rangeId){
 
   // ช่วงที่ใช้คำนวณแนวโน้ม — ตอนเลือก "ทั้งหมด" ไม่มีขอบเขตให้เทียบ จึงใช้ 30 วันล่าสุดเทียบ 30 วันก่อนหน้า
   // ซึ่งตรงกับความหมายของคำว่า "จากเดือนก่อน" ที่ป้ายนี้เขียนไว้แต่เดิม
-  const tw = win || windowOf("30d", ref);
+  const tw = win || windowOf("30d", Date.now());
 
   return {
     ref, win, fCusts, fPros, ranked,

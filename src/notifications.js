@@ -83,7 +83,7 @@ export function agoText(ms, now=Date.now()){
   const h = Math.floor(m/60);
   if(h < 24) return t(`${h} ชม.ที่แล้ว`, `${h} hr ago`);
   const d = Math.floor(h/24);
-  return t(`${d} วันที่แล้ว`, `${d} days ago`);
+  return t(`${d} วันที่แล้ว`, d===1 ? "1 day ago" : `${d} days ago`);
 }
 export function buildNotifs(user, db){
   const role = (user && user.role) || "Administrator";
@@ -134,8 +134,8 @@ export function inboxView(n){
     const range = (p.from && p.to) ? thDate(p.from)+" – "+thDate(p.to) : "";
     const gap = p.gapSeg ? t(` · ยังขาดมากสุด: ${segTH(p.gapSeg)} (${p.gapN} ราย)`, ` · biggest gap: ${segTH(p.gapSeg)} (${p.gapN})`) : "";
     return {icon:"trend", go:"reports",
-      t:t(`สรุปสัปดาห์ ${range}: Lead ใหม่ ${p.leads||0} ราย · ลูกค้าใหม่ ${p.customers||0} ราย · เข้าพบ ${p.visits||0} ครั้ง${gap}`,
-          `Week of ${range}: ${p.leads||0} new Leads · ${p.customers||0} new customers · ${p.visits||0} visits${gap}`)};
+      t:t(`สรุปสัปดาห์ ${range}: Lead ใหม่ ${(p.leads||0).toLocaleString("en-US")} ราย · ลูกค้าใหม่ ${(p.customers||0).toLocaleString("en-US")} ราย · เข้าพบ ${(p.visits||0).toLocaleString("en-US")} ครั้ง${gap}`,
+          `Week of ${range}: ${(p.leads||0).toLocaleString("en-US")} new Leads · ${(p.customers||0).toLocaleString("en-US")} new customers · ${(p.visits||0).toLocaleString("en-US")} visits${gap}`)};
   }
   if(n.key==="deal_new") return {icon:"target", go:"data-leads",
     t:t(`ดีลใหม่รออนุมัติ: ${name}${p.by ? ` · ส่งโดย ${p.by}` : ""}`, `New deal awaiting approval: ${name}${p.by ? ` · sent by ${p.by}` : ""}`)};

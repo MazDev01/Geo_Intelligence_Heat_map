@@ -136,7 +136,7 @@ export function plansFromServer(serverPlans, db, province){
       if(!p || it.deleted) continue;
       const res = planResultOf(p.visitRounds, {savedAt:sp.savedAt, visitDate:dateISO, addedAt:it.addedAt}, nextSaved(it.placeId, sp.savedAt));
       const status = !res ? "missed" : res.status==="เสร็จสิ้น" ? "visited" : "cancelled";
-      const outcome = status==="visited" ? roundLabel(res.outcome || res.interest || "") || null : null;
+      const outcome = status==="visited" ? (res.outcome || res.interest || "") || null : null;
       const note = status==="visited" && res.note ? res.note : null;
       const cur = {latitude:p.latitude, longitude:p.longitude};
       const distFromPrev = p.latitude!=null && p.longitude!=null && prev.latitude!=null ? haversine(prev, cur) : 0;
@@ -270,7 +270,7 @@ export function VisitPlanReport(){
   const buildVpRows = ()=>{ const rows=[];
     rows.push([t("รายงานแผนการเข้าพบ · จังหวัด", "Visit plan report · province")+provText+(teamView&&tcSel ? t(" · แผนของ ", " · plans by ")+tcSel.name : "")+t(" · ผู้จัดทำ ", " · prepared by ")+((user&&user.name)||"")]);
     rows.push([t("ช่วงเวลา: ", "Period: ")+rangeText]);
-    rows.push([t("สรุป: พบ ", "Summary: ")+summary.n+t(" แผน · วางแผนไว้ ", " plans · planned ")+summary.planned+t(" แห่ง · เข้าพบจริง ", " places · actually visited ")+summary.visited+t(" แห่ง · อัตราทำตามแผน ", " places · plan completion ")+summary.rate+"%"]);
+    rows.push([t("สรุป: พบ ", "Summary: ")+summary.n+t(" แผน · วางแผนไว้ ", summary.n===1 ? " plan · planned " : " plans · planned ")+summary.planned+t(" แห่ง · เข้าพบจริง ", " places · actually visited ")+summary.visited+t(" แห่ง · อัตราทำตามแผน ", " places · plan completion ")+summary.rate+"%"]);
     rows.push([]);
     rows.push([t("ตารางสรุปแผน", "Plan summary")]);
     rows.push([t("วันที่", "Date"),t("อำเภอที่ครอบคลุม", "Districts covered"),t("วางแผน", "Planned"),t("เข้าพบจริง", "Visited"),t("อัตรา (%)", "Rate (%)"),t("สถานะ", "Status")]);
@@ -282,7 +282,7 @@ export function VisitPlanReport(){
       rows.push([t("ลำดับ", "Order"),t("ธุรกิจ", "Business"),t("Lead ของหมวด (ณ วันนั้น)", "Category Lead index (on the day)"),t("หมวดธุรกิจ", "Business category"),t("อำเภอ", "District"),t("สถานะ", "Status"),t("เวลา", "Time"),t("ผลการเข้าพบ", "Visit outcome"),t("บันทึก", "Note"),t("ระยะจากจุดก่อน (เส้นตรง)", "Distance from previous (straight line)")]);
       // ⚠ ตัวแปรวนลูปห้ามชื่อ t — จะบัง t() ของ i18n ที่เรียกอยู่ในบรรทัดเดียวกัน
       pl.targets.forEach((tg,i)=>rows.push([i+1, tg.businessName, tg.gapLevel_at ? gapTH(tg.gapLevel_at)+t(" · ขาด ", " · short by ")+tg.gap_at+t(" ราย", " businesses") : "—", segTH(tg.segment), districtTH(tg.district),
-        VP_TARGET_TH[tg.status], tg.time||"—", tg.outcome||"—", tg.note||"—", fmtKm(tg.distFromPrev)]));
+        VP_TARGET_TH[tg.status], tg.time||"—", tg.outcome ? roundLabel(tg.outcome) : "—", tg.note||"—", fmtKm(tg.distFromPrev)]));
     });
     return rows; };
   const doExport = ({format, filename})=>{
@@ -332,7 +332,7 @@ export function VisitPlanReport(){
         ${anyFilter?html`<button class="vp-btn ghost" onClick=${clearFilters}><${Icon} name="close" size=${14}/> ${t("ล้างตัวกรอง", "Clear filters")}</button>`:""}
       </div>
       <div class="vp-summary">
-        ${t("พบ", "Found")} <b>${num(summary.n)}</b> ${t("แผน · วางแผนไว้", "plans · planned")} <b>${num(summary.planned)}</b> ${t("แห่ง · เข้าพบจริง", "places · actually visited")} <b>${num(summary.visited)}</b> ${t("แห่ง · อัตราทำตามแผน", "places · plan completion")} <b class=${summary.rate<50?"vp-warn-t":""}>${summary.rate}%</b>
+        ${t("พบ", "Found")} <b>${num(summary.n)}</b> ${t("แผน · วางแผนไว้", summary.n===1 ? "plan · planned" : "plans · planned")} <b>${num(summary.planned)}</b> ${t("แห่ง · เข้าพบจริง", "places · actually visited")} <b>${num(summary.visited)}</b> ${t("แห่ง · อัตราทำตามแผน", "places · plan completion")} <b class=${summary.rate<50?"vp-warn-t":""}>${summary.rate}%</b>
       </div>
     </div>
 
@@ -343,7 +343,7 @@ export function VisitPlanReport(){
     <div class="vp-cols">
       <!-- ═══ ส่วนที่ 2: ตารางแผน ═══ -->
       <div class="vp-card vp-tablecard">
-        <div class="vp-card-h">${t("ตารางแผนการเข้าพบ", "Visit plans")} <span class="vp-dim">(${num(fPlans.length)} ${t("แผน · เรียงใหม่→เก่า)", "plans · newest first)")}</span></div>
+        <div class="vp-card-h">${t("ตารางแผนการเข้าพบ", "Visit plans")} <span class="vp-dim">(${num(fPlans.length)} ${t("แผน · เรียงใหม่→เก่า)", fPlans.length===1 ? "plan · newest first)" : "plans · newest first)")}</span></div>
         <div class="vp-tablewrap">
           <table class="vp-table">
             <thead><tr>
@@ -385,7 +385,7 @@ export function VisitPlanReport(){
             </div>
             ${tg.status==="visited" ? html`<div class="vp-tc-body">
                 ${tg.time ? html`<div class="vp-tc-line"><span>${t("เวลาที่บันทึก", "Recorded at")}</span><b>${tg.time} ${t("น.", "")}</b></div>` : ""}
-                <div class="vp-tc-line"><span>${t("ผลการเข้าพบ", "Visit outcome")}</span><b>${tg.outcome||"—"}</b></div>
+                <div class="vp-tc-line"><span>${t("ผลการเข้าพบ", "Visit outcome")}</span><b>${tg.outcome ? roundLabel(tg.outcome) : "—"}</b></div>
                 ${tg.note ? html`<div class="vp-tc-note">“${tg.note}”</div>` : ""}
               </div>`
              : tg.status==="cancelled" ? html`<div class="vp-tc-flag">${t("นัดถูกยกเลิก", "Appointment cancelled")}</div>`

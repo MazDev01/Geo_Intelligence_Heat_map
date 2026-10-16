@@ -80,7 +80,7 @@ export async function call(action, body = {}) {
     const text = await r.text();
     let data = {};
     try { data = text ? JSON.parse(text) : {}; } catch (e) { data = { error: text.slice(0, 200) }; }
-    if (!r.ok) return { ok: false, code: r.status, error: data.error || `ผิดพลาด ${r.status}` };
+    if (!r.ok) return { ok: false, code: r.status, reason: data.reason, error: data.error || `ผิดพลาด ${r.status}` };
     return { ok: true, ...data };
   } catch (e) {
     // เซิร์ฟเวอร์ปิด/เน็ตหลุด — บอกให้ชัดว่าเป็นที่การเชื่อมต่อ ไม่ใช่รหัสผิด

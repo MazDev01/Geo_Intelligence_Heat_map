@@ -1,4 +1,4 @@
-import {React, html, useState, useEffect, useMemo, useRef, createRoot, AppCtx, Icon, brandMark, num, roleTH, countryTH, provinceTH} from "./lib.js";
+import {React, html, useState, useEffect, useMemo, useRef, createRoot, AppCtx, Icon, brandMark, num, roleTH, countryTH, provinceTH, initialsOf} from "./lib.js";
 import {t, useLang, setLang} from "./lib.js";   // สลับภาษา TH/EN — ดู src/i18n.js
 import {getLayerOpacity, getLayerOn, subscribeLayerOpacity} from "./layer-opacity.js";   // ความทึบ = ตั้งที่แอดมินที่เดียว
 import {loadCountries, loadWorld, loadAreas, loadProvincesGeo, loadDetail, clearDetail, clearAggregates, writePlaces, placeVisitsApi, leadRequestsApi, dealFileError, fileBase64, loadCountry, loadDistricts, defaultFilters} from "./data.js";
@@ -63,7 +63,8 @@ const MODALS = {reports:Reports, "visit-plans":VisitPlanReport, profile:Profile,
 const TITLES = () => ({...Object.fromEntries(NAV().flatMap(g=>g.items).flatMap(i=>[[i.id,i.label], ...(i.sub||[]).map(sb=>[sb.id,sb.label])])),
   workspace:t("แผนที่วิเคราะห์","Analysis Map"), reports:t("รายงาน","Reports"),
   "visit-plans":t("รายงานแผนการเข้าพบ","Visit Plan Report"), profile:t("โปรไฟล์","Profile")});
-const ROUTE_EXTRA = ["from","to","dist","status","plan"];
+const ROUTE_EXTRA = ["from","to","dist","status","plan","type"];
+const ROUTE_OWNER = "geo.routeOwner";
 const THAILAND_CENTER = [13.2, 101];   // hardcoded fly-in target for the post-login intro (no search/query)
 const LOCAL_ONLY = new Set(["id","source","created_at","clientId","country","visit_status","visitRounds"]);
 const PLACE_KEYS = ["latitude","longitude","province","district"];
@@ -471,8 +472,9 @@ function App(){
   // close the top-right menus when clicking anywhere outside them
   useEffect(()=>{ if(!menu) return;
     const h=e=>{ if(!e.target.closest(".tb-right")) setMenu(null); };
-    document.addEventListener("mousedown",h);
-    return ()=>document.removeEventListener("mousedown",h);
+    const k=e=>{ if(e.key!=="Escape") return; const b=document.querySelector('.tb-right [aria-expanded="true"]'); setMenu(null); if(b) b.focus(); };
+    document.addEventListener("mousedown",h); document.addEventListener("keydown",k);
+    return ()=>{ document.removeEventListener("mousedown",h); document.removeEventListener("keydown",k); };
   },[menu]);
   const openProfile=(tab="info")=>{ setProfileTab(tab); setProfileSeq(s=>s+1); setMenu(null); setOverlay("profile"); };
 
@@ -501,9 +503,8 @@ function App(){
           body:html`${t("ลากเพื่อหมุนลูกโลก เลื่อนเพื่อซูม · ชี้ที่การ์ดจังหวัดแนะนำเพื่อหมุนไปที่นั่น แล้วคลิกเพื่อเปิดแผนที่วิเคราะห์",
                         "Drag to spin the globe, scroll to zoom · hover a featured province card to fly there, then click to open the analysis map.")}` }
       : { placement:"center", before:()=>tourShowMap(),
-          title:t("แผนที่วิเคราะห์ทั้งประเทศ", "The nationwide analysis map"),
-          body:html`${t("หลังเข้าสู่ระบบ ระบบจะแสดงแผนที่ประเทศไทยทันที โดยสามารถเลื่อน ซูม และเลือกพื้นที่บนแผนที่เพื่อดูข้อมูลและวิเคราะห์พื้นที่ที่สนใจได้",
-                        "The map of Thailand opens as soon as you sign in — pan, zoom and pick an area to see its data and analyse it.")}
+          title:user && user.role==="Trade Coordinator" ? t("แผนที่เขตที่รับผิดชอบ", "Your territory map") : t("แผนที่วิเคราะห์ทั้งประเทศ", "The nationwide analysis map"),
+          body:html`${user && user.role==="Trade Coordinator" ? t("หลังเข้าสู่ระบบ ระบบจะแสดงแผนที่เฉพาะเขตที่คุณรับผิดชอบ โดยสามารถเลื่อน ซูม และเลือกพื้นที่ในเขตเพื่อดูข้อมูลได้", "Your territory map opens as soon as you sign in — pan, zoom and pick an area inside it to see its data.") : t("หลังเข้าสู่ระบบ ระบบจะแสดงแผนที่ประเทศไทยทันที โดยสามารถเลื่อน ซูม และเลือกพื้นที่บนแผนที่เพื่อดูข้อมูลและวิเคราะห์พื้นที่ที่สนใจได้", "The map of Thailand opens as soon as you sign in — pan, zoom and pick an area to see its data and analyse it.")}
             <div style=${{marginTop:"8px"}}>${t("เลือกดูข้อมูลลูกค้า Lead เส้นทาง และพื้นที่ต่าง ๆ ได้จากแผนที่เดียวกัน และใช้ตัวกรองค้นหาสิ่งที่ต้องการได้โดยไม่ต้องออกจากหน้าแผนที่",
                         "Customers, Leads, routes and areas all live on this one map, and the filters find what you need without leaving it.")}</div>` },
 
@@ -556,8 +557,8 @@ function App(){
     TOUR_STEPS.push(
       { target:'[data-tour="reports"]', placement:"bottom", before:()=>tourShowMap(),
         title:t("รายงานและการส่งออก", "Reports and exports"),
-        body:html`${t("เปิดหน้ารายงานเพื่อดูภาพรวมตามตัวกรองที่เลือก แล้วส่งออกเป็น CSV หรือ Excel ได้",
-                      "Open reports for an overview of whatever you filtered, then export it as CSV or Excel.")}
+        body:html`${t("เปิดหน้ารายงานเพื่อดูภาพรวมตามตัวกรองที่เลือก แล้วส่งออกเป็น PDF, Excel หรือ CSV ได้",
+                      "Open reports for an overview of whatever you filtered, then export it as PDF, Excel or CSV.")}
           <div style=${{marginTop:"8px"}}>${t("ไฟล์ที่ได้ยึดตามตัวกรองบนหน้าจอ และแยกเป็นตารางลูกค้ากับตาราง Lead พร้อมเบอร์โทรและอีเมล",
                       "The file follows the filters on screen and splits into a customer table and a Lead table, with phone and email.")}</div>` });
   }
@@ -592,7 +593,10 @@ function App(){
   const handleLogin = (u)=>{
     setIntroPlaying(false);
     // หน้า login ส่งข้อมูลบัญชีจริงมา (ไม่มี initials) — ทำตัวย่อจากชื่อให้เอง
-    u = u && { ...u, initials: u.initials || String(u.name||"?").trim().slice(0,2) };
+    u = u && { ...u, initials: u.initials || initialsOf(u.name) };
+    if(u){ let owner = null;
+      try{ owner = sessionStorage.getItem(ROUTE_OWNER); sessionStorage.setItem(ROUTE_OWNER, u.email||""); }catch(e){}
+      if(owner && owner!==(u.email||"")){ try{ history.replaceState(null,"",location.pathname+location.hash); }catch(e){} } }
     // TC ต้องถูกล็อกอยู่ "จังหวัดที่รับผิดชอบ" เสมอ — เข้าหน้าจังหวัดโดยตรง ไม่ผ่านลูกโลก และต้องมี province เสมอ
     // (หน้า login ไม่ได้ส่ง province มา จึงกำหนดค่าเริ่มต้นที่นี่ · ในระบบจริงค่านี้จะมาจากบัญชีผู้ใช้)
     if(u && u.role==="Trade Coordinator"){
@@ -925,7 +929,7 @@ function App(){
     window.addEventListener("beforeunload", onUnload);
     return ()=>window.removeEventListener("beforeunload", onUnload);
   },[zoneEdit]);
-  const updateMe = patch => setUser(u => u ? {...u, ...patch, initials: String(patch.name || u.name || "?").trim().slice(0,2)} : u);
+  const updateMe = patch => setUser(u => u ? {...u, ...patch, initials: initialsOf(patch.name || u.name)} : u);
   const ctx = {db,user,updateMe,logout,nav,settingsVer,scoringChanged,placesChanged,masterVer,masterChanged,filters,setFilters,startZoneEdit,routeParams:{area:selectedProvince},profileTab,profileSeq,visitPlans,office:planOffice,tcProvinces,lang,setLang,
 
     deletePlan,setActivePlanId:pickPlan,applyDealApproved,applyDealRejected,addToPlan,goMap,updateRecord,adminAddRecords,adminDeleteRecord,
@@ -1228,7 +1232,7 @@ function searchAll(db,q){
   const s=q.toLowerCase();
   const areas = (db.areas||[]).filter(a=>a.province.toLowerCase().includes(s)||provinceTH(a.province).includes(q))
     .slice(0,5).map(a=>({province:a.province, title:provinceTH(a.province),
-      sub:`${num(a.customerCount)} ${t("ลูกค้า · Lead", "Customers · Leads")} ${a.gapScore}`}));
+      sub:t(`${num(a.customerCount)} ลูกค้า · ${num(a.prospectCount)} Lead`, `${num(a.customerCount)} Customers · ${num(a.prospectCount)} Leads`)}));
   const people = [...(db.customers||[]), ...(db.prospects||[])]
     .filter(c=>c.businessName.toLowerCase().includes(s) || c.id.toLowerCase().includes(s) || (c.address||"").toLowerCase().includes(s))
     .slice(0,8).map(c=>({id:c.id, title:c.businessName,
