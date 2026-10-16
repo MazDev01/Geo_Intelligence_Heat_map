@@ -209,6 +209,10 @@ export function GeoStage({db, mode, activeCountry, flyTarget, globeUnder, onArri
             <${Icon} name="building" size=${15}/><div><div style=${{fontSize:"12.5px",fontWeight:600}}>${p.title}</div>
             <div class="dim" style=${{fontSize:"12.5px"}}>${p.sub}</div></div></div>`)}
         </div>`}
+        ${gsearch.trim().length>1 && !(searchResults?.areas?.length>0) && !(searchResults?.people?.length>0) && html`<div class="dropdown" role="status" style=${{position:"absolute",top:"calc(100% + 8px)",left:0,width:"100%",zIndex:30,padding:"12px 14px",fontSize:"12.5px"}}>
+          <div style=${{fontWeight:600}}>${t("ไม่พบผลลัพธ์", "No results")}</div>
+          ${lockProvinces && html`<div class="dim" style=${{marginTop:"2px"}}>${t("ค้นหาได้เฉพาะในเขตที่รับผิดชอบ", "Search covers your territory only")}</div>`}
+        </div>`}
       </div>`}
 
       <!-- ไม่มีปุ่ม Action บนแถบนี้แล้ว — "เพิ่ม Lead" ถูกถอดออก (เพิ่มรายการใหม่ทำผ่านแอดมินเท่านั้น)
