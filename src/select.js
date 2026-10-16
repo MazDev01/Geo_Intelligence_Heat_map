@@ -98,7 +98,7 @@ export function Dropdown({value, onChange, options=[], placeholder=t("เลื�
       <span class=${"uidd-val"+(cur?"":" ph")}>${cur?cur.label:placeholder}</span>
       <${Icon} name="chevron" size=${14} color="var(--muted)" style=${{transform:open?"rotate(180deg)":"none",transition:".15s",flex:"none"}}/>
     </button>
-    ${open?html`<div class=${"uidd-pop"+(searchable?" has-search":"")} role="listbox" ref=${popRef}>
+    ${open?html`<div class=${"uidd-pop"+(searchable?" has-search":"")} role="listbox" ref=${popRef} onClick=${e=>e.preventDefault()}>
       ${searchable?html`<div class="uidd-search"><input ref=${inRef} type="text" autocomplete="off" value=${q} placeholder=${t("ค้นหา…", "Search…")}
         aria-label=${t("ค้นหา", "Search")} onInput=${onSearch} onKeyDown=${onSearchKey}/></div>`:""}
       ${searchable && !shown.length?html`<div class="uidd-empty">${t("ไม่พบรายการ", "No matches")}</div>`:""}
