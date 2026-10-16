@@ -31,7 +31,6 @@ export const SCOPES = [
   { key:"national", get th(){ return t("ทั้งประเทศ", "Nationwide"); }, get hint(){ return t("เห็นทุกจังหวัด ทุกรายการ", "Sees every province and every record"); } },
   { key:"own_area", get th(){ return t("เฉพาะจังหวัดที่รับผิดชอบ", "Assigned province only"); }, get hint(){ return t("เห็นเฉพาะพื้นที่ของตัวเอง", "Sees only their own area"); } },
 ];
-export const SCOPE_TH = Object.fromEntries(SCOPES.map(s=>[s.key, s.th]));
 export const DEFAULT_SCOPE = {
   "Administrator":"national", "Management":"national", "Trade Coordinator":"own_area",
 };
@@ -51,25 +50,25 @@ export const PERM_MODULES = [
   ]},
   { key:"customer", name:()=>t("ลูกค้าและ Lead", "Customers & Leads"), perms:[
     ["customer.view",             ()=>t("ดูรายการ", "View records"),                            ["y","y","y"]],
-    ["customer.create",           ()=>t("เพิ่มด้วยตนเอง", "Add manually"),                      ["y","y","y"]],
-    ["customer.edit_own",         ()=>t("แก้ไขรายการที่ตัวเองกรอก", "Edit own records"),             ["y","y","y"]],
-    ["customer.edit_any",         ()=>t("แก้ไขรายการของคนอื่น / จากไฟล์นำเข้า", "Edit others' / imported records"),  ["y","y","n"]],
+    ["customer.create",           ()=>t("เพิ่มด้วยตนเอง", "Add manually"),                      ["y","n","n"]],
+    ["customer.edit_own",         ()=>t("แก้ไขรายการที่ตัวเองกรอก", "Edit own records"),             ["y","n","n"]],
+    ["customer.edit_any",         ()=>t("แก้ไขรายการของคนอื่น / จากไฟล์นำเข้า", "Edit others' / imported records"),  ["y","n","n"]],
     ["customer.delete",           ()=>t("ลบข้อมูล", "Delete records"),                            ["y","o","n"]],
     ["customer.approve_manual",   ()=>t("ตรวจ/อนุมัติข้อมูลที่ถูกเพิ่มเอง", "Review / approve manually added records"),      ["y","y","n"]],
-    ["customer.convert",          ()=>t("เปลี่ยน Lead เป็นลูกค้า", "Convert Lead to customer"),              ["y","y","o"]],
+    ["customer.convert",          ()=>t("เปลี่ยน Lead เป็นลูกค้า", "Convert Lead to customer"),              ["y","n","o"]],
     ["customer.reassign",         ()=>t("ย้ายผู้รับผิดชอบ", "Reassign owner"),                     ["y","y","n"]],
   ]},
   { key:"territory", name:()=>t("ขอบเขตพื้นที่การขาย", "Sales territories"), perms:[
     ["territory.view",            ()=>t("ดูขอบเขตและผู้ดูแลรายพื้นที่", "View territories and their owners"),          ["y","y","y"]],
-    ["territory.draft",           ()=>t("สร้าง/แก้ไขขอบเขต (ฉบับร่าง)", "Create / edit territories (draft)"),         ["o","y","n"]],
-    ["territory.approve",         ()=>t("อนุมัติแผนที่ให้มีผลจริง", "Approve a map to go live"),              ["n","y","n"]],
-    ["territory.rollback",        ()=>t("ย้อนขอบเขตกลับเวอร์ชันก่อน", "Roll territories back to a previous version"),           ["y","y","n"]],
+    ["territory.draft",           ()=>t("สร้าง/แก้ไขขอบเขต (ฉบับร่าง)", "Create / edit territories (draft)"),         ["y","n","n"]],
+    ["territory.approve",         ()=>t("อนุมัติแผนที่ให้มีผลจริง", "Approve a map to go live"),              ["y","n","n"]],
+    ["territory.rollback",        ()=>t("ย้อนขอบเขตกลับเวอร์ชันก่อน", "Roll territories back to a previous version"),           ["y","n","n"]],
     ["territory.upload_boundary", ()=>t("อัปโหลดไฟล์ขอบเขต (GeoJSON/Shapefile)", "Upload boundary files (GeoJSON/Shapefile)"), ["y","o","n"]],
   ]},
   { key:"visit", name:()=>t("แผนการเข้าพบ", "Visit plans"), perms:[
-    ["visit.manage_own",          ()=>t("สร้าง/แก้ไขแผนของตัวเอง", "Create / edit own plans"),              ["y","y","y"]],
+    ["visit.manage_own",          ()=>t("สร้าง/แก้ไขแผนของตัวเอง", "Create / edit own plans"),              ["n","n","y"]],
     ["visit.view_team",           ()=>t("ดูแผนของทั้งทีม", "View the whole team's plans"),                     ["y","y","n"]],
-    ["visit.manage_any",          ()=>t("แก้ไขแผนของคนอื่น", "Edit other people's plans"),                    ["o","y","n"]],
+    ["visit.manage_any",          ()=>t("แก้ไขแผนของคนอื่น", "Edit other people's plans"),                    ["o","n","n"]],
   ]},
   { key:"report", name:()=>t("รายงานและการส่งออก", "Reports & export"), perms:[
     ["report.view",               ()=>t("ดูรายงานวิเคราะห์", "View analysis reports"),                    ["y","y","y"]],
@@ -84,11 +83,11 @@ export const PERM_MODULES = [
     ["data.trigger_sync",         ()=>t("สั่งซิงค์ข้อมูลด้วยตนเอง", "Trigger a manual data sync"),              ["y","o","n"]],
   ]},
   { key:"user", name:()=>t("ผู้ใช้และบทบาท", "Users & roles"), perms:[
-    ["user.view",                 ()=>t("ดูรายชื่อผู้ใช้", "View user list"),                      ["y","y","n"]],
+    ["user.view",                 ()=>t("ดูรายชื่อผู้ใช้", "View user list"),                      ["y","n","n"]],
     ["user.manage",               ()=>t("เพิ่ม/แก้ไขผู้ใช้", "Add / edit users"),                    ["y","o","n"]],
     ["user.set_active",           ()=>t("เปิด/ปิดการเข้าใช้งานบัญชี", "Enable / disable account access"),            ["y","o","n"]],
     ["user.grant_permission",     ()=>t("กำหนดสิทธิ์และบทบาทให้ผู้อื่น", "Grant permissions and roles to others"),         ["y","n","n"]],
-    ["user.assign_scope",         ()=>t("กำหนดขอบเขตข้อมูลให้ผู้อื่น", "Assign data scope to others"),           ["y","y","n"]],
+    ["user.assign_scope",         ()=>t("กำหนดขอบเขตข้อมูลให้ผู้อื่น", "Assign data scope to others"),           ["y","n","n"]],
     ["user.impersonate",          ()=>t("เข้าใช้แทนบัญชีผู้ใช้ (impersonate)", "Impersonate a user account"),    ["o","n","n"]],
   ]},
   { key:"settings", name:()=>t("ตั้งค่าระบบ", "System settings"), perms:[
@@ -98,8 +97,8 @@ export const PERM_MODULES = [
     ["settings.manage_api_key",   ()=>t("จัดการ API key / integration token", "Manage API keys / integration tokens"),   ["y","n","n"]],
   ]},
   { key:"audit", name:()=>t("บันทึกการตรวจสอบ", "Audit log"), perms:[
-    ["audit.view",                ()=>t("ดู log การเข้าใช้และการแก้ข้อมูล", "View access and data-change logs"),       ["y","y","n"]],
-    ["audit.view_export",         ()=>t("ดู log การส่งออกข้อมูล", "View data export logs"),                ["y","y","n"]],
+    ["audit.view",                ()=>t("ดู log การเข้าใช้และการแก้ข้อมูล", "View access and data-change logs"),       ["y","n","n"]],
+    ["audit.view_export",         ()=>t("ดู log การส่งออกข้อมูล", "View data export logs"),                ["y","n","n"]],
     ["audit.export",              ()=>t("ส่งออก log", "Export logs"),                          ["y","n","n"]],
   ]},
 ];
