@@ -19,7 +19,6 @@
 | **เซิร์ฟเวอร์ใหม่ (ต่อฐานข้อมูล)** | `node --env-file=C:\Users\Admin\.geointel\dev.env server/index.mjs` → `http://localhost:3000` | ยังไม่ได้จับเวลา |
 | ตรวจ syntax | `node --experimental-vm-modules checkall.mjs` | **393 ms** · 39 ไฟล์ |
 | **ตรวจว่าเรนเดอร์จริง** | ดูบล็อกใต้ตาราง | **~74 วินาที ต่อหน้า** (ต้องมี `timeout`) |
-| build เวอร์ชันแจก | `node build-dist.mjs` | **454 ms** |
 | test · lint · type-check | **ไม่มี** | — |
 | เปิดฐานข้อมูล | `docker compose --env-file C:\Users\Admin\.geointel\dev.env up -d` | ยังไม่ได้จับเวลา |
 | สร้าง/อัปเดตตาราง | `node --env-file=C:\Users\Admin\.geointel\dev.env server/db/migrate.mjs` (`status` ดูสถานะ) | ยังไม่ได้จับเวลา |
@@ -170,5 +169,4 @@ for(const k of Object.keys(d[0])) console.log(k, 'ว่าง', d.filter(r=>!r[
 
 ## Optional Tools
 
-- `build-dist.mjs` — สร้างเวอร์ชันแจก (454 ms)
 - `gen.mjs` — สคริปต์สร้างข้อมูล

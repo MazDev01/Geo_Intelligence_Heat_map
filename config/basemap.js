@@ -9,21 +9,8 @@
 //   Range request ดึงเฉพาะ byte ของ tile ที่มองเห็น ไม่ได้โหลดทั้งไฟล์ 174 MB
 // ─────────────────────────────────────────────────────────────────────────────
 
-// Vercel Blob (object storage) — ไฟล์ 166 MB เกินลิมิต "100 MB ต่อไฟล์" ของ static deployment
-// จึงเก็บแยกที่ Blob store "geo-intel-basemap" · ตรวจแล้วรองรับ HTTP Range 206
-// และส่ง Access-Control-Allow-Origin: * จึงเรียกข้ามโดเมนได้
-// ย้ายที่เก็บ (R2/S3/cloud ลูกค้า): แก้ 2 บรรทัดนี้ที่เดียว
-export const BASEMAP_BASE = "https://gd17iaoixkqd9mfg.public.blob.vercel-storage.com/basemap";
-
-// วันที่ข้อมูล OSM ของ build ปัจจุบัน (osmosisreplicationtime = 2026-08-05)
-// ใช้ในชื่อไฟล์เพื่อ cache-busting เวลา rebuild ข้อมูลใหม่
-const V = "20260805";
-
-// ไฟล์แผนที่ฐานไฟล์เดียว (~174 MB · z0–15 · ครอบคลุมทั้งประเทศ + รายละเอียด 4 จังหวัด)
-// suffix สุ่มต่อท้ายมาจาก Vercel Blob (กัน cache ชนกันตอนอัปทับ) — เปลี่ยนทุกครั้งที่อัปไฟล์ใหม่
-const BLOB_SUFFIX = "-EKAM9SsfcYpRaHHMtFP8K8b9L73Wco";
 const RUNTIME = (typeof globalThis !== "undefined" && globalThis.__GEO_CONFIG) || {};
-export const BASEMAP_URL = RUNTIME.basemapUrl || `${BASEMAP_BASE}/basemap-th-${V}${BLOB_SUFFIX}.pmtiles`;
+export const BASEMAP_URL = RUNTIME.basemapUrl || "/basemap/basemap-th.pmtiles";
 
 // ต้นทางมีถึง z15 (รายละเอียด 4 จังหวัด) · z16+ = overzoom ฝั่ง client
 export const BASEMAP_MAXDATAZOOM = 15;
