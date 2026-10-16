@@ -1328,7 +1328,7 @@ const DM_CSS=`
 .dm-result-ic,.dm-empty-ic{width:64px;height:64px;border-radius:50%;background:rgba(51,214,159,.12);display:grid;place-items:center;margin:0 auto}
 .dm-wiznav{display:flex;justify-content:space-between;gap:10px;margin-top:20px;padding-top:16px;border-top:1px solid var(--stroke)}
 .dm-toolbar{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:14px}
-.dm-link{background:none;border:none;color:var(--accent2);font-family:var(--font);font-size:13px;font-weight:600;cursor:pointer;padding:0;text-align:left}
+.dm-link{background:none;border:none;color:var(--accent2);font-family:var(--font);font-size:13px;font-weight:600;cursor:pointer;padding:0;text-align:left;overflow-wrap:anywhere}
 .dm-link:hover{text-decoration:underline}
 .dm-bulk{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px;padding:9px 13px;border-radius:10px;background:var(--accent-soft);border:1px solid var(--accent)}
 .dm-kv{display:flex;justify-content:space-between;gap:14px;padding:9px 0;border-bottom:1px solid var(--stroke);font-size:13px}
