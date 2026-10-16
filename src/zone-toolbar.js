@@ -363,7 +363,7 @@ export function ZoneToolbar({ed, onExit}){
     <span class="ztb-sep"></span>
     <button class="ztb-save" disabled=${busy || s.drawing || noSave || !s.dirty}
       title=${noSave ? zonesBlockedText() : !s.dirty ? t("ไม่มีอะไรให้เซฟ","Nothing to save") : ""} onClick=${()=>run(()=>ed.saveDraft(),
-      r=>`${t("เซฟร่างแล้ว","Draft saved")} · ${t("ยังไม่มีผลกับ TC จนมีคนอนุมัติ","no effect for TCs until approved")}`)}>
+      r=>`${t("เซฟร่างแล้ว","Draft saved")} · ${t("ยังไม่มีผลกับ TC จนกด “ใช้จริง”","no effect for TCs until you press “Publish”")}`)}>
       ${t("เซฟร่าง","Save draft")}</button>
     <button class="ztb-pub" disabled=${busy || s.drawing || noSave || !(s.dirty || s.pending)}
       title=${noSave ? zonesBlockedText() : !(s.dirty || s.pending) ? t("ไม่มีอะไรเปลี่ยนให้ใช้จริง","Nothing new to publish") : ""} onClick=${async ()=>{
