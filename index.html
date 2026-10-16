@@ -185,6 +185,19 @@ label,.nav-item,.tab,.chip{font-weight:500}   /* labels & menus */
 .role-pill{font-size:11px;font-weight:700;letter-spacing:.6px;padding:3px 9px;border-radius:20px;text-transform:uppercase}
 .role-admin{background:rgba(220,38,38,.14);color:var(--bad)}
 .role-user{background:rgba(255, 59, 92,.16);color:var(--accent2)}
+@media(max-width:640px){
+  .topbar{gap:8px;padding:0 12px}
+  .tb-brand .nm{display:none}
+  .crumbs{flex:1 1 auto;min-width:0;overflow:hidden;white-space:nowrap}
+  .crumbs .crumb-cur{display:block;min-width:0;overflow:hidden;text-overflow:ellipsis}
+  .crumbs-nav > *{flex:none}
+  .crumbs-nav > .crumb-cur{flex:0 1 auto}
+  .crumb-pre,.crumb-home{display:none}
+  .tb-right{flex:none;gap:6px}
+  .tb-right .lang-toggle{margin-right:0!important}
+  .tb-reports{width:38px;padding:0!important;margin-right:0!important;justify-content:center}
+  .tb-reports .tb-lbl{display:none}
+}
 
 /* dropdown */
 .dropdown{position:absolute;right:0;top:52px;min-width:220px;background:var(--dropdown-bg);

@@ -1030,10 +1030,10 @@ function App(){
         : (view==="workspace" && mode==="map")
           ? (isTC
               /* TC ถูกล็อกที่จังหวัดเดียว — breadcrumb เป็นข้อความคงที่ ไม่มีลิงก์กลับประเทศ/ลูกโลก */
-              ? html`<div class="crumbs"><span class="crumb-cur">${t("เขตที่รับผิดชอบ ·", "Territory ·")} <b>${tcAreaText}</b></span></div>`
+              ? html`<div class="crumbs"><span class="crumb-cur"><span class="crumb-pre">${t("เขตที่รับผิดชอบ ·", "Territory ·")} </span><b>${tcAreaText}</b></span></div>`
               : html`<div class="crumbs crumbs-nav">
-              <button class="crumb-link" onClick=${backToGlobe}>${t("หน้าหลัก", "Home")}</button>
-              <span class="crumb-sep">›</span>
+              <button class="crumb-link crumb-home" onClick=${backToGlobe}>${t("หน้าหลัก", "Home")}</button>
+              <span class="crumb-sep crumb-home">›</span>
               <button class="crumb-link" onClick=${backToGlobe}>${t("ประเทศไทย", "Thailand")}</button>
               ${crumbProvince && html`<span class="crumb-sep">›</span><span class="crumb-cur">${crumbProvince}</span>`}
             </div>`)
@@ -1041,11 +1041,11 @@ function App(){
         <div class="tb-right">
           <!-- สลับภาษา ไทย/อังกฤษ — แสดงทุกบทบาท · ค่าถูกจำไว้ใน localStorage -->
           <${LangToggle}/>
-          ${isBiz && canReport && view==="workspace" && mode==="map" && html`<button data-tour="reports" title=${t("เปิดหน้ารายงาน","Open reports")} onClick=${()=>navItem("reports")}
+          ${isBiz && canReport && view==="workspace" && mode==="map" && html`<button class="tb-reports" data-tour="reports" title=${t("เปิดหน้ารายงาน","Open reports")} aria-label=${t("รายงาน", "Reports")} onClick=${()=>navItem("reports")}
             style=${{display:"inline-flex",alignItems:"center",gap:"7px",height:"38px",padding:"0 14px",marginRight:"8px",
               borderRadius:"10px",border:"1px solid var(--stroke2)",background:"var(--panel)",color:"var(--txt)",
               fontFamily:"var(--font)",fontSize:"12.5px",fontWeight:600,cursor:"pointer",backdropFilter:"blur(8px)"}}>
-            <${Icon} name="reports" size=${15} color="var(--accent)"/> ${t("รายงาน", "Reports")}</button>`}
+            <${Icon} name="reports" size=${15} color="var(--accent)"/> <span class="tb-lbl">${t("รายงาน", "Reports")}</span></button>`}
           <div style=${{position:"relative"}}>
             <button class="icon-btn" data-bell="1" aria-label=${t("การแจ้งเตือน", "Notifications")} onClick=${()=>{ if(menu!=="notif") refreshInbox(); setMenu(menu==="notif"?null:"notif"); }}><${Icon} name="bell" size=${18}/>
               ${inbox.unread ? html`<span class="dot"></span>` : ""}</button>
