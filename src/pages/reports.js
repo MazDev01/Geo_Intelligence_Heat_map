@@ -469,9 +469,9 @@ export function Reports(){
         : html`<label class="op-lab">${t("จังหวัด", "Province")}
             <${Dropdown} value=${prov} onChange=${setProv}
               options=${[["All",t("ทั้งหมด (4 จังหวัด)", "All (4 provinces)")], ...CLUSTER_PROVS.map(p=>[p,provinceTH(p)])]}/></label>`}
-      <label class="op-lab">${t("Segment ธุรกิจ", "Business segment")}
+      <label class="op-lab">${t("หมวดธุรกิจ", "Business category")}
         <${Dropdown} value=${segSel} onChange=${setSegSel}
-          options=${[["All",t("ทุกกลุ่ม", "All segments")], ...SEGMENTS.map(s=>[s,segTH(s)])]}/></label>
+          options=${[["All",t("ทุกหมวด", "All categories")], ...SEGMENTS.map(s=>[s,segTH(s)])]}/></label>
       <${QuickRange} db=${db} from=${from} to=${to} setFrom=${setFrom} setTo=${setTo}/>
       <label class="op-lab">${t("ช่วงเวลา (ตั้งแต่)", "Period (from)")}
         <${DateField} className="op-sel" value=${from} max=${to||undefined} onChange=${setFrom}/></label>
@@ -591,7 +591,7 @@ export function Reports(){
     <!-- ═════ Section 1: Executive KPI 4 การ์ด (ลูกค้าปัจจุบัน · Lead · Coverage Rate · Gap) ═════ -->
     <div class="grid g4" style=${{marginBottom:"16px"}}>
       <div class="rp-kpi" style=${cardSt}>
-        <div style=${capSt}><${Icon} name="users" size=${15} color="var(--accent)"/>${t("ลูกค้าปัจจุบัน (Existing)", "Existing customers ")}${infoDot(t("ลูกค้าปัจจุบัน (Existing)", "Existing customers"),t("นับจากระเบียนที่สถานะ = ลูกค้าปัจจุบัน ภายในจังหวัด/Segment/ช่วงเวลาที่เลือก · อ้างอิงฐานข้อมูลลูกค้าที่นำเข้าระบบ · อัปเดตล่าสุด ", "Counted from records with status = existing customer, within the selected province / segment / period · based on the imported customer database · last updated ")+today)}</div>
+        <div style=${capSt}><${Icon} name="users" size=${15} color="var(--accent)"/>${t("ลูกค้าปัจจุบัน (Existing)", "Existing customers ")}${infoDot(t("ลูกค้าปัจจุบัน (Existing)", "Existing customers"),t("นับจากระเบียนที่สถานะ = ลูกค้าปัจจุบัน ภายในจังหวัด/หมวดธุรกิจ/ช่วงเวลาที่เลือก · อ้างอิงฐานข้อมูลลูกค้าที่นำเข้าระบบ · อัปเดตล่าสุด ", "Counted from records with status = existing customer, within the selected province / segment / period · based on the imported customer database · last updated ")+today)}</div>
         <div style=${bigSt}><${CountUp} value=${totExisting}/></div>
         <div class="dim" style=${{fontSize:"11.5px"}}>${t("จำนวนลูกค้าที่ปิดการขายแล้วในขอบเขตที่กรอง", "Customers already closed within the filtered scope")}</div>
         ${deltaBadge(custDelta)}
