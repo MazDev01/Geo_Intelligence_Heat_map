@@ -50,6 +50,24 @@ export function replaceAuth(data) {
 
 export const token = () => (readSaved() || {}).token || "";
 
+const EXPIRED = "geointel:session-expired";
+const sentToken = h => !!h && (typeof h.get === "function" ? !!h.get("Authorization") : !!(h.Authorization || h.authorization));
+if (typeof window !== "undefined" && typeof window.fetch === "function" && !window.fetch.geoGuard) {
+  const raw = window.fetch.bind(window);
+  const guarded = async (input, init) => {
+    const res = await raw(input, init);
+    if (res.status === 401) {
+      const url = typeof input === "string" ? input : (input && input.url) || "";
+      const headers = (init && init.headers) || (input && typeof input === "object" && input.headers);
+      if (/\/api\//.test(url) && !/\/api\/auth(\?|$)/.test(url) && sentToken(headers) && token()) window.dispatchEvent(new Event(EXPIRED));
+    }
+    return res;
+  };
+  guarded.geoGuard = true;
+  window.fetch = guarded;
+}
+export const onSessionExpired = fn => { window.addEventListener(EXPIRED, fn); return () => window.removeEventListener(EXPIRED, fn); };
+
 /** เรียก API — แนบโทเคนให้อัตโนมัติ · คืน {ok:false,error} เสมอเมื่อพลาด ไม่โยน */
 export async function call(action, body = {}) {
   try {

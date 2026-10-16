@@ -807,6 +807,9 @@ function App(){
     routeLive.current = false; routeHold.current = false;
     try{ history.replaceState(null,"",routeUrl({go:null})); }catch(e){}
   };
+  useEffect(()=>{ if(!user) return;
+    return auth.onSessionExpired(()=>{ toast(t("เซสชันหมดอายุ กรุณาเข้าสู่ระบบใหม่", "Your session has expired. Please sign in again"), "warn"); logout(); });
+  },[user && user.email]);
 
   // No blocking full-screen loader — the globe skeleton renders on frame 1 and data streams in.
 
