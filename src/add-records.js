@@ -337,6 +337,7 @@ const AR_CSS = `
 .ar-grid{display:grid;grid-template-columns:repeat(6,1fr);gap:9px}
 .ar-f{display:flex;flex-direction:column;gap:4px;font-size:11.5px;font-weight:700;color:var(--dim);min-width:0}
 .ar-f.ar-wide{grid-column:span 3}
+.ar-f > :last-child{margin-top:auto}
 .ar-f select,.ar-f input{padding:8px 10px;border-radius:9px;border:var(--dropdown-border);background:var(--dropdown-bg);
   color:var(--dropdown-text);font-family:var(--font);font-size:12.5px;font-weight:400;width:100%;box-sizing:border-box;box-shadow:var(--dropdown-shadow)}
 .ar-f select{color-scheme:light}

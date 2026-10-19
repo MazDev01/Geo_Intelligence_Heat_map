@@ -154,9 +154,9 @@ export function Users(){
               : u.hasPassword===false ? html`<span class="um-nopw">${t("ยังไม่ได้ตั้งรหัส","No password yet")}</span>`
               : u.mustChange ? html`<span class="um-tmppw">${t("ใช้รหัสชั่วคราว","Temporary password")}</span>` : ""}</div>
             <div class="um-em">${u.email}</div></div></div>`},
-        {h:t("บทบาท", "Role"), w:"210px", render:u=>html`<span class=${"um-role "+roleCls(u.role)}>${roleTH(u.role)}</span>`},
-        {h:t("เข้าสู่ระบบล่าสุด", "Last sign-in"), w:"170px", render:u=>html`<span class="um-last">${u.last==="—"?"—":thDateTime(u.last)}</span>`},
-        {h:t("การจัดการ", "Actions"), w:"230px", render:u=>html`<div class="um-act">
+        {h:t("บทบาท", "Role"), render:u=>html`<span class=${"um-role "+roleCls(u.role)}>${roleTH(u.role)}</span>`},
+        {h:t("เข้าสู่ระบบล่าสุด", "Last sign-in"), render:u=>html`<span class="um-last">${u.last==="—"?"—":thDateTime(u.last)}</span>`},
+        {h:t("การจัดการ", "Actions"), w:"1%", render:u=>html`<div class="um-act">
           <button class="um-btn" onClick=${()=>setEdit(u)}><${Icon} name="edit" size=${14}/>${t("แก้ไข", "Edit")}</button>
           <button class="um-btn" onClick=${()=>setPerm(u)}><${Icon} name="key" size=${14}/>${t("สิทธิ์", "Permissions")}</button>
           <button class="um-btn" onClick=${()=>resetPw(u)} title=${t("ตั้งรหัสผ่านใหม่ให้ผู้ใช้คนนี้ (ใช้ตอนลืมรหัส)","Set a new password for this user (use when they forget it)")}>
@@ -470,7 +470,7 @@ const UM_CSS = `
 .um-last{font-size:12.5px;color:var(--muted);font-variant-numeric:tabular-nums}
 
 /* ปุ่มจัดการ: ชิดขวา ระยะเท่ากัน ขนาดเล็กกว่าเนื้อหาในแถว */
-.um-act{display:flex;align-items:center;gap:7px;justify-content:flex-end}
+.um-act{display:flex;align-items:center;gap:7px;justify-content:flex-end;flex-wrap:nowrap}
 .um-btn{display:inline-flex;align-items:center;gap:6px;cursor:pointer;font-family:var(--font);
   font-size:12.5px;color:var(--muted);padding:6px 11px;border-radius:8px;
   border:1px solid var(--stroke2);background:var(--surface)}
@@ -480,6 +480,10 @@ const UM_CSS = `
 .um-del:hover:not(:disabled){background:rgba(220,38,38,.08);border-color:rgba(220,38,38,.28);color:#b30019}
 .um-del:disabled{opacity:.3;cursor:not-allowed}
 
+@media(max-width:1279px){
+  .um-act{flex-wrap:wrap;min-width:165px}
+  .um-table .table td,.um-table .table th{padding-left:8px;padding-right:8px}
+}
 @media(max-width:900px){
   .um-dd{width:100%}
   .um-search{flex:1 1 100%}

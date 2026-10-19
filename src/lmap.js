@@ -190,7 +190,7 @@ export function LeafletMap({db, filters, layers, country="Thailand", onPickArea,
       if(onZoneEditor) onZoneEditor(M.current.zoneEditor);   // ส่งตัวคุมออกไปให้แถบเครื่องมือใช้
       applyLockZones();                                              // โซนอาจมาถึงหลัง effect ของ lockZones แล้ว
       buildMask();                                                   // รูปโซนเพิ่งมา — เจาะรูใหม่ตามโซนถ้า TC ถูกล็อกโซนไว้
-      buildBase();                                                   // และกรองข้อมูลให้เหลือเฉพาะในโซน (หมุด/คลัสเตอร์/heat)
+      M.current.buildBase();                                         // และกรองข้อมูลให้เหลือเฉพาะในโซน (หมุด/คลัสเตอร์/heat)
     }).catch(e=>console.warn("[zone-layer] โหลด /data/zones.geojson ไม่สำเร็จ", e));
 
     // ⚠ "แมพเทาต้องรีเฟรชหน้า": Leaflet จำขนาดกล่องไว้ตอนสร้างแมพ ถ้าตอนนั้นกล่องยังถูกหน้าอื่นทับหรือสูง 0
@@ -607,7 +607,7 @@ export function LeafletMap({db, filters, layers, country="Thailand", onPickArea,
   function buildBase(){
     const map=M.current.map;
     if(!M.current.alive) return;
-    if(!ref.current || ref.current.clientHeight<10){ setTimeout(()=>{ if(M.current.alive) buildBase(); },120); return; }
+    if(!ref.current || ref.current.clientHeight<10){ setTimeout(()=>{ if(M.current.alive) M.current.buildBase(); },120); return; }
     // TC ที่ถูกล็อกโซน: เห็นเฉพาะข้อมูล "ในเขตของตัวเอง" — ตัดสินจากพิกัดจริง (point-in-polygon)
     // ไม่ใช่ชื่อเขต เพราะขอบที่แอดมินลากไม่ได้ตรงกับขอบเขตปกครองเสมอไป
     const zf = zoneFilter();
@@ -864,6 +864,7 @@ export function LeafletMap({db, filters, layers, country="Thailand", onPickArea,
   }
   M.current.build = buildMarkers;   // keep the moveend rebuild pointed at the current closure
   M.current.onPick = onPickCustomer;
+  M.current.buildBase = buildBase;
 
   // Cluster radius — LOGARITHMIC scale (data spans 2 … ~4,100 per cluster), clamped to a
   // fixed [20,44]px ceiling. The 44px cap (paired with the wider merge distance below) keeps
