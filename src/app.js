@@ -1030,7 +1030,8 @@ function App(){
         ${isBiz
           ? html`<button class="tb-brand" title=${isTC?t("เขตที่รับผิดชอบ", "My territory"):t("กลับสู่ลูกโลก", "Back to the globe")} onClick=${isTC?null:()=>navItem("workspace")} style=${isTC?{cursor:"default"}:null}>
               <div class="mk">${brandMark()}</div><div class="nm">GeoIntel<small>GEO INTELLIGENCE</small></div></button>`
-          : html`<button class="hamb" onClick=${()=>setCollapsed(c=>!c)}><${Icon} name="grid" size=${17}/></button>`}
+          : html`<button class="hamb" aria-label=${collapsed?t("ขยายเมนู", "Expand menu"):t("ย่อเมนู", "Collapse menu")} aria-expanded=${collapsed?"false":"true"}
+              onClick=${()=>setCollapsed(c=>!c)}><${Icon} name="grid" size=${17}/></button>`}
         ${onGlobe ? html`<div style=${{marginRight:"auto"}}></div>`
         : (view==="workspace" && mode==="map")
           ? (isTC
@@ -1181,7 +1182,7 @@ function App(){
         ${ModalComp && html`<div style=${{position:"absolute",inset:0,zIndex:700,background:"var(--surface)",animation:"fade .25s"}}>
           <div class="slide-panel" style=${{position:"absolute",inset:0,overflow:"hidden",background:"var(--surface)"}}>
             <button class="icon-btn" style=${{position:"absolute",top:"16px",right:"16px",zIndex:5,width:"34px",height:"34px",background:"var(--surface)"}}
-              onClick=${()=>setOverlay(null)}><${Icon} name="close" size=${16}/></button>
+              aria-label=${t("ปิด", "Close")} onClick=${()=>setOverlay(null)}><${Icon} name="close" size=${16}/></button>
             <!-- ใส่ mdl-page ไว้ให้ CSS รู้ว่าหน้านี้มีปุ่มกากบาทลอยอยู่มุมขวาบน จะได้เว้นที่ด้านขวาของหัวข้อให้ -->
             <div class="mdl-page" style=${{height:"100%",overflow:"auto"}}><${ModalComp} key=${modalId+":"+masterVer}/></div>
           </div>

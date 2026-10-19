@@ -255,7 +255,7 @@ function EditRowDrawer({row, onClose, onSave, onSkip, onMerge, onNew}){
       <div class="dm-erd-head">
         <div><div class="dm-erd-nm">${t("แถวที่", "Row")} ${row.row}${row.name?" · "+row.name:""}</div>
           <div class="dim" style=${{fontSize:"12px"}}>${isDup?t("ซ้ำกับข้อมูลเดิม — เปรียบเทียบและตัดสินใจ", "Duplicate of an existing record — compare and decide"):t("แก้ไขค่าที่อ่านจากไฟล์ก่อนนำเข้า", "Edit the values read from the file before importing")}</div></div>
-        <button class="dm-erd-x" onClick=${onClose}><${Icon} name="close" size=${16}/></button>
+        <button class="dm-erd-x" aria-label=${t("ปิด", "Close")} onClick=${onClose}><${Icon} name="close" size=${16}/></button>
       </div>
       <div class="dm-erd-body">
         ${isDup ? html`

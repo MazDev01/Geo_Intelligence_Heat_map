@@ -253,7 +253,9 @@ function UserEditModal({edit, users, me, onClose, onSave}){
       </${Field}>`}
       ${!isNew && html`<${Field} label=${t("เปิดใช้งานบัญชี", "Account active")}>
         <div class="row" style=${{gap:"10px",alignItems:"center"}}>
-          <${Toggle} on=${active} onChange=${()=>{ if(isSelf) return toast(t("ระงับบัญชีตัวเองไม่ได้", "You cannot suspend your own account"),"warn"); setActive(v=>!v); }}/>
+          <${Toggle} on=${active} label=${t("เปิดใช้งานบัญชี", "Account active")} disabled=${isSelf}
+            title=${isSelf ? t("ระงับบัญชีตัวเองไม่ได้", "You cannot suspend your own account") : undefined}
+            onChange=${()=>{ if(isSelf) return toast(t("ระงับบัญชีตัวเองไม่ได้", "You cannot suspend your own account"),"warn"); setActive(v=>!v); }}/>
           <span class="dim" style=${{fontSize:"11.5px"}}>${active ? t("ใช้งานได้ปกติ", "Can sign in") : t("ระงับ — เข้าสู่ระบบไม่ได้", "Suspended — cannot sign in")}</span>
         </div>
       </${Field}>`}
@@ -631,7 +633,7 @@ export function Config(){
           onInput=${e=>setLayer(i,{opacity:+e.target.value})} class="cfg-layer-rng"/>
         <span class="mono cfg-layer-pct">${l.opacity}%</span>
         <span class="cfg-layer-prev" style=${{background:`linear-gradient(90deg,transparent,${l.color})`,opacity:l.on?l.opacity/100:.15}}></span>
-        <${Toggle} on=${l.on} onChange=${l.soon ? null : v=>setLayer(i,{on:v})}/>
+        <${Toggle} on=${l.on} label=${l.name} onChange=${l.soon ? null : v=>setLayer(i,{on:v})}/>
       </div>`)}`,
       html`<${Badge} tone="info">${layers.filter(l=>l.on).length}/${layers.length}</${Badge}>`)}
 
@@ -641,7 +643,7 @@ export function Config(){
         <span style=${{flex:1}}>${t("ประเภทการแจ้งเตือน", "Notification type")}</span><span style=${{width:"130px"}}>${t("ช่องทาง", "Channel")}</span><span style=${{width:"110px"}}>${t("ระดับ", "Priority")}</span></div>
       ${notif.map((n,i)=>html`<div key=${n.key} class="row between" style=${{padding:"10px 0",borderTop:"1px solid var(--stroke)",gap:"12px"}}>
         <div class="row" style=${{gap:"11px",flex:1,minWidth:0}}>
-          <${Toggle} on=${n.on} onChange=${v=>setN(i,{on:v})}/>
+          <${Toggle} on=${n.on} label=${n.label} onChange=${v=>setN(i,{on:v})}/>
           <span style=${{fontSize:"13px",opacity:n.on?1:.45}}>${n.label}</span></div>
         <!-- ช่องทางกำหนดตายตัวเป็น "แจ้งเตือนระบบ" จึงแสดงเป็นข้อความ ไม่ใช่ตัวเลือกให้กดเปลี่ยน -->
         <span style=${{width:"130px",flex:"none",fontSize:"13px",color:"var(--muted)",opacity:n.on?1:.45}}>${t("แจ้งเตือนระบบ", "System alert")}</span>

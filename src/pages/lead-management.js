@@ -215,7 +215,7 @@ export function ReviewDrawer({lead, onClose, onReject, onApprove}){
       <div class="ld-dr-head">
         <div><div class="ld-dr-nm">${lead.businessName}</div>
           <div class="ld-dim">${lead.id}${lead.customerId&&lead.customerId!==lead.id?" · "+lead.customerId:""} · ${segTH(lead.segment)} · ${provinceTH(lead.province)}</div></div>
-        <button class="ld-x" onClick=${onClose}><${Icon} name="close" size=${16}/></button>
+        <button class="ld-x" aria-label=${t("ปิด", "Close")} onClick=${onClose}><${Icon} name="close" size=${16}/></button>
       </div>
       <div class="ld-dr-body">
         <!-- ส่วนที่ 1 · ข้อมูล Lead -->

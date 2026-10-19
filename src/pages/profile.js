@@ -129,7 +129,7 @@ export function Profile(){
           ${myEvents.length ? myEvents.map(e=>
             html`<div key=${e.key} class="row between" style=${{padding:"13px 0",borderBottom:"1px solid var(--stroke)"}}>
               <span style=${{fontSize:"13px"}}>${e.label}</span>
-              <${Toggle} on=${!off[e.key]} onChange=${()=>N(e.key)}/></div>`)
+              <${Toggle} on=${!off[e.key]} label=${e.label} onChange=${()=>N(e.key)}/></div>`)
             : html`<div class="emptybox">${t("ผู้ดูแลระบบปิดการแจ้งเตือนไว้ทั้งหมด", "The administrator has disabled all notifications")}</div>`}
           ${myEvents.length < roleAll.length ? html`<div class="dim" style=${{fontSize:"11.5px",marginTop:"10px"}}>
             ${t("อีก", "Another")} ${roleAll.length-myEvents.length} ${t("เหตุการณ์ถูกปิดไว้ที่ระดับระบบ จึงไม่แสดงที่นี่", "events are disabled system-wide, so they are not shown here")}</div>` : ""}

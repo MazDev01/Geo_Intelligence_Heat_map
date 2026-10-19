@@ -155,7 +155,7 @@ export function MasterData(){
               ${!it.unlisted && html`<button class="md-move" disabled=${busy||i===0} aria-label=${t("เลื่อนขึ้น", "Move up")} onClick=${()=>send({action:"move", code:it.code, dir:-1})}>▲</button>
                 <button class="md-move" disabled=${busy||i===rows.length-1||!!(rows[i+1]&&rows[i+1].unlisted)} aria-label=${t("เลื่อนลง", "Move down")} onClick=${()=>send({action:"move", code:it.code, dir:1})}>▼</button>`}
               <${Btn} size="sm" variant="ghost" icon="edit" onClick=${()=>setEdit({type:tab, isNew:false, item:it})}>${t("แก้ไข", "Edit")}</${Btn}>
-              ${cfg.toggle && !it.is_system ? html`<${Toggle} on=${it.is_active} onChange=${()=>toggleActive(it)}/>` : ""}
+              ${cfg.toggle && !it.is_system ? html`<${Toggle} on=${it.is_active} label=${t("เปิดใช้งาน", "Enable")+" "+t(it.label_th, it.label_en||it.label_th)} onChange=${()=>toggleActive(it)}/>` : ""}
             </div>`}</td>
           </tr>`; })}
         </tbody>
@@ -196,7 +196,7 @@ function MDModal({edit, cfg, busy, onClose, onSave}){
     ${cfg.icon && html`<${Field} label=${t("ไอคอน", "Icon")}>
       <div class="md-icons">${SEG_ICON_KEYS.map(k=>html`<button key=${k} type="button" data-md-icon=${k} class=${"md-icon"+(f.icon===k?" on":"")} aria-pressed=${f.icon===k}
         onClick=${()=>set("icon",k)}><${IconGlyph} name=${k} size=${18} color=${f.icon===k?"var(--accent)":"var(--muted)"}/></button>`)}</div></${Field}>`}
-    ${cfg.toggle && !it.is_system && html`<${Field} label=${t("เปิดใช้งาน", "Enable")}><div><${Toggle} on=${f.is_active} onChange=${()=>set("is_active",!f.is_active)}/></div></${Field}>`}
+    ${cfg.toggle && !it.is_system && html`<${Field} label=${t("เปิดใช้งาน", "Enable")}><div><${Toggle} on=${f.is_active} label=${t("เปิดใช้งาน", "Enable")} onChange=${()=>set("is_active",!f.is_active)}/></div></${Field}>`}
   </${Modal}>`;
 }
 

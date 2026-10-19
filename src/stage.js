@@ -264,7 +264,7 @@ export function GeoStage({db, mode, activeCountry, flyTarget, globeUnder, onArri
               <div class="row" style=${{gap:"9px",opacity:layers[r.k]!==false?1:.45,transition:"opacity .15s"}}>
                 <span class="dotc" style=${{background:r.c,opacity:r.swOp,width:"11px",height:"11px",borderRadius:"3px"}}></span>
                 <span style=${{fontSize:"12px",fontWeight:layers[r.k]!==false?600:400}}>${r.name}</span></div>
-              <${Toggle} on=${layers[r.k]!==false} onChange=${()=>setLayers(x=>({...x,[r.k]:x[r.k]===false}))}/>
+              <${Toggle} on=${layers[r.k]!==false} label=${r.name} onChange=${()=>setLayers(x=>({...x,[r.k]:x[r.k]===false}))}/>
             </div>
           </div>`)}
         </div>
@@ -275,7 +275,7 @@ export function GeoStage({db, mode, activeCountry, flyTarget, globeUnder, onArri
             <div class="row" style=${{gap:"9px",opacity:layers.route!==false?1:.45,transition:"opacity .15s"}}>
               <span class="dotc" style=${{background:"repeating-linear-gradient(90deg,#8a7bff 0 5px,transparent 5px 9px)",width:"14px",height:"3px",borderRadius:"2px"}}></span>
               <span style=${{fontSize:"12px",fontWeight:layers.route!==false?600:400,color:"var(--txt)"}}>${t("เส้นทางดำเนินการ", "Planned routes")}</span></div>
-            <${Toggle} on=${layers.route!==false} onChange=${()=>setLayers(x=>({...x,route:x.route===false}))}/></div>
+            <${Toggle} on=${layers.route!==false} label=${t("เส้นทางดำเนินการ", "Planned routes")} onChange=${()=>setLayers(x=>({...x,route:x.route===false}))}/></div>
         </div>`}
 
         <!-- หมวดหมู่ธุรกิจ — ย้ายจากแถวชิปบนแถบนำทางมาเป็น dropdown ท้ายแผงเลเยอร์

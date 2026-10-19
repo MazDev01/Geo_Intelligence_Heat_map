@@ -127,7 +127,7 @@ function DrawerShell({eyebrow, title, sub, onClose, children, dataTour, heroSegm
             ${sub&&html`<div class="sub" style=${{marginTop:"3px"}}>${sub}</div>`}
           </div>
         </div>
-        <button class="icon-btn" style=${{width:"30px",height:"30px",flex:"none"}} onClick=${onClose}><${Icon} name="close" size=${15}/></button>
+        <button class="icon-btn" style=${{width:"30px",height:"30px",flex:"none"}} aria-label=${t("ปิด", "Close")} onClick=${onClose}><${Icon} name="close" size=${15}/></button>
       </div>
     </div>
     <div style=${{padding:"18px 20px 28px"}}>${children}</div>

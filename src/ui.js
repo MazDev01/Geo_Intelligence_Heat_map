@@ -46,8 +46,9 @@ export function PwInput({value, onInput, autocomplete, placeholder, name}){
   </div>`;
 }
 
-export function Toggle({on, onChange}){
-  return html`<div class=${cx("toggle",on&&"on")} onClick=${()=>onChange&&onChange(!on)}></div>`;
+export function Toggle({on, onChange, label, disabled, title}){
+  return html`<button type="button" role="switch" class=${cx("toggle",on&&"on")} aria-checked=${on?"true":"false"}
+    aria-label=${label} title=${title} disabled=${disabled} onClick=${()=>onChange&&onChange(!on)}></button>`;
 }
 
 export function Field({label, children}){
@@ -70,7 +71,7 @@ export function Modal({title, onClose, children, footer, wide, small}){
   const node = html`<div class="modal-ov" onClick=${e=>e.target.classList.contains("modal-ov")&&onClose()}>
     <div class=${cx("modal",wide&&"wide",small&&"small")}>
       <div class="modal-h"><h2>${title}</h2>
-        <button class="icon-btn" style=${{marginLeft:"auto",width:"32px",height:"32px"}} onClick=${onClose}>
+        <button class="icon-btn" style=${{marginLeft:"auto",width:"32px",height:"32px"}} aria-label=${t("ปิด", "Close")} onClick=${onClose}>
           <${Icon} name="close" size=${16}/></button></div>
       <div class="modal-b">${children}</div>
       ${footer&&html`<div class="modal-f">${footer}</div>`}
