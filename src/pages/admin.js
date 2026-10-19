@@ -500,8 +500,8 @@ export function Config(){
   // ⚠ ความทึบของ 3 ตัวแรกคือค่าที่ "แผนที่ใช้จริง" — อ่านจากสโตร์กลาง ไม่ใช่เลขฝังตายคนละชุด
   //   (เดิมการ์ดนี้ตั้ง Lead ไว้ 85 แต่แผนที่ใช้ 40 กดบันทึกทีเดียวหมุดจางจะเปลี่ยนเป็นทึบทันที)
   const LAYER_META=[
-    {id:"existing",name:t("ลูกค้าปัจจุบัน", "Existing customers"),color:"#2563eb"},
-    {id:"prospect",name:"Lead",color:"#38bdf8"},
+    {id:"existing",name:t("ลูกค้าปัจจุบัน", "Existing customers"),color:"#475569",byOp:true},
+    {id:"prospect",name:"Lead",color:"#475569",byOp:true},
     {id:"heat",name:t("แผนที่ความร้อน (Lead)", "Heatmap (Lead)"),color:"#ff5a3c"},
     {id:"boundary",name:t("ขอบเขตบริการ", "Service boundaries"),color:"#34e0d0",soon:true},
     {id:"route",name:t("เส้นทางเดินทาง", "Travel routes"),color:"#8a7bff"},
@@ -621,7 +621,7 @@ export function Config(){
       html`${layers.map((l,i)=>html`<div key=${l.id} data-layer=${l.id}
         data-soon=${l.soon?"1":null} title=${l.soon?t("ยังไม่มีเลเยอร์นี้บนแผนที่", "This layer is not on the map yet"):null}
         class="row cfg-layer" style=${{border:"1px solid var(--stroke)",background:"rgba(30,45,80,.05)",opacity:l.soon?.55:1}}>
-        <span style=${{width:"14px",height:"14px",borderRadius:"50%",flex:"none",background:l.color,opacity:l.on?1:.35}}></span>
+        <span style=${{width:"14px",height:"14px",borderRadius:"50%",flex:"none",background:l.color,opacity:l.on?(l.byOp?l.opacity/100:1):.35}}></span>
         <span class="cfg-layer-nm">${l.name}${l.soon ? html` <${Badge} tone="neutral">${t("ยังไม่เปิดใช้", "Not available yet")}</${Badge}>` : null}</span>
         <input type="range" min="10" max="100" value=${l.opacity} disabled=${!!l.soon} aria-label=${t("ความทึบของ", "Opacity of")+l.name}
           onInput=${e=>setLayer(i,{opacity:+e.target.value})} class="cfg-layer-rng"/>

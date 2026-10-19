@@ -258,8 +258,8 @@ export function GeoStage({db, mode, activeCountry, flyTarget, globeUnder, onArri
              แสดง/ซ่อน marker ตามสถานะลูกค้า (ทำงานร่วมกับโหมด Cluster/Marker) แต่ละอันปรับความทึบได้ -->
         <div>
           <div class="dim" style=${{fontSize:"11.5px",marginBottom:"6px"}}>${t("สถานะ marker", "Marker status")}</div>
-          ${[{k:"existing",name:t("ลูกค้าปัจจุบัน", "Current customers"),c:"#475569",swOp:1},
-             {k:"prospect",name:"Lead",c:"#475569",swOp:.4}].map(r=>html`<div key=${r.k} style=${{paddingTop:"6px"}}>
+          ${[{k:"existing",name:t("ลูกค้าปัจจุบัน", "Current customers"),c:"#475569",swOp:(layers.op?.existing??90)/100},
+             {k:"prospect",name:"Lead",c:"#475569",swOp:(layers.op?.prospect??40)/100}].map(r=>html`<div key=${r.k} style=${{paddingTop:"6px"}}>
             <div class="row between">
               <div class="row" style=${{gap:"9px",opacity:layers[r.k]!==false?1:.45,transition:"opacity .15s"}}>
                 <span class="dotc" style=${{background:r.c,opacity:r.swOp,width:"11px",height:"11px",borderRadius:"3px"}}></span>

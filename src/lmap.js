@@ -486,7 +486,7 @@ export function LeafletMap({db, filters, layers, country="Thailand", onPickArea,
     if(route && route.order && route.order.length){
       const o=office||{latitude:13.7563,longitude:100.5018};
       const pts=[[o.latitude,o.longitude],...route.order.map(s=>[s.latitude,s.longitude])];
-      L.polyline(pts,{color:"#38bdf8",weight:3,opacity:.92*routeOp}).addTo(grp);
+      L.polyline(pts,{color:"#8a7bff",weight:3,opacity:.92*routeOp}).addTo(grp);
       L.marker(pts[0],{interactive:false,zIndexOffset:1000,
         icon:L.divIcon({className:"",iconSize:[30,30],iconAnchor:[15,15],html:'<div class="plan-office"><span>⌂</span></div>'})}).addTo(grp);
       route.order.forEach((s,i)=>L.marker([s.latitude,s.longitude],{interactive:false,zIndexOffset:1000,
@@ -497,7 +497,7 @@ export function LeafletMap({db, filters, layers, country="Thailand", onPickArea,
   },[plan, route, office, layers.route, routeOp]);
 
   // ── เลเยอร์ "เส้นทางดำเนินการ" — เส้นเชื่อมเส้นทางของแผนอื่นๆ ที่ TC บันทึกไว้ในระบบ (เปิด/ปิดด้วย layers.route) ──
-  const ROUTE_COLORS = ["#8a7bff","#33d69f","#ffb02e","#ff7a2e","#f472b6","#ff5a5a"];
+  const ROUTE_COLORS = ["#33d69f","#ffb02e","#ff7a2e","#f472b6","#ff5a5a"];
   useEffect(()=>{
     const m=M.current; if(!m.alive||!m.map) return;
     if(m.routesLayer){ m.map.removeLayer(m.routesLayer); m.routesLayer=null; }
@@ -727,6 +727,7 @@ export function LeafletMap({db, filters, layers, country="Thailand", onPickArea,
       M.current.heatSig=heatSig;
     }
     // ความทึบของ heat ถูกกำหนดใน buildMarkers (ตามโหมดซูมเมื่อ auto / ตาม layers.op เมื่อแมนนวล) เพื่อให้ fade ตอนสลับโหมดที่เดียว
+    M.current.dirty = true;
     buildMarkers();
   }
 
@@ -739,15 +740,14 @@ export function LeafletMap({db, filters, layers, country="Thailand", onPickArea,
   //  The dot→icon switch is gated on BOTH zoom (>= LOD_ZOOM) and viewport density (<= ICON_CAP, in
   //  buildMarkers) — a zoom threshold alone can't stay smooth because heaviness tracks marker COUNT.
   const LOD_ZOOM = 9;    // icons appear once a single PROVINCE fills the screen (~z9); country z5 stays tiny dots
-  function markerIcon(x, op, zoom, colorOverride){
+  // เริ่มต้นเท่าเส้นผ่านศูนย์กลางจริงของจุดกลม (circleMarker) ที่ zoom=LOD_ZOOM พอดี
+  // (dotRadius ที่ zoom=9 = 4.4 → เส้นผ่านศูนย์กลาง 8.8 ≈ 9) เพื่อสลับจากจุดกลมเป็นไอคอนแบบไร้รอยต่อ
+  // แล้วขยายต่อเนื่องเป็นเส้นตรงไปจนถึง 34px ที่ zoom 13
+  const markerSize = zoom => Math.max(9, Math.min(34, 9 + ((zoom??LOD_ZOOM)-LOD_ZOOM)*(34-9)/(13-LOD_ZOOM)));
+  function markerIcon(x, op, colorOverride){
     const color = colorOverride || SEG_COLOR[x.segment] || "#64748b";   // สีหมุดตามหมวดธุรกิจ (ไม่ใช่สถานะแล้ว)
-    // เริ่มต้นเท่าเส้นผ่านศูนย์กลางจริงของจุดกลม (circleMarker) ที่ zoom=LOD_ZOOM พอดี
-    // (dotRadius ที่ zoom=9 = 4.4 → เส้นผ่านศูนย์กลาง 8.8 ≈ 9) เพื่อสลับจากจุดกลมเป็นไอคอนแบบไร้รอยต่อ
-    // แล้วขยายต่อเนื่องเป็นเส้นตรงไปจนถึง 34px ที่ zoom 13
-    const size = Math.max(9, Math.min(34, 9 + ((zoom??LOD_ZOOM)-LOD_ZOOM)*(34-9)/(13-LOD_ZOOM)));
-    const glyphSize = Math.round(size*0.6);   // ไอคอนเส้นหมวดธุรกิจ (สีขาว) สัดส่วนตามวงกลมที่เล็ก/ใหญ่ขึ้น
-    const glyph = segIconSVG(x.segment, {size:glyphSize, color:"#fff", stroke:2.6});
-    return L.divIcon({className:"", iconSize:[size,size], iconAnchor:[size/2,size/2],
+    const glyph = segIconSVG(x.segment, {size:20, color:"#fff", stroke:2.6});
+    return L.divIcon({className:"geo-mk-host", iconSize:null,
       html:`<div class="geo-mk" style="background:${color};opacity:${op/100}">${glyph}</div>`});
   }
 
@@ -771,17 +771,21 @@ export function LeafletMap({db, filters, layers, country="Thailand", onPickArea,
     }
     // แจ้งโหมดปัจจุบันออกไปภายนอก (สเตจใช้โชว์ legend ความหนาแน่นเฉพาะตอนอยู่โหมด heat)
     if(auto && onMapMode && M.current.lastMode!==mode){ M.current.lastMode=mode; onMapMode(mode); }
-    if(M.current.cluster){ map.removeLayer(M.current.cluster); M.current.cluster=null; }
+    map.getContainer().style.setProperty("--mk", markerSize(map.getZoom())+"px");
     // วาดหมุด/คลัสเตอร์เมื่อ: (auto) ไม่ได้อยู่โหมด heat · (แมนนวล) เปิดเลเยอร์ marker/cluster อย่างน้อยหนึ่ง
     const showPoints = auto ? (mode!=="heat") : (layers.cluster || layers.existing || layers.prospect);
     // โหมด heat: ไม่มีหมุดให้สร้างใหม่ · ปล่อย clustered=false ให้ moveend เรียกเข้ามาได้
     // (เข้ามาแล้วอัปเดตความทึบ heat ด้านบนแล้ว return ทันที — ราคาเกือบศูนย์)
-    if(!showPoints){ M.current.clustered = false; return; }
+    if(!showPoints){ if(M.current.cluster) map.removeLayer(M.current.cluster); M.current.clustered = false; return; }
     const allCs=(layers.existing!==false?(M.current.cs||[]):[]);
     const allPs=(layers.prospect!==false?(M.current.ps||[]):[]);
     // auto: ชั้น cluster เมื่ออยู่โหมด cluster · แมนนวล: ตาม layers.cluster + เกณฑ์จำนวนเดิม
     // ⚠ นับจาก "ชุดเต็ม" ไม่ใช่จำนวนในจอ — เดิมนับในจอทำให้สลับเข้า/ออกโหมดคลัสเตอร์ไปมาระหว่างลาก
     const useCluster = auto ? (mode!=="heat") : (layers.cluster && (allCs.length+allPs.length)>60);
+    if(useCluster && M.current.cluster && M.current.grpClustered && !M.current.dirty){
+      if(!map.hasLayer(M.current.cluster)) M.current.cluster.addTo(map);
+      M.current.clustered = true; return; }
+    if(M.current.cluster){ map.removeLayer(M.current.cluster); M.current.cluster=null; }
     // คลัสเตอร์คัดหมุดนอกจอให้เองแล้ว (removeOutsideVisibleBounds) จึงส่งชุดเต็มเข้าไป
     // เหลือ cull เองเฉพาะโหมดไม่คลัสเตอร์ ซึ่งหมุดเป็น DOM/แคนวาสตรง ๆ ไม่มีใครคัดให้
     const b=map.getBounds().pad(0.25);
@@ -848,17 +852,18 @@ export function LeafletMap({db, filters, layers, country="Thailand", onPickArea,
           fillColor:cov||SEG_COLOR[x.segment]||"#64748b", fillOpacity:o,
           seg:x.segment, status:x.status, prov:x.province});
       } else {
-        m=L.marker([x.latitude,x.longitude],{icon:markerIcon(x,isCust?(op.existing??90):(op.prospect??40),zoom,cov),
+        m=L.marker([x.latitude,x.longitude],{icon:markerIcon(x,isCust?(op.existing??90):(op.prospect??40),cov),
           seg:x.segment, status:x.status, prov:x.province, keyboard:false});
       }
       m.bindTooltip(`<div class="mk-tip"><b>${x.businessName}</b><br/>${x.id} · ${segTH(x.segment)} · ${isCust?t("สมาชิกเครือข่ายปัจจุบัน", "Current network members"):"Lead"}</div>`,{direction:"top",offset:[0,-16]});
-      m.on("click",()=>onPickCustomer&&onPickCustomer(x));   // detail panel reads THIS marker
+      m.on("click",()=>M.current.onPick&&M.current.onPick(x));   // detail panel reads THIS marker
       grp.addLayer(m);
     });
     add(cs,true); add(ps,false);
-    grp.addTo(map); M.current.cluster=grp;
+    grp.addTo(map); M.current.cluster=grp; M.current.grpClustered=useCluster; M.current.dirty=false;
   }
   M.current.build = buildMarkers;   // keep the moveend rebuild pointed at the current closure
+  M.current.onPick = onPickCustomer;
 
   // Cluster radius — LOGARITHMIC scale (data spans 2 … ~4,100 per cluster), clamped to a
   // fixed [20,44]px ceiling. The 44px cap (paired with the wider merge distance below) keeps
@@ -879,9 +884,11 @@ export function LeafletMap({db, filters, layers, country="Thailand", onPickArea,
     let inner=`<div class="gc-count" style="font-size:${cf}px">${label}</div>`;
     if(r>=35){
       const counts={}; cluster.getAllChildMarkers().forEach(m=>{const s=m.options.seg; if(s)counts[s]=(counts[s]||0)+1;});
-      const cats=Object.entries(counts).sort((a,b)=>b[1]-a[1]).slice(0,3)
-        .map(([s,c])=>`<span class="gc-cat">${segIconSVG(s,{size:13})}<b>${c}</b></span>`).join("");
-      inner+=`<div class="gc-cats">${cats}</div>`;
+      const avail=size-15; let used=0;
+      const fit=Object.entries(counts).sort((a,b)=>b[1]-a[1]).slice(0,3).filter(([,c],i)=>{
+        const w=14+String(c).length*6+(i?4:0); if(used+w>avail) { used=Infinity; return false; } used+=w; return true; });
+      const cats=fit.map(([s,c])=>`<span class="gc-cat">${segIconSVG(s,{size:13})}<b>${c}</b></span>`).join("");
+      if(cats) inner+=`<div class="gc-cats">${cats}</div>`;
     }
     return L.divIcon({className:"", iconSize:[size,size],
       html:`<div class="geo-cluster" style="width:${size}px;height:${size}px;border-color:${dcol}">${inner}</div>`});
