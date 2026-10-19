@@ -8,6 +8,7 @@
 //     โครงนี้เลือกแบบ storage ก่อนเพื่อให้ใช้ได้ทั้ง static hosting และ dev server เหมือนกัน
 // ---------------------------------------------------------------------------
 
+import {getLang} from "./i18n.js";
 const KEY = "geointel.auth";
 const API = "/api/auth";
 
@@ -54,10 +55,17 @@ const EXPIRED = "geointel:session-expired";
 const sentToken = h => !!h && (typeof h.get === "function" ? !!h.get("Authorization") : !!(h.Authorization || h.authorization));
 if (typeof window !== "undefined" && typeof window.fetch === "function" && !window.fetch.geoGuard) {
   const raw = window.fetch.bind(window);
+  const urlOf = input => typeof input === "string" ? input : input instanceof URL ? input.href : (input && input.url) || "";
+  const withLang = (input, init) => {
+    if (!/\/api\//.test(urlOf(input))) return init;
+    const headers = new Headers((init && init.headers) || (input instanceof Request ? input.headers : undefined));
+    if (!headers.has("X-Lang")) headers.set("X-Lang", getLang());
+    return {...(init || {}), headers};
+  };
   const guarded = async (input, init) => {
-    const res = await raw(input, init);
+    const res = await raw(input, withLang(input, init));
     if (res.status === 401) {
-      const url = typeof input === "string" ? input : (input && input.url) || "";
+      const url = urlOf(input);
       const headers = (init && init.headers) || (input && typeof input === "object" && input.headers);
       if (/\/api\//.test(url) && !/\/api\/auth(\?|$)/.test(url) && sentToken(headers) && token()) window.dispatchEvent(new Event(EXPIRED));
     }

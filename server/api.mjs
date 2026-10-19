@@ -15,6 +15,7 @@ import {readStats, STAT_FILES} from './stats.mjs';
 import {readMaster, writeMaster} from './master-data.mjs';
 import {notify, listNotifications, markRead, ensureWeekly} from './notifications.mjs';
 import {MAX_BODY, MAX_ROWS, readRequest, checkSource, cleanName, dataRows, buildFile, disposition, sourceRows, sourceFilters} from './exports.mjs';
+import {errorEN, wantsEN} from './error-en.mjs';
 
 const require = createRequire(import.meta.url);
 const {MAX_BYTES} = require('../zone-validate.cjs');
@@ -46,7 +47,8 @@ const sendText = (res, code, text) => {
   res.end(text);
 };
 
-const send = (res, code, obj) => sendText(res, code, obj === undefined ? '' : JSON.stringify(obj));
+const localize = (res, obj) => obj && typeof obj.error === 'string' && wantsEN(res.req) ? {...obj, error: errorEN(obj.error)} : obj;
+const send = (res, code, obj) => sendText(res, code, obj === undefined ? '' : JSON.stringify(localize(res, obj)));
 
 const sendCached = async (res, entry) => {
   if (entry.json !== undefined) return sendText(res, 200, entry.json);
