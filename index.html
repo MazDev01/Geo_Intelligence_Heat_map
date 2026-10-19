@@ -104,6 +104,12 @@ label,.nav-item,.tab,.chip{font-weight:500}   /* labels & menus */
 .shell{display:grid;grid-template-columns:248px 1fr;height:100%}
 .shell.collapsed{grid-template-columns:72px 1fr}
 .shell.no-nav{grid-template-columns:1fr}   /* บทบาทภาคสนาม (ผู้บริหาร/TC) — ไม่มีแถบเมนู แผนที่เต็มความกว้าง */
+.sb-backdrop{display:none}
+@media(max-width:640px){
+  .shell:not(.no-nav){grid-template-columns:72px 1fr}
+  .shell:not(.no-nav):not(.collapsed) .sidebar{width:248px;z-index:960;box-shadow:0 12px 40px rgba(15,23,42,.28)}
+  .shell:not(.no-nav):not(.collapsed) .sb-backdrop{display:block;position:fixed;inset:0;z-index:955;background:rgba(15,23,42,.38);animation:fade .2s}
+}
 /* floating brand in the topbar (field roles Management/TC, replaces the sidebar logo) */
 .tb-brand{display:flex;align-items:center;gap:10px;cursor:pointer;border:none;background:transparent;padding:0;font-family:var(--font)}
 .tb-brand .mk{width:32px;height:32px;border-radius:9px;flex:none;display:grid;place-items:center;

@@ -767,6 +767,7 @@ function App(){
   const toggleSub = id => setSubShut(m=>({...m, [id]: !m[id]}));
   const navItem = async (id)=>{ setMenu(null);
     if(!(await leaveZoneEdit())) return;
+    try{ if(window.matchMedia("(max-width:640px)").matches) setCollapsed(true); }catch(e){}
     setSubShut(m=> m[id] ? {...m, [id]:false} : m);   // ไปหน้าไหน ให้กางเมนูย่อยของหน้านั้นเสมอ
     if(id==="dashboard") return navItem("workspace");   // 'แดชบอร์ด' landing removed → Business Overview now lives in 'แดชบอร์ดผู้บริหาร (monitoring)'
     if(id==="workspace") return backToGlobe();
@@ -1022,6 +1023,7 @@ function App(){
         ${t("เครื่องมือ: การทำเหมืองเชิงสถิติ", "Engine: statistical mining")}</div>
         <div style=${{marginTop:"4px"}}>${t("เวอร์ชัน 1.0 ·", "Version 1.0 ·")} ${num(db.countries.reduce((a,c)=>a+(c.customerCount||0)+(c.prospectCount||0),0))} ${t("รายการ", "records")}</div></div>
     </aside>`}
+    ${!isBiz && !collapsed && html`<div class="sb-backdrop" onClick=${()=>setCollapsed(true)}></div>`}
 
     <div class="main">
       <header class="topbar">
