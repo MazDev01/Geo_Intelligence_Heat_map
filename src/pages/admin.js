@@ -972,9 +972,9 @@ export function Monitoring({defaultTab, reportNav}={}){
   // ── การ์ด KPI (อ่านจบใน 3 วิ): ตัวเลขหลัก + การเปลี่ยนแปลง(ลูกศร) + สี ──
   const _delta = arr => { const cur=_cnt(arr,_kwin), prv=_cnt(arr,_kprev); return prv ? cur-prv : null; };  // การเปลี่ยนแปลงจำนวน · null=ไม่มีข้อมูลเทียบ
   const custDelta=_delta(catCusts), leadDelta=_delta(catPros);
+  const cmpLabel = customDate ? t("เทียบกับช่วงยาวเท่ากันก่อนหน้า","vs. equal preceding period") : ((RANGES.find(r=>r.id===range)||RANGES[RANGES.length-1]).cmp);
   const _cAll=(db.customers||[]).length, _pAll=(db.prospects||[]).length;
   const natShare=(_cAll+_pAll)? Math.round(_cAll/(_cAll+_pAll)*100):0;      // อัตราเปลี่ยนเป็นลูกค้าเฉลี่ยทั้งประเทศ
-  const cmpLabel = customDate ? t("เทียบกับช่วงยาวเท่ากันก่อนหน้า","vs. equal preceding period") : ((RANGES.find(r=>r.id===range)||RANGES[RANGES.length-1]).cmp);
   const curShare=(fCusts.length+fPros.length)? Math.round(fCusts.length/(fCusts.length+fPros.length)*100):0;   // ของขอบเขตปัจจุบัน
   const shareDiff=curShare-natShare;   // + สูงกว่า / − ต่ำกว่า ค่าเฉลี่ยประเทศ
   const noData = fCusts.length+fPros.length===0;
