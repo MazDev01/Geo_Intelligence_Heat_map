@@ -10,7 +10,7 @@ import {toast} from "../ui.js";
 import {Dropdown} from "../select.js";   // dropdown กำหนดสไตล์เอง (โชว์ 6 ตัวเลือก+เลื่อน · hover แดงอ่อน · ที่เลือกพื้นขาวตัวอักษรแดงเข้ม)
 import {effectivePerms} from "../permissions.js";
 import {Monitoring} from "./admin.js";   // แดชบอร์ดผู้บริหาร (แดชบอร์ดภาพรวมธุรกิจ) — ใช้เป็นแดชบอร์ดของผู้บริหารในหน้ารายงาน
-import {canExportKind, exportReport} from "../export-api.js";
+import {canExportKind, exportReport, beStamp} from "../export-api.js";
 import {planTodayKey} from "../visit-rounds.js";
 import {t} from "../i18n.js";   // สลับภาษา TH/EN — ดู src/i18n.js
 
@@ -1022,30 +1022,28 @@ const GEO_CSS = `
 
 /* ============ EXPORT EXPERIENCE ============ */
 const FORMATS = [
-  {id:"pdf",   name:t("รายงาน PDF", "PDF report"),   ext:"PDF",    desc:t("เหมาะสำหรับการพิมพ์และนำเสนอ", "Best for printing and presenting"),   icon:"pdf"},
-  {id:"excel", name:"Excel",         ext:".xlsx",  desc:t("เหมาะสำหรับการวิเคราะห์ข้อมูลต่อ", "Best for further analysis"), icon:"excel"},
-  {id:"csv",   name:"CSV",           ext:".csv",   desc:t("เหมาะสำหรับการนำเข้าระบบอื่น", "Best for importing into another system"),    icon:"reports"},
+  {id:"pdf",   get name(){ return t("รายงาน PDF", "PDF report"); },   ext:"PDF",    get desc(){ return t("เหมาะสำหรับการพิมพ์และนำเสนอ", "Best for printing and presenting"); },   icon:"pdf"},
+  {id:"excel", name:"Excel",         ext:".xlsx",  get desc(){ return t("เหมาะสำหรับการวิเคราะห์ข้อมูลต่อ", "Best for further analysis"); }, icon:"excel"},
+  {id:"csv",   name:"CSV",           ext:".csv",   get desc(){ return t("เหมาะสำหรับการนำเข้าระบบอื่น", "Best for importing into another system"); },    icon:"reports"},
 ];
 // ตัวเลือก "ภาพประกอบ" เท่านั้น — CSV เก็บข้อความล้วน จึงซ่อนทั้งกลุ่มนี้เมื่อเลือก CSV
 const EXPORT_OPTS = [
-  {id:"snapshot", label:t("รวมภาพแผนที่", "Include the map image")},
-  {id:"heat",     label:t("รวมแผนที่ความร้อน", "Include the heatmap")},
-  {id:"route",    label:t("รวมเส้นทาง", "Include routes")},
+  {id:"snapshot", get label(){ return t("รวมภาพแผนที่", "Include the map image"); }},
+  {id:"heat",     get label(){ return t("รวมแผนที่ความร้อน", "Include the heatmap"); }},
+  {id:"route",    get label(){ return t("รวมเส้นทาง", "Include routes"); }},
 ];
 // ตัวเลือก "ข้อมูลที่ต้องการ" (ขอบเขตข้อมูลที่จะส่งออก)
 const DATA_SCOPE_OPTS = [
-  {id:"existing", label:t("ลูกค้าปัจจุบันอย่างเดียว", "Existing customers only")},
-  {id:"prospect", label:t("Lead อย่างเดียว", "Leads only")},
-  {id:"both",     label:t("ทั้งลูกค้าและ Lead", "Both customers and Leads")},
+  {id:"existing", get label(){ return t("ลูกค้าปัจจุบันอย่างเดียว", "Existing customers only"); }},
+  {id:"prospect", get label(){ return t("Lead อย่างเดียว", "Leads only"); }},
+  {id:"both",     get label(){ return t("ทั้งลูกค้าและ Lead", "Both customers and Leads"); }},
 ];
 
 // ชื่อไฟล์เริ่มต้น: รายงาน_[ชื่อพื้นที่]_[ปีพุทธศักราช-เดือน-วัน] · ห้ามใช้ปี ค.ศ.
 // scope.areaName = ชื่ออำเภอถ้ากรองถึงระดับอำเภอ · ไม่งั้นชื่อจังหวัด · ไม่กรองพื้นที่ = "ทั้งประเทศ"
 function defaultReportName(scope){
-  let iso; try{ iso=new Date().toISOString().slice(0,10); }catch{ iso="2026-08-02"; }
-  const [y,m,d]=iso.split("-"); const be=(+y+543)+"-"+m+"-"+d;
   const area=(scope&&scope.areaName)||t("ทั้งประเทศ","Nationwide");
-  return t("รายงาน_", "report_")+area+"_"+be;
+  return t("รายงาน_", "report_")+area+"_"+beStamp();
 }
 export {defaultReportName};
 

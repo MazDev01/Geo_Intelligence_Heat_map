@@ -1,4 +1,4 @@
-import {t} from "./i18n.js";
+import {t, isEN} from "./i18n.js";
 import {token, readSaved} from "./auth.js";
 import {effectivePerms} from "./permissions.js";
 import {localData, downloadCSV} from "./data.js";
@@ -7,7 +7,7 @@ const SUMMARY = "report.export_summary", PII = "report.export_raw_pii";
 const KIND_PERM = {report:SUMMARY, visit_plans:SUMMARY, dashboard:PII, places:PII, tc_records:PII};
 const SOURCE_PERM = {audit:"audit.export", lead_requests:PII};
 
-export const beStamp = () => { const [y,m,d]=new Date().toISOString().slice(0,10).split("-"); return (+y+543)+"-"+m+"-"+d; };
+export const beStamp = () => { const [y,m,d]=new Date(Date.now()+7*3600e3).toISOString().slice(0,10).split("-"); return (isEN() ? +y : +y+543)+"-"+m+"-"+d; };
 
 export const permForExport =(kind, format) => format==="pdf" ? SUMMARY : (KIND_PERM[kind] || PII);
 
