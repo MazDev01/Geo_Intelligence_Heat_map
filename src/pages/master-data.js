@@ -207,6 +207,7 @@ const MD_CSS = `
 .md-table{width:100%;border-collapse:collapse;font-size:13px}
 .md-table th{text-align:left;padding:11px 14px;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;border-bottom:1px solid var(--stroke);white-space:nowrap}
 .md-table td{padding:10px 14px;border-bottom:1px solid var(--stroke);vertical-align:middle}
+.md-table td .mono{overflow-wrap:anywhere}
 .md-table tbody tr:last-child td{border-bottom:none}
 @media(max-width:640px){
   .md-table-wrap{overflow:visible}

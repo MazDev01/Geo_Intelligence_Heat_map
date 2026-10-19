@@ -1253,7 +1253,7 @@ export function DataLeads(){
 const DM_CSS=`
 /* ปุ่มไอคอนในคอลัมน์ "จัดการ" ของตารางข้อมูล */
 .rec-lk{color:var(--txt);text-decoration:none;display:inline-block;max-width:100%;
-  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:bottom}
+  overflow-wrap:anywhere;vertical-align:bottom}
 .rec-lk:hover{color:var(--accent-deep);text-decoration:underline;text-underline-offset:3px}
 .rec-act{display:flex;gap:6px;justify-content:flex-start}
 .rec-ic{width:30px;height:30px;display:inline-grid;place-items:center;cursor:pointer;padding:0;
