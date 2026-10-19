@@ -414,9 +414,16 @@ export function Reports(){
   // ── Lead แยกตามอำเภอ (แท่งความคืบหน้า) · หมวดที่เติบโต/ชะลอตัวในเขต (90 วัน) · สิ่งที่พบจากข้อมูล (เฉพาะพื้นที่รับผิดชอบ) ──
   const distLeadMax = Math.max(1, ...distAll.map(d=>d.ps));
   const distLeadTop = [...distAll].sort((a,b)=>b.ps-a.ps).slice(0,4);
-  const _inR = (t,a,b)=>{ const x=Date.parse(t); return x>T0-a*DAY && x<=T0-b*DAY; };
-  const tcSegDelta = SEGMENTS.filter(s=>segSel==="All"||s===segSel).map(s=>{ const cs=vdb.customers.filter(c=>c.segment===s&&c.created_at);
-      const cur=cs.filter(c=>_inR(c.created_at,90,0)).length, prev=cs.filter(c=>_inR(c.created_at,180,90)).length;
+  const _gEnd = to ? Date.parse(to+"T00:00:00Z")+DAY : T0;
+  const _gStart = from ? Date.parse(from+"T00:00:00Z") : _gEnd-90*DAY;
+  const _gLen = Math.max(DAY, _gEnd-_gStart);
+  const _inG = (s,a,b)=>{ const x=Date.parse(s); return x>=a && x<b; };
+  const _isoOf = ms => new Date(ms).toISOString().slice(0,10);
+  const tcGrowDays = Math.round(_gLen/DAY);
+  const tcGrowText = (from||to) ? _beTH(_isoOf(_gStart))+" – "+_beTH(_isoOf(_gEnd-DAY)) : null;
+  const tcCatCus = db.customers.filter(c=>scopeProvs.includes(c.province) && tcOk(c) && distOk(c));
+  const tcSegDelta = SEGMENTS.filter(s=>segSel==="All"||s===segSel).map(s=>{ const cs=tcCatCus.filter(c=>c.segment===s&&c.created_at);
+      const cur=cs.filter(c=>_inG(c.created_at,_gStart,_gEnd)).length, prev=cs.filter(c=>_inG(c.created_at,_gStart-_gLen,_gStart)).length;
       return {s, label:segTH(s), cur, prev, delta:cur-prev}; }).filter(x=>x.cur||x.prev);
   const tcGainers = tcSegDelta.slice().sort((a,b)=>b.delta-a.delta).slice(0,3).filter(x=>x.delta>0);
   const tcLosers  = tcSegDelta.slice().sort((a,b)=>a.delta-b.delta).slice(0,3).filter(x=>x.delta<0);
@@ -425,7 +432,7 @@ export function Reports(){
     {icon:"gap",    tone:"bad",  title:`${t("อัตราการเปลี่ยนเป็นลูกค้า", "Conversion rate")} ${custShare}%`, body:t(`เป็นลูกค้าแล้ว ${num(totExisting)} ราย · ยังเป็น Lead ${num(totProspect)} ราย ใน${distSel!=="All" ? "อำเภอ"+districtTH(distSel) : "เขต"+tcProvText}`, `${num(totExisting)} customers · ${num(totProspect)} still Leads in ${distSel!=="All" ? districtTH(distSel) : tcProvText}`)},
     {icon:"target", tone:"warn", title:`${t("หมวดธุรกิจที่เขตนี้ยังขาด", "Categories this territory is short of")}`, body:`${num(gapNotVisit)} ${t("ราย ที่ยังไม่ได้เข้าพบ — อยู่ในหมวดที่เครือข่ายยังขาด ควรเข้าดูแลก่อน", "not yet visited — they sit in categories the network is short of, so handle these first")}`},
   ];
-  if(_tcGain0 && totBiz) tcInsights.push({icon:"trend", tone:"good", title:`${t("หมวด", "Category ")}${_tcGain0.label} ${t("กำลังเติบโต", "is growing")}`, body:`${t("ลูกค้าใหม่", "New customers")} ${num(_tcGain0.cur)} ${t("ราย ใน 90 วันล่าสุด (+", "in the last 90 days (+")}${num(_tcGain0.delta)} ${t("จากช่วงก่อน)", "vs. the previous period)")}`});
+  if(_tcGain0 && totBiz) tcInsights.push({icon:"trend", tone:"good", title:`${t("หมวด", "Category ")}${_tcGain0.label} ${t("กำลังเติบโต", "is growing")}`, body:`${t("ลูกค้าใหม่", "New customers")} ${num(_tcGain0.cur)} ${tcGrowText ? t("ราย ในช่วง ", "in ")+tcGrowText+" (+" : t("ราย ใน 90 วันล่าสุด (+", "in the last 90 days (+")}${num(_tcGain0.delta)} ${t("จากช่วงก่อน)", "vs. the previous period)")}`});
   const tcInsTone = t => t==="bad"?"var(--accent)":t==="warn"?"#f0a022":t==="good"?"#33d69f":"#2f7fe0";
   // แท่งซ้อนแนวนอน (ลูกค้าเข้ม + Lead จาง) สำหรับกราฟรายอำเภอ
   const stackBar = (label,cs,ps,max,onClick,sub)=>{ const tot=cs+ps;
@@ -506,7 +513,7 @@ export function Reports(){
 
           <!-- โดนัทสัดส่วน | Lead แยกตามอำเภอ -->
           <div class="tcd8-2col">
-            <${Card} title=${t("อัตราการเปลี่ยนเป็นลูกค้า", "Conversion rate")} sub=${`${t("สัดส่วนลูกค้าต่อธุรกิจที่รู้จักในพื้นที่ ณ ปัจจุบัน · จากธุรกิจ", "Customers as a share of known businesses in the area right now · out of")} ${num(totBiz)} ${t("แห่ง", "places")}`}>
+            <${Card} title=${t("อัตราการเปลี่ยนเป็นลูกค้า", "Conversion rate")} sub=${`${(from||to) ? t("สัดส่วนลูกค้าต่อธุรกิจที่เพิ่มเข้ามาช่วง", "Customers as a share of businesses added in")+" "+exportScope.dateLabel+" · "+t("จากธุรกิจ", "out of") : t("สัดส่วนลูกค้าต่อธุรกิจที่รู้จักในพื้นที่ ณ ปัจจุบัน · จากธุรกิจ", "Customers as a share of known businesses in the area right now · out of")} ${num(totBiz)} ${t("แห่ง", "places")}`}>
               ${totBiz ? html`<div style=${{display:"flex",flexDirection:"column",alignItems:"center"}}>
                 <${Donut} key=${"tcd-donut-"+animSig} data=${shareDonut} keepOrder=${true} center=${{value:custShare, label:t("เป็นลูกค้าแล้ว", "Now customers"), format:v=>v+"%"}}/>
                 <div class="tcd8-ringfoot"><span>${t("เป็นลูกค้าแล้ว", "Now customers")} <b>${num(totExisting)}</b></span><span>${t("ยังเป็น Lead", "Still Leads")} <b>${num(totProspect)}</b></span></div>
@@ -571,7 +578,7 @@ export function Reports(){
             </div>` : html`<div class="emptybox">${t("ไม่มีข้อมูลตามตัวกรองที่เลือก", "No data matches the current filters")}</div>`}
           </${Card}>
 
-          <${Card} title=${t("หมวดธุรกิจที่เติบโตและชะลอตัว", "Growing and slowing categories")} sub=${t("ลูกค้าใหม่ 90 วันล่าสุด เทียบ 90 วันก่อนหน้า", "New customers in the last 90 days vs. the 90 before")}>
+          <${Card} title=${t("หมวดธุรกิจที่เติบโตและชะลอตัว", "Growing and slowing categories")} sub=${tcGrowText ? t("ลูกค้าใหม่ช่วง ", "New customers in ")+tcGrowText+t(" เทียบ ", " vs. the ")+tcGrowDays+t(" วันก่อนหน้า", tcGrowDays===1 ? " day before" : " days before") : t("ลูกค้าใหม่ 90 วันล่าสุด เทียบ 90 วันก่อนหน้า", "New customers in the last 90 days vs. the 90 before")}>
             <div class="tcd8-grow">
               <div class="tcd8-grow-box up">
                 <div class="tcd8-grow-h up">${t("เติบโต", "Growing")}</div>
