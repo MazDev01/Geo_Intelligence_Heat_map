@@ -104,7 +104,7 @@ export function genVisitPlans(prospects, province, ownerEmail, customers, provin
     const status = visited===0 ? "none" : (visited===planned ? "complete" : "partial");
     const districts = [...new Set(targets.map(t=>t.district).filter(Boolean))];
     plans.push({ id:"VPL-"+hashStr(province).toString(36)+"-"+i, dateISO:isoDay(dateMs),
-      office:{businessName:office.businessName, latitude:office.latitude, longitude:office.longitude},
+      office:{get businessName(){ return office.businessName; }, latitude:office.latitude, longitude:office.longitude},
       planned, visited, rate, status, districts, targets });
   }
   // เรียงใหม่ → เก่า
@@ -127,7 +127,7 @@ export function plansFromServer(serverPlans, db, province){
   savedTimes.forEach(a=>a.sort());
   const nextSaved = (placeId, at)=> (savedTimes.get(placeId)||[]).find(x=>x>(at||"")) || null;
   const o = officeFor(province);
-  const office = {businessName:o.businessName, latitude:o.latitude, longitude:o.longitude};
+  const office = {get businessName(){ return o.businessName; }, latitude:o.latitude, longitude:o.longitude};
   const plans = saved.map(({sp, dateISO})=>{
     let prev = office;
     const targets = [];

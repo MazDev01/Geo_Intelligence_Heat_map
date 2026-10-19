@@ -24,6 +24,7 @@ export function Login({db, onLogin}){
   const [remember, setRemember] = useState(true);
   const [busy, setBusy]     = useState(false);
   const [err, setErr]       = useState("");
+  const showErr = f => setErr(()=>f);
   const [note, setNote]     = useState("");
   const [stage, setStage]   = useState("login");   // login → change (เมื่อถูกบังคับตั้งรหัสใหม่)
   const [pending, setPending] = useState(null);    // ผู้ใช้ที่ผ่านรหัสแล้วแต่ยังต้องตั้งรหัสใหม่
@@ -43,7 +44,7 @@ export function Login({db, onLogin}){
     setErr(""); setNote(""); setBusy(true);
     const r = await auth.login(email.trim(), pass);
     setBusy(false);
-    if(!r.ok){ setErr(loginError(r)); return; }
+    if(!r.ok){ showErr(()=>loginError(r)); return; }
     auth.saveAuth({token:r.token, user:r.user}, remember);
     auth.rememberEmail((r.user && r.user.email) || email.trim(), remember);
     if(r.mustChange){ setPending(r.user); setStage("change"); return; }   // รหัสที่แอดมินตั้งให้ ใช้ได้ครั้งเดียว
@@ -54,11 +55,11 @@ export function Login({db, onLogin}){
     e && e.preventDefault();
     if(busy) return;
     setErr("");
-    if(pw1 !== pw2){ setErr(t("รหัสผ่านใหม่ทั้งสองช่องไม่ตรงกัน","The two new passwords do not match")); return; }
+    if(pw1 !== pw2){ showErr(()=>t("รหัสผ่านใหม่ทั้งสองช่องไม่ตรงกัน","The two new passwords do not match")); return; }
     setBusy(true);
     const r = await auth.changePassword(pass, pw1);
     setBusy(false);
-    if(!r.ok){ setErr(r.error || t("เปลี่ยนรหัสผ่านไม่สำเร็จ","Could not change the password")); return; }
+    if(!r.ok){ showErr(()=>r.error || t("เปลี่ยนรหัสผ่านไม่สำเร็จ","Could not change the password")); return; }
     auth.saveAuth({token:r.token, user:r.user}, remember);
     onLogin(r.user);
   };
@@ -72,7 +73,7 @@ export function Login({db, onLogin}){
     setBusy(true);
     const res = await auth.login(DEMO_EMAIL[r], demo);
     setBusy(false);
-    if(!res.ok){ setErr(loginError(res)); return; }
+    if(!res.ok){ showErr(()=>loginError(res)); return; }
     auth.saveAuth({token:res.token, user:res.user}, remember);
     auth.rememberEmail((res.user && res.user.email) || DEMO_EMAIL[r], remember);
     if(res.mustChange){ setPending(res.user); setStage("change"); return; }
@@ -118,7 +119,7 @@ export function Login({db, onLogin}){
               onClick=${()=>setShowPass(!showPass)}><${Icon} name=${showPass?"eyeOff":"eye"} size=${18}/></button>
           </div></div>
 
-        ${err && html`<div class="lg-err" role="alert">${err}</div>`}
+        ${err && html`<div class="lg-err" role="alert">${err()}</div>`}
 
         <div class="lg-remember">
           <label onClick=${()=>setRemember(!remember)}>
@@ -161,7 +162,7 @@ export function Login({db, onLogin}){
           <${PwInput} autocomplete="new-password" value=${pw2}
             onInput=${e=>{setPw2(e.target.value); setErr("");}}/></div>
 
-        ${err && html`<div class="lg-err" role="alert">${err}</div>`}
+        ${err && html`<div class="lg-err" role="alert">${err()}</div>`}
 
         <button class="btn primary" style=${{width:"100%"}} type="submit" disabled=${busy}>
           ${busy?t("กำลังบันทึก…", "Saving…"):t("บันทึกรหัสผ่านและเข้าใช้งาน", "Save password and continue")}</button>
