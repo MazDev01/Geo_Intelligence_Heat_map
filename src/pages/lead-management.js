@@ -153,7 +153,7 @@ export function LeadManagement({onCounts}){
         <div class="ld-dd"><${Dropdown} value=${fProv} onChange=${setFProv} options=${provOpts}/></div>
         <${DateField} className="ld-date" value=${fFrom} max=${fTo||undefined} onChange=${setFFrom} title=${t("วันที่ส่ง (ตั้งแต่)", "Submitted from")}/>
         <span class="ld-dash">–</span>
-        <${DateField} className="ld-date" value=${fTo} min=${fFrom||undefined} onChange=${setFTo} title=${t("ถึง", "to")}/>
+        <${DateField} className="ld-date" value=${fTo} min=${fFrom||undefined} onChange=${setFTo} title=${t("ถึง", "To")}/>
         ${canXlsx && !res.local && html`<${Btn} size="sm" variant="ghost" icon="download" disabled=${exporting || !total} onClick=${doExport}>${t("ส่งออก Excel", "Export to Excel")}</${Btn}>`}
       </div>
     </div>

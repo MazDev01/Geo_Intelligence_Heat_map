@@ -645,7 +645,7 @@ function ImportFiles({staging, onManagePending, onSummary}){
           title=${canRollback(r)?"":t("ยกเลิกได้เฉพาะชุดที่นำเข้าไม่เกิน 7 วัน", "Only batches imported within the last 7 days can be rolled back")}
           onClick=${()=>openRollback(r)}>${t("ยกเลิกการนำเข้าชุดนี้", "Roll back this batch")}</${Btn}>`:""}</div>`},
     ]} rows=${pageRows}/>
-    ${totalPages>1?html`<div class="dm-pager"><span class="dim">${t("แสดง", "Showing")} ${(page-1)*PAGE+1}–${Math.min(page*PAGE,shown)} ${t("จาก", "of")} ${shown} ${t("ไฟล์", "File")}</span>
+    ${totalPages>1?html`<div class="dm-pager"><span class="dim">${t("แสดง", "Showing")} ${(page-1)*PAGE+1}–${Math.min(page*PAGE,shown)} ${t("จาก", "of")} ${shown} ${t("ไฟล์", shown===1 ? "file" : "files")}</span>
       <div class="row" style=${{gap:"5px"}}>${Array.from({length:totalPages},(_,i)=>i+1).map(p=>html`<button key=${p} class=${"dm-pg"+(p===page?" on":"")} onClick=${()=>setPage(p)}>${p}</button>`)}</div></div>`:""}
 
     ${drawer?html`<${Modal} title=${drawer.file} onClose=${()=>setDrawer(null)}>
@@ -1129,9 +1129,9 @@ export function DataManagement(){
             title=${r.website}>${webShort(r.website)}</a>`
         : html`<span class="dim">—</span>` },
     { h:t("จัดการ", "Actions"), w:"96px", render:r=>html`<div class="rec-act">
-      <button class="rec-ic" title=${t("แก้ไข", "Edit")} aria-label=${t("แก้ไข ", "Edited ")+r.businessName}
+      <button class="rec-ic" title=${t("แก้ไข", "Edit")} aria-label=${t("แก้ไข ", "Edit ")+r.businessName}
         onClick=${()=>setEditRec(r)}><${Icon} name="edit" size=${15}/></button>
-      <button class="rec-ic del" title=${t("ลบ", "Delete")} aria-label=${t("ลบ ", "Deleted ")+r.businessName}
+      <button class="rec-ic del" title=${t("ลบ", "Delete")} aria-label=${t("ลบ ", "Delete ")+r.businessName}
         onClick=${()=>setDelRec(r)}><${Icon} name="trash" size=${15}/></button>
     </div>` },
   ];

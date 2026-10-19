@@ -324,9 +324,9 @@ export function VisitPlanReport(){
         ${teamView ? html`<div class="vp-f vp-dd vp-tc"><label>${t("ผู้ประสานงานการค้า", "Trade Coordinator")}</label><${Dropdown} value=${tcSel?String(tcSel.id):""} onChange=${pickTc} options=${tcOpts}/></div>` : ""}
         <div class="vp-f vp-date"><label>${t("ช่วงเวลา (ตั้งแต่)", "Period (from)")}</label>
           <${DateField} value=${from} max=${to||undefined} onChange=${setFrom}/></div>
-        <div class="vp-f vp-date"><label>${t("ถึง", "to")}</label>
+        <div class="vp-f vp-date"><label>${t("ถึง", "To")}</label>
           <${DateField} value=${to} min=${from||undefined} onChange=${setTo}/></div>
-        <div class="vp-f vp-dd"><label>${t("อำเภอ", "districts")}</label><${Dropdown} value=${dist} onChange=${setDist} options=${distOpts}/></div>
+        <div class="vp-f vp-dd"><label>${t("อำเภอ", "District")}</label><${Dropdown} value=${dist} onChange=${setDist} options=${distOpts}/></div>
         <div class="vp-f vp-dd"><label>${t("สถานะแผน", "Plan status")}</label><${Dropdown} value=${status} onChange=${setStatus} options=${STATUS_OPTS}/></div>
         <div class="vp-range-txt">${t("ช่วงที่เลือก:", "Selected range:")} <b>${rangeText}</b></div>
         ${anyFilter?html`<button class="vp-btn ghost" onClick=${clearFilters}><${Icon} name="close" size=${14}/> ${t("ล้างตัวกรอง", "Clear filters")}</button>`:""}

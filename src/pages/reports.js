@@ -475,7 +475,7 @@ export function Reports(){
       <${QuickRange} db=${db} from=${from} to=${to} setFrom=${setFrom} setTo=${setTo}/>
       <label class="op-lab">${t("ช่วงเวลา (ตั้งแต่)", "Period (from)")}
         <${DateField} className="op-sel" value=${from} max=${to||undefined} onChange=${setFrom}/></label>
-      <label class="op-lab">${t("ถึง", "to")}
+      <label class="op-lab">${t("ถึง", "To")}
         <${DateField} className="op-sel" value=${to} min=${from||undefined} onChange=${setTo}/></label>
       ${!isTC && html`<label class="op-lab">TC
         <${Dropdown} value=${tcSel} onChange=${setTcSel}
