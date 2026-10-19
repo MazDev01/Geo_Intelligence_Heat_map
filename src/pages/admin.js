@@ -1204,9 +1204,9 @@ export function Monitoring({defaultTab, reportNav}={}){
             <thead><tr><th>${unitNoun}</th><th class="rt">${t("ลูกค้า", "Customers")}</th><th class="rt">${t("Lead", "Leads")}</th><th class="rt">${t("สัดส่วน", "Share")}</th><th class="rt">${t("ลูกค้าใหม่", "New customers")}</th></tr></thead>
             <tbody>${(expTbl?provRows:provRows.slice(0,5)).map(r=>{
               return html`<tr key=${r.unit} style=${{cursor:"pointer"}} onClick=${()=>{ if(level==="country"){setFProv(r.unit);setFDist("all");} else if(level==="province") setFDist(r.unit); else setFSeg(r.unit); }}>
-              <td><b>${r.label}</b></td><td class="rt">${num(r.cust)}</td><td class="rt">${num(r.lead)}</td>
-              <td class="rt"><b style=${{color:r.share>=avgShare?"var(--accent-deep)":"var(--muted)"}}>${r.share}%</b></td>
-              <td class="rt">${r.new90>0?html`<span style=${{color:"#0f7a3d"}}>▲ +${num(r.new90)}</span>`:html`<span style=${{color:"var(--dim)"}}>0</span>`}</td>
+              <td data-label=${unitNoun}><b>${r.label}</b></td><td class="rt" data-label=${t("ลูกค้า", "Customers")}>${num(r.cust)}</td><td class="rt" data-label=${t("Lead", "Leads")}>${num(r.lead)}</td>
+              <td class="rt" data-label=${t("สัดส่วน", "Share")}><b style=${{color:r.share>=avgShare?"var(--accent-deep)":"var(--muted)"}}>${r.share}%</b></td>
+              <td class="rt" data-label=${t("ลูกค้าใหม่", "New customers")}>${r.new90>0?html`<span style=${{color:"#0f7a3d"}}>▲ +${num(r.new90)}</span>`:html`<span style=${{color:"var(--dim)"}}>0</span>`}</td>
             </tr>`;})}</tbody>
           </table>
           ${provRows.length>5?html`<div class="mg-more" style=${{padding:"0 14px 12px"}}><button class="mg-more-btn" onClick=${()=>setExpTbl(e=>!e)}>${expTbl?t("ย่อกลับ (5 อันดับ)", "Show fewer (top 5)"):t(`ดูทั้งหมด (${provRows.length} ${unitNoun})`, `Show all (${provRows.length} ${unitPlural})`)}</button></div>`:""}</div>` : html`<div class="emptybox" style=${{margin:"18px"}}>${t("ยังไม่มีข้อมูลรายจังหวัด", "No per-province data yet")}</div>`}
@@ -1237,9 +1237,9 @@ export function Monitoring({defaultTab, reportNav}={}){
           ${leadAList.length ? html`<div class="mg-tblwrap mg-leadA"><table class="tc-table mg-tbl">
             <thead><tr><th>${t("ชื่อธุรกิจ", "Business name")}</th><th>${t("หมวดธุรกิจ", "Business category")}</th><th class="rt">${t("หมวดนี้ยังขาด", "this category is short by")}</th><th>${t("สถานะ", "Status")}</th></tr></thead>
             <tbody>${leadAList.map(p=>html`<tr key=${p.id}>
-              <td><b>${p.businessName}</b></td><td>${segTH(p.segment)}</td>
-              <td class="rt"><b>${num(p._gap||0)}</b> ${t("ราย", "businesses")}</td>
-              <td>${p._visited?html`<span style=${{color:"#0f7a3d"}}>${t("เข้าพบแล้ว", "Visited")}</span>`:html`<span style=${{color:"#c2410c"}}>${t("ยังไม่เข้าพบ", "Not visited yet")}</span>`}</td>
+              <td data-label=${t("ชื่อธุรกิจ", "Business name")}><b>${p.businessName}</b></td><td data-label=${t("หมวดธุรกิจ", "Business category")}>${segTH(p.segment)}</td>
+              <td class="rt" data-label=${t("หมวดนี้ยังขาด", "this category is short by")}><b>${num(p._gap||0)}</b> ${t("ราย", "businesses")}</td>
+              <td data-label=${t("สถานะ", "Status")}>${p._visited?html`<span style=${{color:"#0f7a3d"}}>${t("เข้าพบแล้ว", "Visited")}</span>`:html`<span style=${{color:"#c2410c"}}>${t("ยังไม่เข้าพบ", "Not visited yet")}</span>`}</td>
             </tr>`)}</tbody>
           </table></div>` : html`<div class="emptybox" style=${{margin:"18px"}}>${t("ไม่มีหมวดธุรกิจที่ยังขาดใน", "No category is short in ")}${scopeTH}</div>`}
         </${Card}>
@@ -1482,7 +1482,7 @@ const EXD_CSS = `
 .mg-tblwrap.mg-scroll{max-height:290px;overflow-y:auto}
 .mg-est{color:var(--muted);font-weight:700;margin-left:3px}
 .mg-note{font-size:11px;color:var(--muted);margin-top:9px;font-style:italic}
-.mg-2col{display:grid;grid-template-columns:1fr 1fr;gap:20px}
+.mg-2col{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:20px}
 /* แถวล่างฝั่งขวา: ตารางกว้างกว่านิด · ยุบเป็นคอลัมน์เดียวเมื่อพื้นที่แคบ */
 .mg-bot2{grid-template-columns:minmax(0,1.6fr) minmax(0,1fr)}
 @media(max-width:1279px){.mg-bot2{grid-template-columns:1fr}}
@@ -1501,6 +1501,14 @@ const EXD_CSS = `
 .mg-tbl td{padding:9px 12px;border-bottom:1px solid var(--stroke);white-space:nowrap}
 .mg-tbl tbody tr:last-child td{border-bottom:none}
 .mg-tbl .rt{text-align:right}
+@media(max-width:640px){
+  .mg-tbl,.mg-tbl tbody,.mg-tbl tr{display:block}
+  .mg-tbl thead{display:none}
+  .mg-tbl tbody tr{padding:6px 0;border-bottom:1px solid var(--stroke)}
+  .mg-tbl tbody tr:last-child{border-bottom:none}
+  .mg-tbl tbody td{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:5px 14px;border-bottom:none;text-align:right;white-space:normal;overflow-wrap:anywhere}
+  .mg-tbl tbody td[data-label]::before{content:attr(data-label);flex:none;max-width:45%;text-align:left;font-size:11.5px;font-weight:600;color:var(--muted)}
+}
 /* คำอธิบายสีของกราฟเส้น */
 .mg-legend{display:flex;gap:16px;flex-wrap:wrap;margin-bottom:12px;font-size:12px;color:var(--muted)}
 .mg-legend i{display:inline-block;width:11px;height:11px;border-radius:3px;margin-right:6px;vertical-align:-1px}

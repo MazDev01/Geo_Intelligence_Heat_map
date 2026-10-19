@@ -351,12 +351,12 @@ export function VisitPlanReport(){
             </tr></thead>
             <tbody>
               ${pageRows.map(pl=>html`<tr key=${pl.id} class=${"vp-trow"+(selected&&selected.id===pl.id?" sel":"")+(pl.rate<50?" low":"")} onClick=${()=>setPlanId(pl.id)}>
-                <td><b>${beDateVP(pl.dateISO)}</b></td>
-                <td class="vp-td-dist">${pl.districts.map(districtTH).join(", ")||"—"}</td>
-                <td class="rt">${num(pl.planned)}</td>
-                <td class="rt">${num(pl.visited)}</td>
-                <td class="rt"><span class=${"vp-rate"+(pl.rate<50?" low":"")}>${pl.rate}%</span></td>
-                <td><span class=${"vp-badge s-"+pl.status}>${VP_STATUS_TH[pl.status]}</span></td>
+                <td data-label=${t("วันที่", "Date")}><b>${beDateVP(pl.dateISO)}</b></td>
+                <td class="vp-td-dist" data-label=${t("อำเภอที่ครอบคลุม", "Districts covered")}>${pl.districts.map(districtTH).join(", ")||"—"}</td>
+                <td class="rt" data-label=${t("วางแผน", "Planned")}>${num(pl.planned)}</td>
+                <td class="rt" data-label=${t("เข้าพบจริง", "Visited")}>${num(pl.visited)}</td>
+                <td class="rt" data-label=${t("อัตรา", "Rate")}><span class=${"vp-rate"+(pl.rate<50?" low":"")}>${pl.rate}%</span></td>
+                <td data-label=${t("สถานะ", "Status")}><span class=${"vp-badge s-"+pl.status}>${VP_STATUS_TH[pl.status]}</span></td>
               </tr>`)}
             </tbody>
           </table>
@@ -485,6 +485,14 @@ const VP_CSS = `
 .vp-tc-flag{margin-top:8px;font-size:12px;color:#b45309;background:rgba(255,176,46,.1);border-radius:8px;padding:6px 9px}
 .vp-tcard.t-cancelled .vp-tc-flag{color:#b30019;background:rgba(230, 0, 35,.08)}
 .vp-tc-dist{margin-top:8px;font-size:12px;color:var(--muted)}
-@media(max-width:900px){.vp-cols{grid-template-columns:1fr}.vp-card{height:auto;max-height:70vh}}
+@media(max-width:1279px){.vp-cols{grid-template-columns:1fr}.vp-card{height:auto;max-height:70vh}}
+@media(max-width:640px){
+  .vp-table,.vp-table tbody,.vp-table tr{display:block}
+  .vp-table thead{display:none}
+  .vp-table tbody tr{padding:6px 0;border-bottom:1px solid var(--stroke)}
+  .vp-table tbody td{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:5px 14px;border-bottom:none;text-align:right;overflow-wrap:anywhere}
+  .vp-table tbody td[data-label]::before{content:attr(data-label);flex:none;max-width:45%;text-align:left;font-size:11.5px;font-weight:600;color:var(--muted)}
+  .vp-td-dist{max-width:none}
+}
 @media print{.vp-filters .vp-btn,.ph-right,.vp-pager{display:none!important}.vp-card{height:auto;overflow:visible}}
 `;
