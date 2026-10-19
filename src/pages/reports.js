@@ -421,11 +421,11 @@ export function Reports(){
   const tcGainers = tcSegDelta.slice().sort((a,b)=>b.delta-a.delta).slice(0,3).filter(x=>x.delta>0);
   const tcLosers  = tcSegDelta.slice().sort((a,b)=>a.delta-b.delta).slice(0,3).filter(x=>x.delta<0);
   const _tcGain0 = tcGainers[0];
-  const tcInsights = [
+  const tcInsights = !totBiz ? [] : [
     {icon:"gap",    tone:"bad",  title:`${t("อัตราการเปลี่ยนเป็นลูกค้า", "Conversion rate")} ${custShare}%`, body:t(`เป็นลูกค้าแล้ว ${num(totExisting)} ราย · ยังเป็น Lead ${num(totProspect)} ราย ใน${distSel!=="All" ? "อำเภอ"+districtTH(distSel) : "เขต"+tcProvText}`, `${num(totExisting)} customers · ${num(totProspect)} still Leads in ${distSel!=="All" ? districtTH(distSel) : tcProvText}`)},
     {icon:"target", tone:"warn", title:`${t("หมวดธุรกิจที่เขตนี้ยังขาด", "Categories this territory is short of")}`, body:`${num(gapNotVisit)} ${t("ราย ที่ยังไม่ได้เข้าพบ — อยู่ในหมวดที่เครือข่ายยังขาด ควรเข้าดูแลก่อน", "not yet visited — they sit in categories the network is short of, so handle these first")}`},
   ];
-  if(_tcGain0) tcInsights.push({icon:"trend", tone:"good", title:`${t("หมวด", "Category ")}${_tcGain0.label} ${t("กำลังเติบโต", "is growing")}`, body:`${t("ลูกค้าใหม่", "New customers")} ${num(_tcGain0.cur)} ${t("ราย ใน 90 วันล่าสุด (+", "in the last 90 days (+")}${num(_tcGain0.delta)} ${t("จากช่วงก่อน)", "vs. the previous period)")}`});
+  if(_tcGain0 && totBiz) tcInsights.push({icon:"trend", tone:"good", title:`${t("หมวด", "Category ")}${_tcGain0.label} ${t("กำลังเติบโต", "is growing")}`, body:`${t("ลูกค้าใหม่", "New customers")} ${num(_tcGain0.cur)} ${t("ราย ใน 90 วันล่าสุด (+", "in the last 90 days (+")}${num(_tcGain0.delta)} ${t("จากช่วงก่อน)", "vs. the previous period)")}`});
   const tcInsTone = t => t==="bad"?"var(--accent)":t==="warn"?"#f0a022":t==="good"?"#33d69f":"#2f7fe0";
   // แท่งซ้อนแนวนอน (ลูกค้าเข้ม + Lead จาง) สำหรับกราฟรายอำเภอ
   const stackBar = (label,cs,ps,max,onClick,sub)=>{ const tot=cs+ps;
@@ -435,7 +435,7 @@ export function Reports(){
         <div class="tcd-sbar-f" style=${{width:(cs/max*100)+"%",background:STATUS_COLOR.Existing}}></div>
         <div class="tcd-sbar-f" style=${{width:(ps/max*100)+"%",background:STATUS_COLOR.Prospect,opacity:.55}}></div>
       </div>
-      <div class="dim" style=${{fontSize:"11px",marginTop:"2px"}}>${sub||`${t("ลูกค้า", "Customers")} ${num(cs)} · Lead ${num(ps)}`}</div>
+      <div class="dim" style=${{fontSize:"11px",marginTop:"2px"}}>${sub||`${t("ลูกค้า", "Customers")} ${num(cs)} · ${t("Lead", "Leads")} ${num(ps)}`}</div>
     </div>`; };
   const statChip = (lb,val,color)=>html`<div class="tc-chip"><div class="tc-chip-k">${lb}</div><div class="tc-chip-v" style=${{color:color||"var(--txt)"}}>${val}</div></div>`;
   const tcActionRow = (icon,label,count,tone,detail)=>html`<div class="tc-act">
@@ -508,7 +508,7 @@ export function Reports(){
           <div class="tcd8-2col">
             <${Card} title=${t("อัตราการเปลี่ยนเป็นลูกค้า", "Conversion rate")} sub=${`${t("สัดส่วนลูกค้าต่อธุรกิจที่รู้จักในพื้นที่ ณ ปัจจุบัน · จากธุรกิจ", "Customers as a share of known businesses in the area right now · out of")} ${num(totBiz)} ${t("แห่ง", "places")}`}>
               ${totBiz ? html`<div style=${{display:"flex",flexDirection:"column",alignItems:"center"}}>
-                <${Donut} key=${"tcd-donut-"+animSig} data=${shareDonut} center=${{value:custShare, label:t("เป็นลูกค้าแล้ว", "Now customers"), format:v=>v+"%"}}/>
+                <${Donut} key=${"tcd-donut-"+animSig} data=${shareDonut} keepOrder=${true} center=${{value:custShare, label:t("เป็นลูกค้าแล้ว", "Now customers"), format:v=>v+"%"}}/>
                 <div class="tcd8-ringfoot"><span>${t("เป็นลูกค้าแล้ว", "Now customers")} <b>${num(totExisting)}</b></span><span>${t("ยังเป็น Lead", "Still Leads")} <b>${num(totProspect)}</b></span></div>
               </div>` : html`<div class="emptybox">${t("ยังไม่มีข้อมูลเพียงพอสำหรับแสดงกราฟนี้", "Not enough data to draw this chart yet")}</div>`}
             </${Card}>
@@ -527,7 +527,7 @@ export function Reports(){
             sub=${segSel!=="All" ? t(`เฉพาะหมวด ${segTH(segSel)}`, `Only ${segTH(segSel)}`) : `${t("ทั้ง", "All")} ${segCompare.length} ${t("หมวดในพื้นที่รับผิดชอบ · เรียงจากจำนวนรวมมากไปน้อย", "categories in your territory · sorted by total, highest first")}`}
             right=${html`<div class="sc-legend">
               <span class="sc-lg"><i class="sc-sw cust"></i>${t("ลูกค้า", "Customers")}</span>
-              <span class="sc-lg"><i class="sc-sw lead"></i>Lead</span></div>`}>
+              <span class="sc-lg"><i class="sc-sw lead"></i>${t("Lead", "Leads")}</span></div>`}>
             ${segCompare.some(x=>x.cust||x.lead) ? html`<div class="sc-scroll">
               <svg class="sc-svg" width=${SC_W} height=${SC_H} viewBox=${"0 0 "+SC_W+" "+SC_H}
                 role="img" aria-label=${t("กราฟแท่งเทียบจำนวนลูกค้ากับ Lead รายหมวดธุรกิจ", "Bar chart comparing customers with Leads by business category")}>
@@ -550,7 +550,7 @@ export function Reports(){
                     ${r.cust?html`<text x=${xc+bw/2} y=${base-hc-6} class="sc-nv">${num(r.cust)}</text>`:""}
                     ${r.lead?html`<text x=${xl+bw/2} y=${base-hl-6} class="sc-nv">${num(r.lead)}</text>`:""}
                     <text class="sc-xtx" transform=${"rotate(-40 "+cx+" "+(base+16)+")"} x=${cx} y=${base+16}>${short}</text>
-                    <title>${r.label} ${t("· ลูกค้า", "· customers")} ${num(r.cust)} · Lead ${num(r.lead)}</title>
+                    <title>${r.label} ${t("· ลูกค้า", "· customers")} ${num(r.cust)} · ${t("Lead", "Leads")} ${num(r.lead)}</title>
                   </g>`;
                 })}
               </svg>
@@ -563,12 +563,12 @@ export function Reports(){
         <!-- ═══ ฝั่งขวา (4) ═══ -->
         <div class="tcd8-right">
           <${Card} title=${t("สิ่งที่พบจากข้อมูล", "What the data shows")}>
-            <div class="tcd8-ins">
+            ${tcInsights.length ? html`<div class="tcd8-ins">
               ${tcInsights.map((a,i)=>html`<div key=${i} class=${"tcd8-ins-card "+a.tone}>
                 <div class="tcd8-ins-h"><${Icon} name=${a.icon} size=${15} color=${tcInsTone(a.tone)}/><span>${a.title}</span></div>
                 <div class="tcd8-ins-b">${a.body}</div>
               </div>`)}
-            </div>
+            </div>` : html`<div class="emptybox">${t("ไม่มีข้อมูลตามตัวกรองที่เลือก", "No data matches the current filters")}</div>`}
           </${Card}>
 
           <${Card} title=${t("หมวดธุรกิจที่เติบโตและชะลอตัว", "Growing and slowing categories")} sub=${t("ลูกค้าใหม่ 90 วันล่าสุด เทียบ 90 วันก่อนหน้า", "New customers in the last 90 days vs. the 90 before")}>
@@ -579,7 +579,7 @@ export function Reports(){
                   : html`<div class="dim" style=${{fontSize:"11.5px",padding:"6px 0"}}>${t("ยังไม่มีหมวดที่เติบโต", "No category is growing yet")}</div>`}
               </div>
               <div class="tcd8-grow-box down">
-                <div class="tcd8-grow-h down">${t("ชะลอตัว", "is slowing")}</div>
+                <div class="tcd8-grow-h down">${t("ชะลอตัว", "Slowing")}</div>
                 ${tcLosers.length ? tcLosers.map(g=>html`<div key=${g.s} class="tcd8-grow-row"><span class="tcd8-grow-l">${g.label}</span><span class="tcd8-grow-n down">${num(g.delta)}</span></div>`)
                   : html`<div class="dim" style=${{fontSize:"11.5px",padding:"6px 0"}}>${t("ไม่มีหมวดที่ลดลง", "No category is declining")}</div>`}
               </div>
@@ -670,7 +670,7 @@ export function Reports(){
         </div>
         <${LineChart} key=${"line-"+animSig} labels=${months.map(monLabel)} series=${[
           {label:t("ลูกค้าปัจจุบัน", "Existing customers"), color:STATUS_COLOR.Existing, points:cumCust},
-          {label:"Lead",   color:STATUS_COLOR.Prospect, points:cumPros}
+          {label:t("Lead", "Leads"),   color:STATUS_COLOR.Prospect, points:cumPros}
         ]} height=${210} format=${num}/>
         <div class="row between" style=${{fontSize:"11.5px",marginTop:"4px"}}>
           <span class="dim">${monLabel(months[0])}</span>
@@ -694,13 +694,13 @@ export function Reports(){
       </${Card}>
       <${Card} title=${t("เปรียบเทียบรายจังหวัด (ลูกค้า vs เป้าหมาย Coverage)", "Province comparison (customers vs. coverage target)")} sub=${t("เกณฑ์เทียบ 4 จังหวัดหลัก · เรียงครอบคลุมมาก→น้อย", "Benchmark across the 4 main provinces · sorted by coverage, highest first")+(prov!=="All"?t(" · ไฮไลต์ ", " · highlighting ")+provinceTH(prov):"")}>
         <div class="sd-cmp">
-          ${cmpSorted.map(m=>{const cmpTip=[{label:t("ลูกค้า", "Customers"),value:num(m.s.customerCount)},{label:"Lead",value:num(m.s.prospectCount)},{label:"Coverage",value:m.s.coverage+"%"},{label:t("เป้าหมาย", "Target"),value:REPORT_COV_TARGET+"%"},{label:t("ต่ำกว่าเป้า", "below target"),value:Math.max(0,REPORT_COV_TARGET-m.s.coverage)+t(" จุด", " points")}];
+          ${cmpSorted.map(m=>{const cmpTip=[{label:t("ลูกค้า", "Customers"),value:num(m.s.customerCount)},{label:t("Lead", "Leads"),value:num(m.s.prospectCount)},{label:"Coverage",value:m.s.coverage+"%"},{label:t("เป้าหมาย", "Target"),value:REPORT_COV_TARGET+"%"},{label:t("ต่ำกว่าเป้า", "below target"),value:Math.max(0,REPORT_COV_TARGET-m.s.coverage)+t(" จุด", " points")}];
             return html`<div key=${m.province} class=${"sd-cmp-row"+(prov!=="All"&&m.province===prov?" on":"")} style=${{cursor:"pointer"}}
             onMouseMove=${e=>showTip(e, provinceTH(m.province), cmpTip)} onMouseLeave=${hideTip} ontouchstart=${e=>showTip(e, provinceTH(m.province), cmpTip)}>
             <div class="sd-cmp-top"><b>${provinceTH(m.province)}</b><span style=${{color:covColor(m.s.coverage),fontWeight:700}}>${m.s.coverage}% <span class="dim" style=${{fontWeight:400}}>${t("/ เป้า", "/ target")} ${REPORT_COV_TARGET}%</span></span></div>
             <div class="sd-cmp-bar"><div class="sd-cmp-fill" style=${{width:Math.min(100,m.s.coverage)+"%",background:covColor(m.s.coverage)}}></div>
               <div class="sd-cmp-goal" style=${{left:REPORT_COV_TARGET+"%"}}></div></div>
-            <div class="dim" style=${{fontSize:"11.5px"}}>${t("ลูกค้า", "Customers")} ${num(m.s.customerCount)} · Lead ${num(m.s.prospectCount)} ${t("· ช่องว่าง", "· gap")} ${m.s.gapScore}</div>
+            <div class="dim" style=${{fontSize:"11.5px"}}>${t("ลูกค้า", "Customers")} ${num(m.s.customerCount)} · ${t("Lead", "Leads")} ${num(m.s.prospectCount)} ${t("· ช่องว่าง", "· gap")} ${m.s.gapScore}</div>
           </div>`;})}
         </div>
       </${Card}>

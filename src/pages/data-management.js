@@ -476,7 +476,7 @@ function ImportWizard({resumeFile, staging, setStaging, onExitResume, onImported
       ${isLive&&(!mapped.includes("type")||!mapped.includes("segment"))?html`<div class="row" style=${{gap:"14px",marginTop:"12px",flexWrap:"wrap",alignItems:"flex-end"}}>
         ${!mapped.includes("type")?html`<div style=${{width:"260px",maxWidth:"100%"}}><div class="dim" style=${{fontSize:"12px",marginBottom:"4px"}}>${t("ประเภททั้งไฟล์", "Type for the whole file")}</div>
           <${Dropdown} value=${defs.type} onChange=${v=>setDefs(d=>({...d,type:v}))}
-            options=${[["",t("— ไม่กำหนด —", "— not set —")],["Existing",t("ลูกค้า", "Customers")],["Prospect","Lead"]]}/></div>`:""}
+            options=${[["",t("— ไม่กำหนด —", "— not set —")],["Existing",t("ลูกค้า", "Customer")],["Prospect","Lead"]]}/></div>`:""}
         ${!mapped.includes("segment")?html`<div style=${{width:"260px",maxWidth:"100%"}}><div class="dim" style=${{fontSize:"12px",marginBottom:"4px"}}>${t("หมวดธุรกิจทั้งไฟล์", "Segment for the whole file")}</div>
           <${Dropdown} value=${defs.segment} onChange=${v=>setDefs(d=>({...d,segment:v}))}
             options=${[["",t("— ไม่กำหนด —", "— not set —")],...SEGMENTS.map(s=>[s,SEG_TH_OF(s)])]}/></div>`:""}
@@ -622,13 +622,13 @@ function ImportFiles({staging, onManagePending, onSummary}){
     toast(`${t("ถอนการนำเข้า", "Withdrew the import")} ${b.file} ${t("แล้ว — คงรายการที่เข้าพบแล้วไว้", "— records already visited were kept")} ${b.visited} ${t("รายการ", "records")}`,"warn"); };
   const impCell=s=>html`<span class="dm-imp"><span class="dm-imp-ok">${t("เข้าระบบ", "imported")} ${num(s.imported)}</span> · <span class=${"dm-imp-pend"+(s.pending?"":" zero")}>${t("ค้าง", "pending")} ${num(s.pending)}</span> · <span class="dm-imp-skip">${t("ข้าม", "Skip")} ${num(s.skipped)}</span></span>`;
   const statCell=s=> s.hasPending
-    ? html`<div class="dm-fstat"><${Badge} tone="warn">${t("มีรายการค้าง", "pending rows")}</${Badge}><span class=${"dm-fdays"+(s.days>7?" warn":"")}>${t("ค้างมา", "pending for")} ${s.days} ${t("วัน", "days")}</span></div>`
+    ? html`<div class="dm-fstat"><${Badge} tone="warn">${t("มีรายการค้าง", "Pending rows")}</${Badge}><span class=${"dm-fdays"+(s.days>7?" warn":"")}>${t("ค้างมา", "pending for")} ${s.days} ${t("วัน", "days")}</span></div>`
     : html`<${Badge} tone="good">${t("เสร็จสมบูรณ์", "Complete")}</${Badge}>`;
   return html`<div>
     <div class="dm-toolbar">
       <input class="dm-input" placeholder=${t("ค้นหาชื่อไฟล์…", "Search file names…")} value=${q} onInput=${e=>{setQ(e.target.value);setPage(1);}}/>
       <div class="row" style=${{gap:"6px"}}>
-        ${[["all",t("ทั้งหมด", "All")],["pending",t("มีรายการค้าง", "pending rows")],["done",t("เสร็จสมบูรณ์", "Complete")]].map(([v,l])=>
+        ${[["all",t("ทั้งหมด", "All")],["pending",t("มีรายการค้าง", "Pending rows")],["done",t("เสร็จสมบูรณ์", "Complete")]].map(([v,l])=>
           html`<button key=${v} class=${"dm-chip"+(f===v?" on":"")} onClick=${()=>{setF(v);setPage(1);}}>${l}</button>`)}
       </div>
     </div>
@@ -805,7 +805,7 @@ function ReviewDrawer({row, onImport, onSkip, onMerge, onClose, busy}){
           ${inp("name",t("ชื่อธุรกิจ", "Business name"))}
           <div class="dm-frm-f" data-f="type"><span class="dm-frm-lb">${t("ประเภท", "Type")} <b style=${{color:"var(--bad)"}}>*</b></span>
             <${Dropdown} value=${form.type||""} onChange=${v=>set("type",v)}
-              options=${[["",t("— เลือก —", "— select —")],["Existing",t("ลูกค้า", "Customers")],["Prospect","Lead"]]}/></div>
+              options=${[["",t("— เลือก —", "— select —")],["Existing",t("ลูกค้า", "Customer")],["Prospect","Lead"]]}/></div>
           ${r.live?inp("accountNo",t("รหัสลูกค้า", "Account no.")):""}
           <div class="dm-frm-f" data-f="province"><span class="dm-frm-lb">${t("จังหวัด", "Province")}${r.live?"":html` <b style=${{color:"var(--bad)"}}>*</b>`}</span>
             <${Dropdown} value=${form.province||""} onChange=${v=>set("province",v)}
@@ -1117,7 +1117,7 @@ export function DataManagement(){
 
   const COLS=[
     { h:t("ประเภท", "Type"), w:"104px", render:r=> r._kind==="Existing"
-        ? html`<${Badge} tone="good">${t("ลูกค้า", "Customers")}</${Badge}>` : html`<${Badge} tone="neutral">Lead</${Badge}>` },
+        ? html`<${Badge} tone="good">${t("ลูกค้า", "Customer")}</${Badge}>` : html`<${Badge} tone="neutral">Lead</${Badge}>` },
     { h:t("รหัส", "ID"), w:"116px", render:r=>html`<span class="mono" style=${{fontSize:"12px"}}>${r.accountNo||r.id}</span>` },
     { h:t("ชื่อธุรกิจ", "Business name"), render:r=>html`<div style=${{fontWeight:600,fontSize:"13.5px"}}>${r.businessName}</div>` },
     { h:t("หมวดธุรกิจ", "Business category"), w:"190px", render:r=>segTH(r.segment) },
@@ -1157,7 +1157,7 @@ export function DataManagement(){
           onInput=${e=>{setPage(1);setQ(e.target.value);}}/></label>
       <label class="op-lab">${t("ประเภท", "Type")}
         <${Dropdown} value=${kind} onChange=${reset(setKind)}
-          options=${[["all",t("ทั้งหมด", "All")],["Existing",t("ลูกค้า", "Customers")],["Prospect","Lead"]]}/></label>
+          options=${[["all",t("ทั้งหมด", "All")],["Existing",t("ลูกค้า", "Customers")],["Prospect",t("Lead", "Leads")]]}/></label>
       <label class="op-lab">${t("จังหวัด", "Province")}
         <${Dropdown} value=${prov} onChange=${reset(setProv)} options=${provOpts}/></label>
       <label class="op-lab">${t("หมวดธุรกิจ", "Business category")}
@@ -1229,7 +1229,7 @@ export function DataFiles(){
   const [sum,setSum]=useState(undefined);
   const stagePending=sum ? sum.pending : staging.filter(r=>r.status==="pending").length;
   return html`<div class="page fade-in">
-    <${DmHead} title=${t("จัดการไฟล์นำเข้า", "Import files")} caption=${sum===undefined?"":stagePending?`${t("ยังมีรายการค้างจัดการ", "rows still pending")} ${num(stagePending)} ${t("รายการ", "records")}`:t("ไม่มีรายการค้างจัดการ", "No rows pending")}/>
+    <${DmHead} title=${t("จัดการไฟล์นำเข้า", "Import files")} caption=${sum===undefined?"":stagePending?t(`ยังมีรายการค้างจัดการ ${num(stagePending)} รายการ`, `${num(stagePending)} ${stagePending===1?"row":"rows"} still pending`):t("ไม่มีรายการค้างจัดการ", "No rows pending")}/>
     ${resumeFile
       ? html`<${ImportWizard} resumeFile=${resumeFile} staging=${staging} setStaging=${setStaging}
           onExitResume=${()=>setResumeFile(null)}/>`

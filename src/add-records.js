@@ -237,7 +237,7 @@ export function AddRecordsForm({onClose, onSave, editRecord, db={}, prospectOnly
           <div class="ar-grid">
             ${!prospectOnly ? html`<div class="ar-f">${t("ประเภท", "Type")}
               <${Dropdown} value=${r.type} onChange=${v=>setField(i,"type",v)}
-                options=${[["Existing",t("ลูกค้าปัจจุบัน", "Existing customers")], ["Prospect","Lead"]]}/></div>`:""}
+                options=${[["Existing",t("ลูกค้าปัจจุบัน", "Existing customer")], ["Prospect","Lead"]]}/></div>`:""}
             <label class="ar-f ar-wide">${t("ชื่อธุรกิจ *", "Business name *")}
               <input class=${showRowErr&&!r.name.trim()?"ar-bad":""} value=${r.name} onInput=${e=>setField(i,"name",e.target.value)} placeholder=${t("เช่น โรงแรมสวนสน", "e.g. Suan Son Hotel")}/></label>
             <label class="ar-f ar-wide">${t("หมวดหมู่ธุรกิจ", "Business category")}

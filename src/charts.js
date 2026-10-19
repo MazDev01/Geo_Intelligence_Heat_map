@@ -87,10 +87,10 @@ let donutSeq=0;
 const DONUT_RED_RAMP=["#8a0014","#b30019","#e60023","#ff4d67","#ff8a9c","#ffbcc5"];
 // rampRed(i,n): สีของอันดับ i (เริ่ม 0) จาก n รายการที่เรียงมาก→น้อยแล้ว — มากสุด=เข้มสุด
 export const rampRed=(i,n)=> n<=1 ? "#e60023" : DONUT_RED_RAMP[Math.round(i*(DONUT_RED_RAMP.length-1)/(n-1))];
-export function Donut({data, size=150, thickness=14, center, animate=true}){
+export function Donut({data, size=150, thickness=14, center, animate=true, keepOrder=false}){
   const total = data.reduce((a,d)=>a+d.value,0)||1;
   // เรียงจากมาก→น้อย แล้วไล่สีแดงเข้ม→อ่อน (มากสุด = เข้มสุด)
-  const segs = [...data].sort((a,b)=>b.value-a.value).map((d,i,arr)=>({...d,color:rampRed(i,arr.length)}));
+  const segs = (keepOrder ? [...data] : [...data].sort((a,b)=>b.value-a.value)).map((d,i,arr)=>({...d,color:rampRed(i,arr.length)}));
   const r=(size-thickness)/2, c=2*Math.PI*r;
   const reduce = prefersReducedMotion();
   const anim = animate && !reduce;

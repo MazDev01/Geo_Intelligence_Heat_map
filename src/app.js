@@ -512,16 +512,19 @@ function App(){
       title:t("ค้นหา", "Search"),
       body:html`${t("พิมพ์ชื่อจังหวัด ชื่อธุรกิจ หรือ Lead แล้วกดผลลัพธ์เพื่อซูมไปยังตำแหน่งนั้นทันที",
                     "Type a province, business or Lead name, then click a result to zoom straight to it.")}
-        <div style=${{marginTop:"8px"}}>${t("กล่องใต้ช่องค้นหาใช้กรองรายจังหวัด และบอกจำนวนลูกค้ากับ Lead ในขอบเขตที่เลือก",
-                    "The box below filters by province and shows how many customers and Leads are in scope.")}</div>` },
+        <div style=${{marginTop:"8px"}}>${user && user.role==="Trade Coordinator"
+          ? t("กล่องใต้ช่องค้นหาแสดงเขตที่รับผิดชอบ และจำนวนลูกค้ากับ Lead ในเขต",
+              "The box below shows your territory and how many customers and Leads are in it.")
+          : t("กล่องใต้ช่องค้นหาใช้กรองรายจังหวัด และบอกจำนวนลูกค้ากับ Lead ในขอบเขตที่เลือก",
+              "The box below filters by province and shows how many customers and Leads are in scope.")}</div>` },
 
     { target:['[data-tour="layers-panel"]', '[data-tour="layers-btn"]'], placement:"right", before:()=>tourShowMap(),
       title:t("เลเยอร์แผนที่", "Map layers"),
       body:html`${t("ไอคอนชั้นซ้อนนี้เปิด/ปิดแผงเลเยอร์ ซึ่งคุมสิ่งที่แสดงบนแผนที่", "This layers icon opens the panel that controls what the map shows:")}
         <div style=${{margin:"8px 0 0",lineHeight:1.9}}>
-          ${t("• ลูกค้าปัจจุบัน และ Lead", "• Existing customers and Leads")}<br/>
-          ${t("• แผนที่ความร้อน — สลับเป็นกลุ่มตัวเลขและหมุดเดี่ยวเองตามระดับซูม", "• Heatmap — switches to clusters and single pins as you zoom in")}<br/>
-          ${t("• ความทึบของแต่ละชั้น ปรับได้จากแถบเลื่อน", "• Each layer's opacity has its own slider")}
+          ${t("• ลูกค้าปัจจุบัน และ Lead — เปิด/ปิดแยกกันได้", "• Existing customers and Leads — switch each on or off")}<br/>
+          ${user && user.role==="Trade Coordinator" ? html`${t("• เส้นทางดำเนินการ — เส้นทางของแผนเข้าพบที่วางไว้", "• Planned routes — the routes of your visit plans")}<br/>` : ""}
+          ${t("• แผนที่ความร้อนแสดงเองเมื่อซูมออก และเปลี่ยนเป็นกลุ่มตัวเลขและหมุดเดี่ยวเมื่อซูมเข้า", "• The heatmap shows on its own when zoomed out and turns into clusters and single pins as you zoom in")}
         </div>` },
 
     { target:'[data-tour="segments"]', placement:"right", before:()=>tourShowMap(),

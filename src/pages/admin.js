@@ -1,4 +1,4 @@
-import {html, useState, useEffect, useMemo, useRef, useApp, Icon, num, pct, roleTH, provinceTH, PROVINCE_TH, segTH, thDate, thDateTime, thMonth, gapTH, initialsOf, districtTH} from "../lib.js";
+import {html, useState, useEffect, useMemo, useRef, useApp, Icon, num, pct, roleTH, provinceTH, PROVINCE_TH, segTH, thDate, thDateTime, thMonth, gapTH, initialsOf, districtTH, todayBKK} from "../lib.js";
 import {SEGMENTS, SEG_COLOR, OTHER_COLOR, DISTRICT_TH, GAP_REF, demandGap, gapBySegment, SCORING_DEFAULT, getScoring, setScoring} from "../mock/geoData.js";
 import {emailOk} from "../contact-rules.js";
 import {fetchAudit, AUDIT_GROUPS, eventLabel, eventIcon, eventTone, detailText} from "../audit-api.js";
@@ -451,7 +451,7 @@ const UM_CSS = `
 
 /* ตาราง: แถวสูงพอดี เส้นคั่นบางลง */
 .um-table .table td{padding:12px 14px}
-.um-table .table th{font-size:11.5px;letter-spacing:.5px}
+.um-table .table th{font-size:11.5px;letter-spacing:.5px;white-space:nowrap}
 .um-table .table tbody tr:last-child td{border-bottom:none}
 
 .um-user{display:flex;align-items:center;gap:11px;min-width:0}
@@ -471,7 +471,7 @@ const UM_CSS = `
 
 /* ปุ่มจัดการ: ชิดขวา ระยะเท่ากัน ขนาดเล็กกว่าเนื้อหาในแถว */
 .um-act{display:flex;align-items:center;gap:7px;justify-content:flex-end;flex-wrap:nowrap}
-.um-btn{display:inline-flex;align-items:center;gap:6px;cursor:pointer;font-family:var(--font);
+.um-btn{display:inline-flex;align-items:center;gap:6px;cursor:pointer;font-family:var(--font);white-space:nowrap;
   font-size:12.5px;color:var(--muted);padding:6px 11px;border-radius:8px;
   border:1px solid var(--stroke2);background:var(--surface)}
 .um-btn:hover{color:var(--txt);border-color:var(--accent);background:var(--surface2)}
@@ -822,7 +822,7 @@ export function Monitoring({defaultTab, reportNav}={}){
   const _role = (user&&user.role)||"Administrator";
 
   // ═══════════ แดชบอร์ดผู้บริหาร (ออกแบบใหม่) — เน้นเปรียบเทียบระหว่างจังหวัด + สิ่งที่พบจากข้อมูล ═══════════
-  const REF = v.ref, NOW = Date.now(), DAY=864e5;
+  const REF = v.ref ? new Date(v.ref) : null, NOW = Date.now(), DAY=864e5;
   const beD = thDate, monLabel = thMonth;   // ใช้ตัวแปลงกลาง
 
   // ── ตัวเลือก + ชุดข้อมูลที่ผ่านตัวกรอง (จังหวัด · อำเภอจริงของจังหวัดนั้น · หมวดธุรกิจ · ช่วงวันที่) ──
@@ -843,8 +843,8 @@ export function Monitoring({defaultTab, reportNav}={}){
   const catCusts = custs.filter(_cat), catPros = pros.filter(_cat);          // กรองพื้นที่/หมวด (ไม่รวมเวลา) → กราฟอนุกรมเวลา
   const fCusts = catCusts.filter(_inWin), fPros = catPros.filter(_inWin);    // กรองครบทุกมิติ → KPI/สัดส่วน/ตาราง
   const rangeText = customDate
-    ? ((fFrom?beD(Date.parse(fFrom+"T00:00:00Z")):t("เริ่มแรก", "Start"))+" – "+(fTo?beD(Date.parse(fTo+"T00:00:00Z")):beD(REF)))
-    : (win ? beD(win.from)+" – "+beD(win.to) : t("ข้อมูลทั้งหมดในระบบ · ล่าสุด ", "All data in the system · latest ")+beD(REF));
+    ? ((fFrom?beD(new Date(fFrom+"T00:00:00Z")):t("เริ่มแรก", "Start"))+" – "+(fTo?beD(new Date(fTo+"T00:00:00Z")):beD(REF)))
+    : (win ? beD(new Date(win.from))+" – "+beD(new Date(win.to)) : t("ข้อมูลทั้งหมดในระบบ · ล่าสุด ", "All data in the system · latest ")+beD(REF));
   // ── ระดับการเจาะลึก (drill-down): ประเทศ → จังหวัด → อำเภอ ตามตัวกรอง fProv/fDist ──
   const level = fDist!=="all" ? "district" : fProv!=="all" ? "province" : "country";
   const unitKey  = level==="country" ? "province" : level==="province" ? "district" : "segment";
@@ -972,6 +972,7 @@ export function Monitoring({defaultTab, reportNav}={}){
   const custDelta=_delta(catCusts), leadDelta=_delta(catPros);
   const _cAll=(db.customers||[]).length, _pAll=(db.prospects||[]).length;
   const natShare=(_cAll+_pAll)? Math.round(_cAll/(_cAll+_pAll)*100):0;      // อัตราเปลี่ยนเป็นลูกค้าเฉลี่ยทั้งประเทศ
+  const cmpLabel = customDate ? t("เทียบกับช่วงยาวเท่ากันก่อนหน้า","vs. equal preceding period") : ((RANGES.find(r=>r.id===range)||RANGES[RANGES.length-1]).cmp);
   const curShare=(fCusts.length+fPros.length)? Math.round(fCusts.length/(fCusts.length+fPros.length)*100):0;   // ของขอบเขตปัจจุบัน
   const shareDiff=curShare-natShare;   // + สูงกว่า / − ต่ำกว่า ค่าเฉลี่ยประเทศ
   const noData = fCusts.length+fPros.length===0;
@@ -990,9 +991,9 @@ export function Monitoring({defaultTab, reportNav}={}){
   const unpen = segStats.slice().sort((a,b)=>a.share-b.share).slice(0,5).map(x=>({label:segTH(x.s), value:x.l, color:SEG_COLOR[x.s]||OTHER_COLOR}));
 
   // แถว 4 ขวา · หมวดธุรกิจที่เติบโต/ลดลง (ลูกค้าใหม่ 90 วันล่าสุด vs 90 วันก่อนหน้า)
-  const inRange=(t,a,b)=>{ const x=Date.parse(t); return x>NOW-a*DAY && x<=NOW-b*DAY; };
+  const cmpText = win ? rangeText : beD(new Date(_kwin.from))+" – "+beD(new Date(_kwin.to));
   const segDelta = SEGMENTS.map(s=>{ const cs=catCusts.filter(c=>c.segment===s && c.created_at);
-      const cur=cs.filter(c=>inRange(c.created_at,90,0)).length, prev=cs.filter(c=>inRange(c.created_at,180,90)).length;
+      const cur=_cnt(cs,_kwin), prev=_cnt(cs,_kprev);
       return {s, label:segTH(s), cur, prev, delta:cur-prev}; }).filter(x=>x.cur||x.prev);
   const gainers = segDelta.slice().sort((a,b)=>b.delta-a.delta).slice(0,4).filter(x=>x.delta>0);
   const losers  = segDelta.slice().sort((a,b)=>a.delta-b.delta).slice(0,4).filter(x=>x.delta<0);
@@ -1026,9 +1027,9 @@ export function Monitoring({defaultTab, reportNav}={}){
     title:t(`Lead${gapTH(scopeGap.gapLevel)} · ดัชนี ${scopeGap.gapScore}`, `Lead gap: ${gapTH(scopeGap.gapLevel)} · index ${scopeGap.gapScore}`),
     body:`${t("ยังขาดสมาชิกเครือข่าย", "Network still short by")} ${num(scopeGap.gapCount)} ${t("ราย ใน", "businesses across")} ${scopeGap.gapBreadth} ${t("หมวด — หมวดที่ขาดมากสุดคือ", "categories — the biggest gap is ")}${scopeGap.topGapSegment?segTH(scopeGap.topGapSegment):"—"}`});
   if(topGain) actions.push({icon:"trend",tone:"good",color:"#16a34a", title:`${t("หมวด", "Category ")}${topGain.label} ${t("กำลังเติบโต", "is growing")}`,
-    body:`${t("ลูกค้าใหม่", "New customers")} ${num(topGain.cur)} ${t("ราย ใน 90 วันล่าสุด (+", "in the last 90 days (+")}${num(topGain.delta)} ${t("จากช่วงก่อน)", "vs. the previous period)")}`});
+    body:`${t("ลูกค้าใหม่", "New customers")} ${num(topGain.cur)} ${t("ราย ในช่วง", "in")} ${cmpText} (+${num(topGain.delta)} ${t("จากช่วงก่อน)", "vs. the previous period)")}`});
   if(topLose) actions.push({icon:"trend",tone:"bad",color:"#7c3aed", title:`${t("หมวด", "Category ")}${topLose.label} ${t("ชะลอตัว", "is slowing")}`,
-    body:`${t("ลูกค้าใหม่ลดลง", "New customers down by")} ${num(Math.abs(topLose.delta))} ${t("ราย เทียบช่วง 90 วันก่อนหน้า — ตรวจสอบสาเหตุ", "vs. the previous 90 days — worth investigating")}`});
+    body:`${t("ลูกค้าใหม่ลดลง", "New customers down by")} ${num(Math.abs(topLose.delta))} ${t("ราย เทียบช่วงก่อนหน้าที่ยาวเท่ากัน — ตรวจสอบสาเหตุ", "vs. the previous period of the same length — worth investigating")}`});
   if(unpen.length) actions.push({icon:"bolt",tone:"info",color:"#3b82f6", title:`${t("หมวด", "Category ")}${unpen[0].label} ${t("ยังไม่ถูกเจาะ", "is untapped")}`,
     body:`${t("มี Lead", "has")} ${num(unpen[0].value)} ${t("ราย แต่สัดส่วนที่เป็นลูกค้ายังต่ำ — โอกาสขยายฐาน", "Leads but a low customer share — room to grow")}`});
   const actionTone = t => t==="bad"?"var(--accent)":t==="warn"?"#f0a022":t==="good"?"#33d69f":"#2f7fe0";
@@ -1112,9 +1113,9 @@ export function Monitoring({defaultTab, reportNav}={}){
           <${Dropdown} value=${customDate?"custom":range} onChange=${v=>{ if(v!=="custom"){ setRange(v); setFFrom(""); setFTo(""); } }}
             options=${[...RANGES.map(r=>[r.id, r.label]), ["custom",t("กำหนดเอง", "Custom")]]}/></div>
         <label class="mgf-f"><span>${t("ตั้งแต่วันที่", "From")}</span>
-          <${DateField} value=${fFrom} max=${fTo||undefined} onChange=${setFFrom}/></label>
+          <${DateField} value=${fFrom} max=${fTo||todayBKK()} onChange=${setFFrom} placeholder=${!customDate && win ? beD(new Date(win.from)) : undefined}/></label>
         <label class="mgf-f"><span>${t("ถึงวันที่", "To")}</span>
-          <${DateField} value=${fTo} min=${fFrom||undefined} onChange=${setFTo}/></label>
+          <${DateField} value=${fTo} min=${fFrom||undefined} max=${todayBKK()} onChange=${setFTo} placeholder=${!customDate && win ? beD(new Date(win.to)) : undefined}/></label>
         ${(fProv!=="all"||fDist!=="all"||fSeg!=="all"||customDate) ? html`<button class="mgf-clear" onClick=${()=>{ setFProv("all"); setFDist("all"); setFSeg("all"); setFFrom(""); setFTo(""); setRange("all"); }}><${Icon} name="close" size=${13}/> ${t("ล้างตัวกรอง", "Clear filters")}</button>`:""}
       </div>
     </div>
@@ -1127,11 +1128,11 @@ export function Monitoring({defaultTab, reportNav}={}){
       <div class="mg-kpi">
         <div class="mg-kpi-hd"><div class="mg-kpi-l">${level==="country"?t("ลูกค้าทั้งหมด", "All customers"):t("ลูกค้าใน"+scopeTH, "Customers in "+scopeTH)}</div><span class="mg-kpi-ic"><${Icon} name="users" size=${18}/></span></div>
         <div class="mg-kpi-v">${num(fCusts.length)}</div>
-        ${deltaLine(custDelta,t("จากเดือนก่อน", "vs. last month"))}</div>
+        ${deltaLine(custDelta,cmpLabel)}</div>
       <div class="mg-kpi">
         <div class="mg-kpi-hd"><div class="mg-kpi-l">${level==="country"?t("Lead ทั้งหมด", "All Leads"):t("Lead ใน"+scopeTH, "Leads in "+scopeTH)}</div><span class="mg-kpi-ic"><${Icon} name="target" size=${18}/></span></div>
         <div class="mg-kpi-v">${num(fPros.length)}</div>
-        ${deltaLine(leadDelta,t("จากเดือนก่อน", "vs. last month"))}</div>
+        ${deltaLine(leadDelta,cmpLabel)}</div>
       <div class=${"mg-kpi mg-kpi-hero "+heroTone}>
         <div class="mg-kpi-hd"><div class="mg-kpi-l">${t("อัตราการเปลี่ยนเป็นลูกค้า", "Conversion rate")}</div><span class="mg-kpi-ic"><${Icon} name="percent" size=${18}/></span></div>
         <div class="mg-kpi-v">${noData ? "—" : curShare+"%"}</div>
@@ -1160,7 +1161,7 @@ export function Monitoring({defaultTab, reportNav}={}){
           </${Card}>
         <!-- Lead มาก แต่สัดส่วนต่ำ (โดนัท + legend) — ย้ายขึ้นมาข้างกราฟเส้นแทนการ์ดอัตราการเปลี่ยนเป็นลูกค้าเดิม -->
         <${Card} title=${t("Lead มาก แต่สัดส่วนต่ำ", "Many Leads, low share")} sub=${t("หมวดที่ยังไม่ถูกเจาะ · Lead สูง แต่สัดส่วนลูกค้าต่ำ", "Untapped categories · high Lead demand, low customer share")}>
-          ${unpen.length ? html`<${Donut} key=${"mgdn-"+animSig} data=${unpen} center=${{value:unpen.reduce((a,x)=>a+x.value,0), label:"Lead", format:num}}/>`
+          ${unpen.length ? html`<${Donut} key=${"mgdn-"+animSig} data=${unpen} center=${{value:unpen.reduce((a,x)=>a+x.value,0), label:t("Lead", "Leads"), format:num}}/>`
             : html`<div class="emptybox">${t("ยังไม่มีข้อมูลเพียงพอ", "Not enough data yet")}</div>`}
         </${Card}>
       </div>
@@ -1198,7 +1199,7 @@ export function Monitoring({defaultTab, reportNav}={}){
         <!-- สรุปรายหน่วยของระดับที่เจาะ -->
         <${Card} title=${t("สรุปราย"+unitNoun, "Summary by "+unitNoun.toLowerCase())} sub=${(level==="country"?t("เรียงตามจำนวนลูกค้า", "sorted by customer count"):t("เรียงสัดส่วนจากน้อย→มาก (ที่ตามหลังอยู่บน)", "sorted by share, lowest first (laggards on top)"))+t(" · คลิกแถวเพื่อเจาะลึก", " · click a row to drill in")} pad0=${true}>
           ${provRows.length ? html`<div class=${"mg-tblwrap"+(expTbl?" mg-scroll":"")}><table class="tc-table mg-tbl">
-            <thead><tr><th>${unitNoun}</th><th class="rt">${t("ลูกค้า", "Customers")}</th><th class="rt">Lead</th><th class="rt">${t("สัดส่วน", "Share")}</th><th class="rt">${t("ลูกค้าใหม่", "New customers")}</th></tr></thead>
+            <thead><tr><th>${unitNoun}</th><th class="rt">${t("ลูกค้า", "Customers")}</th><th class="rt">${t("Lead", "Leads")}</th><th class="rt">${t("สัดส่วน", "Share")}</th><th class="rt">${t("ลูกค้าใหม่", "New customers")}</th></tr></thead>
             <tbody>${(expTbl?provRows:provRows.slice(0,5)).map(r=>{
               return html`<tr key=${r.unit} style=${{cursor:"pointer"}} onClick=${()=>{ if(level==="country"){setFProv(r.unit);setFDist("all");} else if(level==="province") setFDist(r.unit); else setFSeg(r.unit); }}>
               <td><b>${r.label}</b></td><td class="rt">${num(r.cust)}</td><td class="rt">${num(r.lead)}</td>
@@ -1209,7 +1210,7 @@ export function Monitoring({defaultTab, reportNav}={}){
           ${provRows.length>5?html`<div class="mg-more" style=${{padding:"0 14px 12px"}}><button class="mg-more-btn" onClick=${()=>setExpTbl(e=>!e)}>${expTbl?t("ย่อกลับ (5 อันดับ)", "Show fewer (top 5)"):t(`ดูทั้งหมด (${provRows.length} ${unitNoun})`, `Show all (${provRows.length} ${unitPlural})`)}</button></div>`:""}</div>` : html`<div class="emptybox" style=${{margin:"18px"}}>${t("ยังไม่มีข้อมูลรายจังหวัด", "No per-province data yet")}</div>`}
         </${Card}>
         <!-- หมวดธุรกิจที่เติบโตและลดลง -->
-        <${Card} title=${t("หมวดธุรกิจที่เติบโตและลดลง", "Growing and declining categories")} sub=${t("ลูกค้าใหม่ 90 วันล่าสุด เทียบ 90 วันก่อนหน้า", "New customers in the last 90 days vs. the 90 before")}>
+        <${Card} title=${t("หมวดธุรกิจที่เติบโตและลดลง", "Growing and declining categories")} sub=${t("ลูกค้าใหม่ช่วง", "New customers in")+" "+cmpText+" "+t("เทียบช่วงก่อนหน้าที่ยาวเท่ากัน", "vs. the period before")}>
           <div class="mg-2col">
             <div>
               <div class="mg-seg-head up">${t("เติบโต", "Growing")}</div>
@@ -1218,7 +1219,7 @@ export function Monitoring({defaultTab, reportNav}={}){
                 : html`<div class="dim" style=${{fontSize:"12px",padding:"8px 0"}}>${t("ยังไม่มีหมวดที่เติบโตชัดเจน", "No category is clearly growing yet")}</div>`}
             </div>
             <div>
-              <div class="mg-seg-head down">${t("ชะลอตัว", "is slowing")}</div>
+              <div class="mg-seg-head down">${t("ชะลอตัว", "Slowing")}</div>
               ${losers.length ? losers.map(g=>html`<div key=${g.s} class="mg-seg-row">
                 <span class="mg-seg-l">${g.label}</span><span class="mg-seg-n down">▼ ${num(g.delta)} ${t("ราย", "businesses")}</span></div>`)
                 : html`<div class="dim" style=${{fontSize:"12px",padding:"8px 0"}}>${t("ไม่มีหมวดที่ลดลง", "No category is declining")}</div>`}

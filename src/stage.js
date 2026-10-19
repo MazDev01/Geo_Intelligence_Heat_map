@@ -146,7 +146,7 @@ export function GeoStage({db, mode, activeCountry, flyTarget, globeUnder, onArri
     </div>
     ${f.area ? html`<div class="pick-body">
       <div class="pick-metric"><span class="pick-num">${num(f.area.customerCount)}</span><span class="pick-lab">${t("ลูกค้า", "Customers")}</span></div>
-      <div class="pick-metric"><span class="pick-num p">${num(f.area.prospectCount)}</span><span class="pick-lab">Lead</span></div>
+      <div class="pick-metric"><span class="pick-num p">${num(f.area.prospectCount)}</span><span class="pick-lab">${t("Lead", "Leads")}</span></div>
     </div>` : html`<div style=${{fontSize:"11.5px",color:"var(--muted)",marginBottom:"11px"}}>${t("กำลังโหลด…", "Loading…")}</div>`}
     <div class="pick-cta">${t("ดูแผนที่วิเคราะห์", "Open analysis map")} <${Icon} name="chevronR" size=${11}/></div>
   </div>`;
@@ -317,7 +317,7 @@ export function GeoStage({db, mode, activeCountry, flyTarget, globeUnder, onArri
           ${!zoneEdit && html`<span style=${{width:"1px",height:"15px",background:"var(--stroke2)",flex:"none"}}></span>
           <span style=${{fontSize:"12.5px",fontWeight:700}}>${filters.province&&filters.province!=="All"?provinceTH(filters.province):countryTH(activeCountry||"Thailand")}</span>`}`}
           <!-- โหมดแก้รูปโซนเหลือแค่ตัวกรองจังหวัด — ชื่อพื้นที่กับจำนวนลูกค้า/Lead ไม่เกี่ยวกับการลากเส้น -->
-          ${!zoneEdit && html`<span style=${{fontSize:"12px",color:"var(--muted)"}}>${num(customers.length)} ${t("ลูกค้า ·", "Customers ·")} ${num(prospects.length)} Lead</span>`}
+          ${!zoneEdit && html`<span style=${{fontSize:"12px",color:"var(--muted)"}}>${num(customers.length)} ${t("ลูกค้า ·", "Customers ·")} ${num(prospects.length)} ${t("Lead", "Leads")}</span>`}
         </div>
       </div>`}
   </div>`;
