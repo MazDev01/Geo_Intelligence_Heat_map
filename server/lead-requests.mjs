@@ -1,7 +1,7 @@
 import {withTransaction} from './db/pool.mjs';
 import {writeAudit} from './audit.mjs';
 import {isActive} from './master-data.mjs';
-import {notify, adminIds, placeName} from './notifications.mjs';
+import {notify, adminIds, placeName, markDealRead} from './notifications.mjs';
 import {SCOPE_SQL, gapSnapshot} from './visit-plans.mjs';
 import {cleanFilename} from './import-parse.mjs';
 
@@ -249,6 +249,7 @@ export async function approveRequest(pool, user, body, ctx) {
     await writeAudit(tx, ctx, 'lead_request_approve', p.id, {requestId: id, ownerId, custType, ...(newSegment ? {segmentFrom: p.segment, segmentTo: newSegment} : {})});
     const name = await placeName(tx, p.id);
     await notify(tx, req.submitted_by, 'deal_result', 'ดีล ' + name + ' ได้รับอนุมัติ', {requestId: id, placeId: p.id, name, result: 'approved'});
+    await markDealRead(tx, [id]);
     return {ok: true, request: await readOne(tx, id)};
   });
 }
@@ -278,6 +279,7 @@ export async function rejectRequests(pool, user, body, ctx) {
       await notify(tx, req.submitted_by, 'deal_result', 'ดีล ' + name + ' ถูกตีกลับ', {requestId: id, placeId: req.place_id, name, result: 'rejected', reason: b.reason});
       done.push(id);
     }
+    await markDealRead(tx, done);
     return {ok: true, rejected: done, failed};
   });
 }

@@ -16,6 +16,15 @@ export async function notify(db, userIds, key, title, payload) {
   return r.rowCount;
 }
 
+export async function markDealRead(db, requestIds) {
+  const ids = [...new Set(requestIds)].map(String);
+  if (!ids.length) return 0;
+  const r = await db.query(
+    `update notifications set read_at = now()
+     where event_key = 'deal_new' and read_at is null and payload ->> 'requestId' = any($1::text[])`, [ids]);
+  return r.rowCount;
+}
+
 export const adminIds = async (db, except) =>
   (await db.query("select id from users where role = 'Administrator' and status <> 'Suspended'")).rows.map(r => r.id).filter(id => id !== except);
 
