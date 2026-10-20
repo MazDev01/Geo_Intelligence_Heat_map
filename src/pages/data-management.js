@@ -1776,8 +1776,8 @@ export function TerritoryManager(){
             return html`<div key=${u.id} class=${"tr-tc"+(list.length?"":" idle")}>
               <span class="tr-sw" style=${{background:tcColor(u.id)+"3d",borderColor:tcColor(u.id)}}></span>
               <div class="tr-tc-main">
-                <div class="tr-tc-nm">${u.name}
-                  </div>
+                <div class="tr-tc-nm"><span class="tr-tc-nt">${u.name}</span>
+                  ${u.province && html`<span class="tr-tc-home">${t("จังหวัดหลัก", "Main province")} · ${provinceTH(u.province)}</span>`}</div>
                 <div class="tr-tc-sub">${list.length
                   ? list.length+t(" พื้นที่ · ", list.length===1 ? " territory · " : " territories · ")+list.slice(0,4).join(", ")+(list.length>4?" +"+(list.length-4):"")
                   : t("ยังไม่มีพื้นที่ในความดูแล", "No territory assigned yet")}</div>
@@ -1852,6 +1852,9 @@ const TR_CSS=`
 .tr-tc.idle{border-style:dashed;background:var(--surface2)}
 .tr-tc-main{flex:1;min-width:0}
 .tr-tc-nm{display:flex;align-items:center;gap:7px;font-size:13.5px;font-weight:700;color:var(--txt)}
+.tr-tc-nt{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tr-tc-home{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px;font-weight:700;
+  color:var(--accent-deep);background:var(--accent-soft);border:1px solid rgba(230,0,35,.22);border-radius:999px;padding:1px 8px}
 .tr-tc-sub{font-size:12px;color:var(--muted);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .tr-tc.idle .tr-tc-sub{color:#b45309;font-weight:600}
 .tr-tc-btn{flex:none;padding:6px 12px;border-radius:8px;border:1px solid var(--stroke2);background:var(--surface);
