@@ -48,6 +48,7 @@ const KEY = {
   role: ['บทบาท', 'Role'],
   filename: ['ไฟล์', 'File'],
   rows: ['แถว', 'Rows'],
+  truncated: ['ตัดเหลือเฉพาะรายการล่าสุด', 'Cut to the latest entries'],
   bytes: ['ขนาด (ไบต์)', 'Size (bytes)'],
   status: ['สถานะ', 'Status'],
   counts: ['สรุป', 'Summary'],

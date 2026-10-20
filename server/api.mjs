@@ -505,10 +505,12 @@ export function makeApi({pool, authStore, zoneStore, demoPassword, perms, webBoo
         const list = source === 'audit'
           ? await listAudit(pool, query, {max: MAX_ROWS})
           : await listRequests(pool, user, query, {max: MAX_ROWS});
+        const truncated = source === 'audit' && list.rows.length > MAX_ROWS;
+        if (truncated) list.rows.length = MAX_ROWS;
         if (list.rows.length > MAX_ROWS) return send(res, 400, {error: 'ข้อมูลเกิน ' + MAX_ROWS.toLocaleString('en-US') + ' แถว กรุณากรองให้แคบลง'});
-        const file = buildFile(format, sourceRows(source, list.rows, query.get('lang')));
+        const file = buildFile(format, sourceRows(source, list.rows, query.get('lang'), truncated));
         const name = cleanName(query.get('filename'), source);
-        await writeAudit(pool, ctx, 'export', source, {source, format, filename: name, rows: list.rows.length, filters});
+        await writeAudit(pool, ctx, 'export', source, {source, format, filename: name, rows: list.rows.length, filters, ...(truncated ? {truncated: true} : {})});
         await told(source, format, name, list.rows.length);
         return sendFile(res, file, name);
       }

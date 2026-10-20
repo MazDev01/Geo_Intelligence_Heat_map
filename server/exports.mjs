@@ -117,10 +117,15 @@ const STATUS = {
   en: {pending: 'Pending', approved: 'Approved', rejected: 'Rejected'},
 };
 
-export function sourceRows(source, list, lang) {
+const CUT_NOTE = {
+  th: n => 'แสดงเฉพาะ ' + n.toLocaleString('en-US') + ' รายการล่าสุด — กรองให้แคบลงเพื่อดูรายการที่เก่ากว่า',
+  en: n => 'Only the latest ' + n.toLocaleString('en-US') + ' entries are included — narrow the filters to see older ones',
+};
+
+export function sourceRows(source, list, lang, truncated = false) {
   const L = lang === 'en' ? 'en' : 'th';
   if (source === 'audit')
-    return [HEAD.audit[L], ...list.map(r => [when(r.at), r.actor || '', roleLabel(r.role, L), eventLabel(r.event, L), targetLabel(r, L),
+    return [...(truncated ? [[CUT_NOTE[L](list.length)]] : []), HEAD.audit[L], ...list.map(r => [when(r.at), r.actor || '', roleLabel(r.role, L), eventLabel(r.event, L), targetLabel(r, L),
       r.detailText ? r.detailText[L] : detailLabel(r, L), r.ip || ''])];
   return [HEAD.lead_requests[L], ...list.map(r => [r.id, STATUS[L][r.status] || r.status || '', r.businessName || '', r.segment || '',
     r.province || '', r.district || '', r.address || '', r.phone || '', r.email || '', r.requestedBy || '', when(r.requestedAt),
