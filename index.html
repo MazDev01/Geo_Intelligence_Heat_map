@@ -6,17 +6,15 @@
 <title>GeoIntel — Enterprise Geo Intelligence Platform</title>
 
 <!-- Single global typeface: Noto Sans Thai (400/500/600/700) -->
-<link rel="preconnect" href="https://fonts.googleapis.com"/>
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
-<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Thai:wght@400;500;600;700&display=swap" rel="stylesheet"/>
+<link href="./vendor/fonts/noto-sans-thai.css" rel="stylesheet"/>
 
 <!-- Leaflet + OpenStreetMap/CARTO (no Google Maps) -->
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
-<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css"/>
-<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css"/>
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<script src="https://unpkg.com/leaflet.heat@0.2.0/dist/leaflet-heat.js"></script>
-<script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
+<link rel="stylesheet" href="./vendor/leaflet-1.9.4/leaflet.css"/>
+<link rel="stylesheet" href="./vendor/leaflet.markercluster-1.5.3/MarkerCluster.css"/>
+<link rel="stylesheet" href="./vendor/leaflet.markercluster-1.5.3/MarkerCluster.Default.css"/>
+<script src="./vendor/leaflet-1.9.4/leaflet.js"></script>
+<script src="./vendor/leaflet.heat-0.2.0/leaflet-heat.js"></script>
+<script src="./vendor/leaflet.markercluster-1.5.3/leaflet.markercluster.js"></script>
 
 <style>
 :root{
@@ -687,13 +685,13 @@ input[type=range]{width:100%;accent-color:var(--accent2)}
 
 <script type="importmap">
 { "imports":{
-  "react":"https://esm.sh/react@18.3.1",
-  "react-dom":"https://esm.sh/react-dom@18.3.1",
-  "react-dom/client":"https://esm.sh/react-dom@18.3.1/client",
-  "htm":"https://esm.sh/htm@3.1.1",
-  "three":"https://esm.sh/three@0.161.0",
-  "protomaps-leaflet":"https://esm.sh/protomaps-leaflet@5.1.0",
-  "@protomaps/basemaps":"https://esm.sh/@protomaps/basemaps@5.0.0"
+  "react":"./vendor/esm/react.js",
+  "react-dom":"./vendor/esm/react-dom.js",
+  "react-dom/client":"./vendor/esm/react-dom-client.js",
+  "htm":"./vendor/esm/htm.js",
+  "three":"./vendor/esm/three.js",
+  "protomaps-leaflet":"./vendor/esm/protomaps-leaflet.js",
+  "@protomaps/basemaps":"./vendor/esm/protomaps-basemaps.js"
 }}
 </script>
 </head>

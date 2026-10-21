@@ -10,6 +10,7 @@ RUN cd server && npm ci --omit=dev && npm cache clean --force
 COPY index.html auth-store.cjs zone-store.cjs zone-validate.cjs ./
 COPY src src
 COPY config config
+COPY vendor vendor
 COPY data data
 COPY server server
 

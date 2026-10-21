@@ -10,10 +10,13 @@ const MIME = {
   '.json': 'application/json; charset=utf-8',
   '.geojson': 'application/json; charset=utf-8',
   '.pmtiles': 'application/octet-stream',
+  '.css': 'text/css; charset=utf-8',
+  '.png': 'image/png',
+  '.woff2': 'font/woff2',
 };
 
 const gz = promisify(gzip);
-const COMPRESS = new Set(['.html', '.js', '.json', '.geojson']);
+const COMPRESS = new Set(['.html', '.js', '.json', '.geojson', '.css']);
 const COMPRESS_MAX = 8 * 1024 * 1024;
 
 export const DOORS = ['/admin', '/management', '/tc'];
@@ -25,11 +28,12 @@ const SRC_RE = /^\/src\/(?:[A-Za-z0-9_-]+\/)*[A-Za-z0-9_.-]+\.js$/;
 const CONFIG_RE = /^\/config\/[A-Za-z0-9_.-]+\.js$/;
 const DATA_RE = /^\/data\/([A-Za-z0-9_.-]+)$/;
 const BASEMAP_RE = /^\/basemap\/[A-Za-z0-9_.-]+\.pmtiles$/;
+const VENDOR_RE = /^\/vendor\/(?:[A-Za-z0-9_.-]+\/)*[A-Za-z0-9_.-]+\.(?:js|css|png|woff2)$/;
 
 export function allowedFile(path) {
   if (path.includes('..') || path.includes('\\') || path.includes('\0')) return null;
   if (INDEX_PATHS.has(path)) return 'index.html';
-  if (SRC_RE.test(path) || CONFIG_RE.test(path) || BASEMAP_RE.test(path)) return path.slice(1);
+  if (SRC_RE.test(path) || CONFIG_RE.test(path) || BASEMAP_RE.test(path) || VENDOR_RE.test(path)) return path.slice(1);
   const m = DATA_RE.exec(path);
   if (m && PUBLIC_DATA.has(m[1])) return path.slice(1);
   return null;

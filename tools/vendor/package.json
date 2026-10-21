@@ -1,0 +1,19 @@
+{
+  "name": "geointel-vendor-build",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "htm": "3.1.1",
+    "three": "0.161.0",
+    "protomaps-leaflet": "5.1.0",
+    "@protomaps/basemaps": "5.0.0",
+    "polygon-clipping": "0.15.7",
+    "leaflet": "1.9.4",
+    "leaflet.heat": "0.2.0",
+    "leaflet.markercluster": "1.5.3",
+    "@geoman-io/leaflet-geoman-free": "2.18.3",
+    "esbuild": "0.25.10"
+  }
+}

@@ -17,7 +17,7 @@ import { saveZoneRegistry, saveZoneDraft, approveZoneDraft, discardZoneDraft, lo
 
 // ไลบรารีหลอมโพลิกอน (union) — โหลดจาก CDN ตอนกดรวมโซนครั้งแรกเท่านั้น
 // โปรเจกต์นี้ไม่มี npm แต่โหลด ESM จาก CDN ได้อยู่แล้ว (react/htm/protomaps ก็มาทางนี้)
-const CLIPPER_URL = 'https://esm.sh/polygon-clipping@0.15.7';
+const CLIPPER_URL = new URL('../vendor/esm/polygon-clipping.js', import.meta.url).href;
 let clipper = null, clipperTried = false;
 async function loadClipper() {
   if (clipper || clipperTried) return clipper;
@@ -28,8 +28,8 @@ async function loadClipper() {
 }
 
 const GEOMAN_VER = '2.18.3';
-const GEOMAN_JS  = `https://unpkg.com/@geoman-io/leaflet-geoman-free@${GEOMAN_VER}/dist/leaflet-geoman.min.js`;
-const GEOMAN_CSS = `https://unpkg.com/@geoman-io/leaflet-geoman-free@${GEOMAN_VER}/dist/leaflet-geoman.css`;
+const GEOMAN_JS  = new URL(`../vendor/leaflet-geoman-free-${GEOMAN_VER}/leaflet-geoman.min.js`, import.meta.url).href;
+const GEOMAN_CSS = new URL(`../vendor/leaflet-geoman-free-${GEOMAN_VER}/leaflet-geoman.css`, import.meta.url).href;
 
 export const LIMITS = { vertices: 20000, kb: 600 };   // = 40,000 คอมมาใน verify-zones.mjs (มันนับคอมมา ≈2× จุด)
 const PRECISION = 5;                                  // ตรงกับ extract-zones.mjs (~1.1 ม.)
@@ -205,7 +205,7 @@ function loadGeoman() {
       : reject(new Error('zone-editor: โหลด Geoman แล้วแต่ไม่พบ L.PM'));
     s.onerror = () => reject(new Error(
       `zone-editor: โหลด Geoman ไม่สำเร็จ (${GEOMAN_JS})\n` +
-      'โปรเจกต์นี้ดึงไลบรารีจาก CDN — เช็กเน็ต หรือดาวน์โหลดไฟล์มาวางเองแล้วแก้ GEOMAN_JS'));
+      'ไฟล์อยู่ใน vendor/ ของเซิร์ฟเวอร์ — ถ้าหาย ให้รัน node tools/vendor/build.mjs'));
     document.head.appendChild(s);
   });
   return geomanLoading;

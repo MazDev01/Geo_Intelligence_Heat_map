@@ -64,7 +64,7 @@
 
 ## ข้อจำกัดของโปรเจกต์ (ห้ามลืม)
 
-- **ไม่มี npm / package.json / bundler** — importmap + CDN ล้วน · Leaflet เป็น global จาก unpkg
+- **ไม่มี bundler ของแอป** — importmap ชี้ไปที่ `vendor/` (ไลบรารีที่รวมไว้ล่วงหน้าด้วย `tools/vendor/build.mjs`) · Leaflet เป็น global จาก `vendor/leaflet-1.9.4/`
 - ไม่มี `import.meta.env` (นั่นของ Vite) — ใช้ query param `?edit=1` / `?perf=1` แทน
 - ไม่มี DB ไม่มี secret · `?demo=admin` เป็น client-side switch **ไม่ใช่ auth**
 - เสิร์ฟจาก `data/` ไม่มีโฟลเดอร์ `public/`
@@ -81,7 +81,7 @@ node server.mjs                                                        # พอ�
 ```
 
 **parse gate ไม่เท่ากับ render** — html`` ที่พังยัง parse ผ่านแต่ทำแอปขาว ต้อง headless verify ด้วย
-Leaflet ไม่ mount ใน headless (มาจาก CDN) → ส่วนแมพต้องเปิดเบราว์เซอร์ดูเอง
+Leaflet ไม่ mount ใน headless → ส่วนแมพต้องเปิดเบราว์เซอร์ดูเอง
 
 ## ตัวเลขที่ยืนยันแล้ว (ใช้อ้างอิงได้)
 

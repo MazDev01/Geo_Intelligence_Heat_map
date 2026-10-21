@@ -8,7 +8,7 @@
 - **backend อยู่ใน `server/`** — มี `server/package.json` ของตัวเอง (ไลบรารีเดียวคือ `pg`) · ต้อง `npm install` ใน `server/` ก่อนรันสคริปต์ใต้ `server/`
 - PostgreSQL 17 + PostGIS รันใน Docker (`docker-compose.yml`) · พอร์ต 5433 · รหัสผ่านอยู่นอก repo ที่ `C:\Users\Admin\.geointel\dev.env`
 - ES modules โหลดตรงจากเบราว์เซอร์ผ่าน `importmap` ใน `index.html`
-- Leaflet 1.9.4 + markercluster จาก unpkg (CDN) · htm/React แบบไม่มี JSX
+- Leaflet 1.9.4 + markercluster · htm/React แบบไม่มี JSX · ไลบรารีและฟอนต์ทั้งหมดอยู่ใน `vendor/` (สร้างด้วย `tools/vendor/build.mjs`) ไม่โหลดจาก CDN
 - Node (ESM) สำหรับ `server.mjs` และสคริปต์ท้ายไฟล์นี้
 
 ## Commands
@@ -105,7 +105,7 @@ users 472 · monitoring 384 · TC 316 · config 276 · data-management 216 · ma
 | **แก้ไฟล์ migration ที่รันไปแล้ว** | ตัวรันเทียบ checksum แล้วปฏิเสธทั้งชุด | เพิ่มไฟล์เลขถัดไปใน `server/db/migrations/` เสมอ · ห้ามใส่ `begin;`/`commit;` ในไฟล์ |
 | **`docker compose down -v`** | ลบ volume = ข้อมูลในฐานข้อมูลหายทั้งหมด | ปิดเฉย ๆ ใช้ `down` (ไม่มี `-v`) |
 | **ไฟล์ข้อมูลใหญ่มาก** | `thailand-provinces.geojson` 1.2 MB (**~297k โทเคน**) · `prospects.json` 910 KB (~232k) · `customers.json` 821 KB (~205k) — อ่านทั้งก้อนครั้งเดียวทะลุเกณฑ์เตือน 150k ทันที | **อย่า `Read` ไฟล์ใน `data/`** ใช้ `node -e` คำนวณแล้วพิมพ์เฉพาะคำตอบ |
-| **พึ่ง CDN unpkg** | ไม่มีเน็ต = แผนที่ไม่ขึ้น แต่ syntax check ยังผ่าน | ถ้าหน้าเพี้ยนให้เช็คเน็ต/CDN ก่อนแก้โค้ด |
+| **ไลบรารีอยู่ใน `vendor/`** | ไฟล์ใน `vendor/` หาย = หน้าขาว/แผนที่ไม่ขึ้น แต่ syntax check ยังผ่าน | ถ้าหน้าเพี้ยนให้เช็คว่า `/vendor/...` ตอบ 200 · อัปเดตรุ่น: แก้ `tools/vendor/package.json` → `npm ci` → `node build.mjs` |
 
 ## Slow / Hanging Commands
 
