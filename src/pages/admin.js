@@ -484,7 +484,12 @@ const UM_CSS = `
 
 @media(max-width:1279px){
   .um-act{flex-wrap:wrap;min-width:165px}
+  :lang(en) .um-act{min-width:196px}
   .um-table .table td,.um-table .table th{padding-left:8px;padding-right:8px}
+}
+@media(min-width:641px) and (max-width:1279px){
+  :lang(en) .um-nm{white-space:normal;display:flex;flex-wrap:wrap;align-items:center;column-gap:8px;row-gap:3px}
+  :lang(en) .um-nm .um-nopw,:lang(en) .um-nm .um-tmppw{margin-left:0;white-space:nowrap}
 }
 @media(max-width:900px){
   .um-dd{width:100%}
