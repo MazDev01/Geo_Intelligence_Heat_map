@@ -209,6 +209,9 @@ const MD_CSS = `
 .md-table td{padding:10px 14px;border-bottom:1px solid var(--stroke);vertical-align:middle}
 .md-table td .mono{overflow-wrap:anywhere}
 .md-table tbody tr:last-child td{border-bottom:none}
+@media(max-width:1279px){
+  .md-table th,.md-table td{padding-left:8px;padding-right:8px}
+}
 @media(max-width:640px){
   .md-table-wrap{overflow:visible}
   .md-table,.md-table tbody{display:block}
