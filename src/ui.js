@@ -172,12 +172,15 @@ export function DateField({value, onChange, min, max, title, className, placehol
 }
 
 // Toast host
-let _toastFn=null;
-export function toast(msg, tone="good"){ _toastFn && _toastFn(msg,tone); }
+let _toasts=[];
+const _toastSubs=new Set();
+const _toastEmit=()=>_toastSubs.forEach(f=>f(_toasts));
+export function toast(msg, tone="good"){ const id=Math.random();
+  _toasts=[..._toasts,{id,msg,tone}]; _toastEmit();
+  setTimeout(()=>{ _toasts=_toasts.filter(i=>i.id!==id); _toastEmit(); },3200); }
 export function ToastHost(){
-  const [items,setItems]=useState([]);
-  useEffect(()=>{ _toastFn=(msg,tone)=>{ const id=Math.random();
-    setItems(x=>[...x,{id,msg,tone}]); setTimeout(()=>setItems(x=>x.filter(i=>i.id!==id)),3200);}; },[]);
+  const [items,setItems]=useState(_toasts);
+  useEffect(()=>{ _toastSubs.add(setItems); setItems(_toasts); return ()=>{ _toastSubs.delete(setItems); }; },[]);
   const border={good:"var(--good)",bad:"var(--bad)",info:"var(--accent2)",warn:"var(--warn)"};
   return html`<div class="toast-wrap">${items.map(i=>html`<div key=${i.id} class="toast"
     style=${{borderLeftColor:border[i.tone]}}>${i.msg}</div>`)}</div>`;
